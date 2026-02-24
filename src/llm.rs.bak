@@ -1,0 +1,127 @@
+// src/llm.rs — v0.4: Groq API + Exponential Backoff
+
+use anyhow::{anyhow, Result};
+use serde::{Deserialize, Serialize};
+use crate::types::Message;
+
+const SYSTEM_PROMPT: &str = r#"You are SEL Agent v0.4 — a deterministic software execution agent.
+
+OUTPUT: Respond ONLY with a single ```json block. No text outside it.
+
+Schema:
+```json
+{
+  "version": "1.0",
+  "commands": [
+    {"type": "run",        "command": "venv/bin/pip3 install fastapi uvicorn httpx pytest"},
+    {"type": "write_file", "path": "main.py", "content": "from fastapi import FastAPI\napp = FastAPI()\n"},
+    {"type": "run_tests",  "target": "test_main.py"},
+    {"type": "done",       "message": "All tests passed"}
+  ]
+}
+```
+
+COMMAND TYPES:
+- run:         shell command (one line, full path)
+- write_file:  create/overwrite file (content as JSON string, use \n for newlines)
+- append_file: add to end of existing file
+- read_file:   read file content
+- mkdir:       create directory
+- run_tests:   run pytest on target
+- done:        signal completion ONLY after run_tests succeeded
+
+CRITICAL RULES — NEVER BREAK THESE:
+1. ALWAYS start plan with: python3 -m venv venv
+2. ALWAYS install in ONE command: venv/bin/pip3 install fastapi uvicorn httpx pytest
+   httpx is NOT included with fastapi — must install explicitly
+3. Full paths always: venv/bin/pip3  venv/bin/pytest  venv/bin/uvicorn
+4. Never use: sudo, source, activate, shell operators (|  ;  &&  >  >>)
+5. TestClient import — EXACTLY like this:
+      from fastapi.testclient import TestClient
+   NEVER write: from httpx import TestClient  ← WRONG, will cause ImportError
+6. write_file content must be complete valid Python — no syntax errors
+7. End every plan with run_tests then done
+8. Include ALL steps in ONE response"#;
+
+pub struct LlmClient {
+    api_key:  String,
+    model:    String,
+    endpoint: String,
+}
+
+#[derive(Serialize)]
+struct Request {
+    model:       String,
+    messages:    Vec<ApiMsg>,
+    temperature: f32,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct ApiMsg { role: String, content: String }
+
+#[derive(Deserialize)]
+struct Response { choices: Vec<Choice> }
+
+#[derive(Deserialize)]
+struct Choice { message: ApiMsg }
+
+impl LlmClient {
+    pub fn new(api_key: String) -> Self {
+        Self {
+            api_key,
+            model:    "llama-3.3-70b-versatile".into(),
+            endpoint: "https://api.groq.com/openai/v1/chat/completions".into(),
+        }
+    }
+
+    pub async fn call(&self, messages: &[Message]) -> Result<String> {
+        let mut msgs: Vec<ApiMsg> = vec![
+            ApiMsg { role: "system".into(), content: SYSTEM_PROMPT.into() }
+        ];
+        for m in messages {
+            msgs.push(ApiMsg { role: m.role.clone(), content: m.content.clone() });
+        }
+
+        let client = reqwest::Client::new();
+        let delays = [15u64, 45, 120];
+
+        for (attempt, &delay) in delays.iter().enumerate() {
+            if attempt > 0 {
+                println!("   ⏳ Rate limit — retry in {}s...", delay);
+                tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+            }
+
+            let resp = client
+                .post(&self.endpoint)
+                .bearer_auth(&self.api_key)
+                .json(&Request {
+                    model: self.model.clone(), messages: msgs.clone(), temperature: 0.1,
+                })
+                .send().await?;
+
+            let status = resp.status();
+
+            if status == 429 {
+                println!("   ⚠ Rate limit (attempt {})", attempt + 1);
+                if attempt + 1 == delays.len() {
+                    return Err(anyhow!("Rate limit exceeded after {} attempts", delays.len()));
+                }
+                continue;
+            }
+
+            if !status.is_success() {
+                let body = resp.text().await.unwrap_or_default();
+                return Err(anyhow!("API {} — {}", status, &body[..body.len().min(200)]));
+            }
+
+            let data: Response = resp.json().await
+                .map_err(|e| anyhow!("Response parse error: {}", e))?;
+
+            return data.choices.into_iter().next()
+                .map(|c| c.message.content)
+                .ok_or_else(|| anyhow!("Empty choices in response"));
+        }
+
+        Err(anyhow!("LLM failed after all retries"))
+    }
+}

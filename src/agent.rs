@@ -1,0 +1,204 @@
+// src/agent.rs — v0.4: State Machine
+
+use anyhow::Result;
+use std::path::PathBuf;
+use crate::{
+    executor::SafeExecutor,
+    llm::LlmClient,
+    protocol::{self, Cmd},
+    types::{AgentState, ExecutionContext, FailedStep, Message},
+};
+
+pub struct Agent {
+    state:     AgentState,
+    ctx:       ExecutionContext,
+    executor:  SafeExecutor,
+    llm:       LlmClient,
+    goal:      String,
+    plan:      Vec<Cmd>,
+}
+
+impl Agent {
+    pub fn new(api_key: String, workspace: PathBuf, goal: String, max_repairs: u8) -> Self {
+        Self {
+            state:    AgentState::Planning,
+            ctx:      ExecutionContext::new(max_repairs),
+            executor: SafeExecutor::new(workspace, 120),
+            llm:      LlmClient::new(api_key),
+            goal,
+            plan:     Vec::new(),
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // الحلقة الرئيسية
+    // ══════════════════════════════════════════════════════════
+
+    pub async fn run(&mut self) -> Result<()> {
+        loop {
+            match self.state.clone() {
+
+                // ─── Planning ─────────────────────────────────
+                AgentState::Planning => {
+                    println!("\n🧠 Planning...");
+                    let prompt = format!(
+                        "Goal: {}\n\nProvide the complete execution plan.",
+                        self.goal
+                    );
+                    let response = self.llm.call(&[Message::user(prompt)]).await?;
+                    match protocol::parse(&response) {
+                        Ok(plan) => {
+                            println!("   ✓ {} commands\n", plan.commands.len());
+                            self.plan  = plan.commands;
+                            self.state = AgentState::Executing;
+                        }
+                        Err(e) => {
+                            println!("   ❌ Invalid plan: {}", e);
+                            self.state = AgentState::Failed(e.to_string());
+                        }
+                    }
+                }
+
+                // ─── Executing ────────────────────────────────
+                // تنفّذ كل الأوامر بدون LLM
+                // تجمع الأخطاء — لا تتوقف عند أول فشل
+                AgentState::Executing => {
+                    self.ctx.reset_for_repair();
+                    let plan = self.plan.clone();
+                    let total = plan.len();
+
+                    for (i, cmd) in plan.iter().enumerate() {
+                        println!("[{}/{}] {}", i + 1, total, cmd.label());
+
+                        // done مشروط — لا يُنفَّذ إذا لم تنجح الاختبارات
+                        if cmd.is_done() {
+                            if self.ctx.tests_passed {
+                                let msg = if let Cmd::Done { message } = cmd { message } else { "Goal complete" };
+                                println!("\n✅ {}", if msg.is_empty() { "Goal complete!" } else { msg });
+                                self.state = AgentState::Done;
+                            } else {
+                                println!("   ⛔ done rejected — tests must pass first");
+                                self.ctx.failed_steps.push(FailedStep {
+                                    step_index: i,
+                                    label:      cmd.label(),
+                                    stderr:     "done blocked: tests_passed = false".into(),
+                                    exit_code:  1,
+                                });
+                                self.state = AgentState::Repairing;
+                            }
+                            break;
+                        }
+
+                        // تنفيذ الأمر
+                        match self.executor.run(cmd).await {
+                            Ok(r) if r.success => {
+                                let preview: String = r.stdout.chars().take(80).collect();
+                                if preview.is_empty() {
+                                    println!("   ✓ ({} ms)", r.duration_ms);
+                                } else {
+                                    println!("   ✓ ({} ms) → {}", r.duration_ms, preview);
+                                }
+                                // تسجيل نجاح الاختبارات
+                                if cmd.is_run_tests() { self.ctx.tests_passed = true; }
+                            }
+                            Ok(r) => {
+                                let err: String = r.stderr.chars().take(300).collect();
+                                println!("   ✗ {}", err);
+                                // تسجيل الفشل — تابع بقية الأوامر
+                                if cmd.is_run_tests() { self.ctx.tests_passed = false; }
+                                self.ctx.failed_steps.push(FailedStep {
+                                    step_index: i,
+                                    label:      cmd.label(),
+                                    stderr:     err,
+                                    exit_code:  r.exit_code,
+                                });
+                            }
+                            Err(e) => {
+                                println!("   ❌ {}", e);
+                                self.ctx.failed_steps.push(FailedStep {
+                                    step_index: i,
+                                    label:      cmd.label(),
+                                    stderr:     e.to_string(),
+                                    exit_code:  -1,
+                                });
+                            }
+                        }
+                    }
+
+                    // بعد كل الأوامر — قرر الحالة التالية
+                    if matches!(self.state, AgentState::Executing) {
+                        if self.ctx.tests_passed {
+                            println!("\n✅ Goal complete! Tests passed.");
+                            self.state = AgentState::Done;
+                        } else {
+                            self.state = AgentState::Repairing;
+                        }
+                    }
+                }
+
+                // ─── Repairing ────────────────────────────────
+                // استدعاء LLM واحد لخطة إصلاح
+                AgentState::Repairing => {
+                    self.ctx.repair_attempts += 1;
+
+                    if self.ctx.repair_attempts > self.ctx.max_repairs {
+                        let reason = format!(
+                            "Failed after {} repair attempts. Last errors:\n{}",
+                            self.ctx.repair_attempts - 1,
+                            self.ctx.failed_steps.iter()
+                                .map(|f| format!("  • {}: {}", f.label, { let s = &f.stderr; let start = s.len().saturating_sub(1000); &s[start..] }))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        );
+                        self.state = AgentState::Failed(reason);
+                        continue;
+                    }
+
+                    println!("\n🔧 Repair {}/{}...", self.ctx.repair_attempts, self.ctx.max_repairs);
+
+                    let ws = &self.executor.workspace;
+                    let main_py = std::fs::read_to_string(ws.join("main.py")).unwrap_or_default();
+                    let test_py = std::fs::read_to_string(ws.join("test_main.py")).unwrap_or_default();
+
+                    let errors = self.ctx.failed_steps.iter()
+                        .map(|f| format!("Step '{}' failed (exit {}):\n{}", f.label, f.exit_code, { let s = &f.stderr; let start = s.len().saturating_sub(2000); &s[start..] }))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+
+                    let prompt = format!(
+                        "Goal: {}\n\nThe following steps failed:\n{}\n\n\
+                         Provide a corrected JSON plan that fixes these issues.\n\
+                         Include ALL steps needed (not just the fix).",
+                        self.goal, errors
+                    );
+
+                    match self.llm.call(&[Message::user(prompt)]).await {
+                        Ok(response) => {
+                            match protocol::parse(&response) {
+                                Ok(plan) => {
+                                    println!("   ✓ Repair plan: {} commands", plan.commands.len());
+                                    self.plan  = plan.commands;
+                                    self.state = AgentState::Executing;
+                                }
+                                Err(e) => {
+                                    println!("   ⚠ Invalid repair plan: {}", e);
+                                    // أعد المحاولة في دورة Repairing التالية
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!("   ⚠ LLM error: {}", e);
+                        }
+                    }
+                }
+
+                // ─── Terminal States ───────────────────────────
+                AgentState::Done => return Ok(()),
+                AgentState::Failed(reason) => {
+                    println!("\n❌ Agent failed: {}", reason);
+                    return Ok(());
+                }
+            }
+        }
+    }
+}
