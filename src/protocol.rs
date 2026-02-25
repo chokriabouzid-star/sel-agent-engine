@@ -37,6 +37,21 @@ impl Cmd {
             Cmd::Done      { message }    => format!("done: {}", message),
         }
     }
+    pub fn hash(&self) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut h = DefaultHasher::new();
+        match self {
+            Cmd::Run       { command }         => { "run".hash(&mut h);        command.hash(&mut h); }
+            Cmd::WriteFile { path, content }   => { "write_file".hash(&mut h); path.hash(&mut h); content.hash(&mut h); }
+            Cmd::AppendFile{ path, content }   => { "append_file".hash(&mut h);path.hash(&mut h); content.hash(&mut h); }
+            Cmd::ReadFile  { path }            => { "read_file".hash(&mut h);  path.hash(&mut h); }
+            Cmd::Mkdir     { path }            => { "mkdir".hash(&mut h);      path.hash(&mut h); }
+            Cmd::RunTests  { target }          => { "run_tests".hash(&mut h);  target.hash(&mut h); }
+            Cmd::Done      { .. }              => { "done".hash(&mut h); }
+        }
+        format!("{:x}", h.finish())
+    }
     pub fn is_done(&self)     -> bool { matches!(self, Cmd::Done { .. }) }
     pub fn is_run_tests(&self)-> bool { matches!(self, Cmd::RunTests { .. }) }
 }

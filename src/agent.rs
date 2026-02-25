@@ -70,6 +70,13 @@ impl Agent {
                     for (i, cmd) in plan.iter().enumerate() {
                         println!("[{}/{}] {}", i + 1, total, cmd.label());
 
+                        // skip الخطوات الناجحة سابقاً
+                        let cmd_hash = cmd.hash();
+                        if self.ctx.successful_hashes.contains(&cmd_hash) && !cmd.is_run_tests() {
+                            println!("   ⏭ Skipping: {} (already passed)", cmd.label());
+                            continue;
+                        }
+
                         // done مشروط — لا يُنفَّذ إذا لم تنجح الاختبارات
                         if cmd.is_done() {
                             if self.ctx.tests_passed {
@@ -100,6 +107,7 @@ impl Agent {
                                 }
                                 // تسجيل نجاح الاختبارات
                                 if cmd.is_run_tests() { self.ctx.tests_passed = true; }
+                                self.ctx.successful_hashes.insert(cmd_hash.clone());
                             }
                             Ok(r) => {
                                 let err: String = r.stderr.chars().take(300).collect();
@@ -165,11 +173,16 @@ impl Agent {
                         .collect::<Vec<_>>()
                         .join("\n");
 
+                    let network_note = if errors.contains("Network is unreachable") || errors.contains("Timeout after") {
+                        "\n\nNETWORK UNAVAILABLE: Use ONLY Python stdlib. NO pandas, NO requests."
+                    } else { "" };
+
                     let prompt = format!(
-                        "Goal: {}\n\nThe following steps failed:\n{}\n\n\
-                         Provide a corrected JSON plan that fixes these issues.\n\
-                         Include ALL steps needed (not just the fix).",
-                        self.goal, errors
+                        "Goal: {}{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}\n{}\n\
+                         Fix ALL issues. Provide complete corrected plan.",
+                        self.goal, network_note, errors,
+                        if main_py.is_empty() { String::new() } else { format!("main.py:\n```python\n{}\n```", main_py) },
+                        if test_py.is_empty() { String::new() } else { format!("test_main.py:\n```python\n{}\n```", test_py) }
                     );
 
                     match self.llm.call(&[Message::user(prompt)]).await {

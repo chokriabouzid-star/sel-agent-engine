@@ -235,11 +235,18 @@ fn parse_pytest(output: &str) -> (usize, usize) {
     let mut failed = 0;
     for line in output.lines().rev() {
         if line.contains(" passed") || line.contains(" failed") {
+            // السطر: "=== 2 passed, 1 failed in 0.03s ==="
+            // نبحث عن الرقم قبل كل كلمة مفتاحية
             for seg in line.split(',') {
                 let s = seg.trim();
-                if let Some(n) = s.split_whitespace().next().and_then(|x| x.parse::<usize>().ok()) {
-                    if s.contains("passed") { passed = n; }
-                    if s.contains("failed") { failed = n; }
+                let words: Vec<&str> = s.split_whitespace().collect();
+                for (i, w) in words.iter().enumerate() {
+                    if *w == "passed" && i > 0 {
+                        if let Ok(n) = words[i-1].parse::<usize>() { passed = n; }
+                    }
+                    if *w == "failed" && i > 0 {
+                        if let Ok(n) = words[i-1].parse::<usize>() { failed = n; }
+                    }
                 }
             }
             break;

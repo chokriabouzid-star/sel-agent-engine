@@ -1,6 +1,7 @@
 // src/types.rs — v0.4: الأنواع الأساسية
 
 use std::path::PathBuf;
+use std::collections::HashSet;
 
 // ══════════════════════════════════════════════════════
 // State Machine
@@ -25,12 +26,13 @@ pub struct ExecutionContext {
     pub last_exit_code:    Option<i32>,
     pub failed_steps:      Vec<FailedStep>,
     pub repair_attempts:   u8,
+    pub successful_hashes: HashSet<String>,
     pub max_repairs:       u8,
 }
 
 impl ExecutionContext {
     pub fn new(max_repairs: u8) -> Self {
-        Self { max_repairs, ..Default::default() }
+        Self { max_repairs, successful_hashes: std::collections::HashSet::new(), ..Default::default() }
     }
     pub fn reset_for_repair(&mut self) {
         self.tests_passed   = false;
