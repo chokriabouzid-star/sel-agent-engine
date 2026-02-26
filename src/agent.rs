@@ -6,7 +6,7 @@ use crate::{
     executor::SafeExecutor,
     llm::LlmClient,
     protocol::{self, Cmd},
-    types::{AgentState, ExecutionContext, FailedStep, Message},
+    types::{AgentState, ExecutionContext, FailedStep, FailureKind, Message},
 };
 
 pub struct Agent {
@@ -72,7 +72,7 @@ impl Agent {
 
                         // skip الخطوات الناجحة سابقاً
                         let cmd_hash = cmd.hash();
-                        if self.ctx.successful_hashes.contains(&cmd_hash) && !cmd.is_run_tests() {
+                        if self.ctx.successful_hashes.contains(&cmd_hash) && !cmd.is_run_tests() && !cmd.is_write_file() {
                             println!("   ⏭ Skipping: {} (already passed)", cmd.label());
                             continue;
                         }
@@ -110,7 +110,7 @@ impl Agent {
                                 self.ctx.successful_hashes.insert(cmd_hash.clone());
                             }
                             Ok(r) => {
-                                let err: String = r.stderr.chars().take(300).collect();
+                                let err: String = r.stderr.chars().take(3000).collect();
                                 println!("   ✗ {}", err);
                                 // تسجيل الفشل — تابع بقية الأوامر
                                 if cmd.is_run_tests() { self.ctx.tests_passed = false; }
@@ -173,14 +173,23 @@ impl Agent {
                         .collect::<Vec<_>>()
                         .join("\n");
 
+                    // تصنيف نوع الفشل
+                    let all_stderr = self.ctx.failed_steps.iter()
+                        .map(|f| f.stderr.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    let failure_kind = FailureKind::classify(&all_stderr);
+                    let repair_hint = failure_kind.repair_hint();
+                    println!("   🔍 Failure type: {:?}", failure_kind);
+
                     let network_note = if errors.contains("Network is unreachable") || errors.contains("Timeout after") {
                         "\n\nNETWORK UNAVAILABLE: Use ONLY Python stdlib. NO pandas, NO requests."
                     } else { "" };
 
                     let prompt = format!(
-                        "Goal: {}{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}\n{}\n\
+                        "Goal: {}{}\n\nHINT: {}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}\n{}\n\
                          Fix ALL issues. Provide complete corrected plan.",
-                        self.goal, network_note, errors,
+                        self.goal, network_note, repair_hint, errors,
                         if main_py.is_empty() { String::new() } else { format!("main.py:\n```python\n{}\n```", main_py) },
                         if test_py.is_empty() { String::new() } else { format!("test_main.py:\n```python\n{}\n```", test_py) }
                     );

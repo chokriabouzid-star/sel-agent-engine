@@ -109,3 +109,63 @@ impl std::fmt::Display for SafetyError {
         }
     }
 }
+
+// ══════════════════════════════════════════════════════
+// Failure Classification
+// ══════════════════════════════════════════════════════
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FailureKind {
+    SyntaxError,
+    ImportError,
+    AssertionError,
+    TypeError,
+    CollectionError,
+    BuildError,
+    Unknown,
+}
+
+impl FailureKind {
+    pub fn classify(stderr: &str) -> Self {
+        let s = stderr;
+        if s.contains("SyntaxError") || s.contains("was never closed") {
+            return Self::SyntaxError;
+        }
+        if s.contains("ModuleNotFoundError") || s.contains("ImportError while importing") {
+            return Self::ImportError;
+        }
+        if s.contains("collected 0 items") {
+            return Self::CollectionError;
+        }
+        if s.contains("TypeError") {
+            return Self::TypeError;
+        }
+        if s.contains("AssertionError") {
+            return Self::AssertionError;
+        }
+        if s.contains("error[E") || s.contains("error: ") && s.contains("-->") {
+            return Self::BuildError;
+        }
+        Self::Unknown
+    }
+
+    pub fn repair_hint(&self) -> &str {
+        match self {
+            Self::SyntaxError =>
+                "SYNTAX ERROR: Fix syntax only. Do NOT change logic or reinstall packages.",
+            Self::ImportError =>
+                "IMPORT ERROR: Module not found. Either install it with pip or use stdlib alternative.",
+            Self::AssertionError =>
+                "ASSERTION ERROR: Logic is wrong. Fix the implementation, not the test.",
+            Self::TypeError =>
+                "TYPE ERROR: Wrong types used. Check function signatures and return types.",
+            Self::CollectionError =>
+                "COLLECTION ERROR: pytest found 0 tests. Ensure test functions start with test_",
+            Self::BuildError =>
+                "BUILD ERROR: Compilation failed. Fix the compile errors shown.",
+            Self::Unknown =>
+                "Fix the errors shown above.",
+        }
+    }
+}
+

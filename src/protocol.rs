@@ -54,6 +54,7 @@ impl Cmd {
     }
     pub fn is_done(&self)     -> bool { matches!(self, Cmd::Done { .. }) }
     pub fn is_run_tests(&self)-> bool { matches!(self, Cmd::RunTests { .. }) }
+    pub fn is_write_file(&self) -> bool { matches!(self, Cmd::WriteFile { .. } | Cmd::AppendFile { .. }) }
 }
 
 // ══════════════════════════════════════════════════════
