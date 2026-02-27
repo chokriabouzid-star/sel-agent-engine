@@ -41,6 +41,14 @@ TESTING:
 - run_tests uses venv/bin/pytest automatically
 - Test functions must start with test_
 
+GO PROJECTS:
+- ALWAYS create go.mod with: module <name> and go 1.21
+- Test files must end with _test.go
+- Test functions must start with Test (capital T): func TestAdd(t *testing.T)
+- Use t.Errorf() for assertions
+- run_tests: {"type": "run_tests", "target": "go"}
+- Do NOT use pytest or cargo for Go projects
+
 RUST PROJECTS:
 - NEVER use "cargo new" — create files directly with write_file
 - ALWAYS create Cargo.toml in workspace root (not in subdirectory)

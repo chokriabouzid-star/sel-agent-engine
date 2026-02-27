@@ -15,6 +15,7 @@ const ALLOWED: &[&str] = &[
     "venv/bin/pytest",  "pytest",
     "node", "node_modules/.bin/jest",
     "cargo", "rustc", "git",
+    "go",
     "mkdir", "touch", "ls", "cat", "cp", "mv",
     "echo", "find", "grep", "curl", "chmod",
     "node", "npm",
@@ -177,6 +178,37 @@ impl SafeExecutor {
             if success { println!("   ✅ Tests passed (exit 0)"); }
             else       { println!("   ❌ Tests FAILED (exit {})", out.status.code().unwrap_or(-1)); }
             let (passed, failed) = parse_rust_tests(&combined);
+            return Ok(ExecResult {
+                success,
+                exit_code: out.status.code().unwrap_or(-1),
+                stdout: format!("{} passed, {} failed", passed, failed),
+                stderr: if success { String::new() } else {
+                    let start = combined.len().saturating_sub(2000);
+                    combined[start..].to_string()
+                },
+                duration_ms: start.elapsed().as_millis() as u64,
+            });
+        }
+
+        // Go tests
+        if target.ends_with(".go") || target == "go" {
+            println!("   🐹 go test ./...");
+            let start = std::time::Instant::now();
+            let out = tokio::time::timeout(
+                std::time::Duration::from_secs(self.timeout_secs),
+                TCmd::new("go")
+                    .args(["test", "./...", "-v"])
+                    .current_dir(&self.workspace)
+                    .output(),
+            ).await
+            .map_err(|_| anyhow!("go test timeout"))??;
+            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+            let combined = format!("{}\n{}", stdout, stderr);
+            let success = out.status.success();
+            if success { println!("   ✅ Tests passed (exit 0)"); }
+            else       { println!("   ❌ Tests FAILED (exit {})", out.status.code().unwrap_or(-1)); }
+            let (passed, failed) = parse_go_tests(&combined);
             return Ok(ExecResult {
                 success,
                 exit_code: out.status.code().unwrap_or(-1),
@@ -368,4 +400,14 @@ fn parse_rust_tests(output: &str) -> (usize, usize) {
         }
     }
     (0, 0)
+}
+
+fn parse_go_tests(output: &str) -> (usize, usize) {
+    let mut passed = 0usize;
+    let mut failed = 0usize;
+    for line in output.lines() {
+        if line.starts_with("--- PASS") { passed += 1; }
+        if line.starts_with("--- FAIL") { failed += 1; }
+    }
+    (passed, failed)
 }

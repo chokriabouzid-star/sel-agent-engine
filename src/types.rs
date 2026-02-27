@@ -128,6 +128,16 @@ pub enum FailureKind {
 impl FailureKind {
     pub fn classify(stderr: &str) -> Self {
         let s = stderr;
+        // Go errors
+        if s.contains("undefined:") || s.contains("cannot use") {
+            return Self::TypeError;
+        }
+        if s.contains("syntax error:") && (s.contains(".go:") || s.contains("unexpected")) {
+            return Self::SyntaxError;
+        }
+        if s.contains("FAIL	") || s.contains("--- FAIL") {
+            return Self::AssertionError;
+        }
         // Rust project structure errors
         if s.contains("could not find `Cargo.toml`") || s.contains("could not find Cargo.toml") {
             return Self::BuildError;
