@@ -165,8 +165,31 @@ impl Agent {
                     println!("\n🔧 Repair {}/{}...", self.ctx.repair_attempts, self.ctx.max_repairs);
 
                     let ws = &self.executor.workspace;
-                    let main_py = std::fs::read_to_string(ws.join("main.py")).unwrap_or_default();
-                    let test_py = std::fs::read_to_string(ws.join("test_main.py")).unwrap_or_default();
+                    // Dynamic file discovery — يقرأ كل الملفات التي كُتبت في الـ plan
+                    let written_files: Vec<String> = self.plan.iter()
+                        .filter_map(|c| match c {
+                            crate::protocol::Cmd::WriteFile { path, .. } => Some(path.clone()),
+                            _ => None,
+                        })
+                        .collect();
+                    let files_context: String = written_files.iter()
+                        .filter_map(|f| {
+                            let content = std::fs::read_to_string(ws.join(f)).ok()?;
+                            if content.is_empty() { return None; }
+                            let lang = if f.ends_with(".py") { "python" }
+                                       else if f.ends_with(".rs") { "rust" }
+                                       else if f.ends_with(".js") { "javascript" }
+                                       else if f.ends_with(".go") { "go" }
+                                       else if f.ends_with(".toml") { "toml" }
+                                       else { "text" };
+                            Some(format!("{}:\n```{}\n{}\n```", f, lang, content))
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
+                    // backward compat
+                    let main_py = String::new();
+                    let test_py = String::new();
+                    let _ = (main_py.as_str(), test_py.as_str());
 
                     let errors = self.ctx.failed_steps.iter()
                         .map(|f| format!("Step '{}' failed (exit {}):\n{}", f.label, f.exit_code, { let s = &f.stderr; let start = s.len().saturating_sub(2000); &s[start..] }))
@@ -187,11 +210,9 @@ impl Agent {
                     } else { "" };
 
                     let prompt = format!(
-                        "Goal: {}{}\n\nHINT: {}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}\n{}\n\
+                        "Goal: {}{}\n\nHINT: {}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}\n\
                          Fix ALL issues. Provide complete corrected plan.",
-                        self.goal, network_note, repair_hint, errors,
-                        if main_py.is_empty() { String::new() } else { format!("main.py:\n```python\n{}\n```", main_py) },
-                        if test_py.is_empty() { String::new() } else { format!("test_main.py:\n```python\n{}\n```", test_py) }
+                        self.goal, network_note, repair_hint, errors, files_context
                     );
 
                     match self.llm.call(&[Message::user(prompt)]).await {
