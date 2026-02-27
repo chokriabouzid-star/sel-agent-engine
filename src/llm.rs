@@ -42,8 +42,10 @@ TESTING:
 - Test functions must start with test_
 
 RUST PROJECTS:
-- ALWAYS create Cargo.toml with [package] and [dependencies]
-- Tests go inside src/lib.rs or src/main.rs under #[cfg(test)]
+- NEVER use "cargo new" — create files directly with write_file
+- ALWAYS create Cargo.toml in workspace root (not in subdirectory)
+- ALWAYS create src/lib.rs or src/main.rs directly
+- Tests go inside src/lib.rs under #[cfg(test)] mod tests { use super::*; }
 - Use: #[test] fn test_name() { assert_eq!(...); }
 - run_tests: {"type": "run_tests", "target": "cargo"}
 - Do NOT use pytest or python for Rust projects
@@ -129,7 +131,7 @@ impl LlmClient {
                     model: self.model.clone(),
                     messages: msgs.clone(),
                     temperature: 0.1,
-                    max_tokens: 4096,
+                    max_tokens: 8192,
                 })
                 .send().await?;
 

@@ -128,6 +128,29 @@ pub enum FailureKind {
 impl FailureKind {
     pub fn classify(stderr: &str) -> Self {
         let s = stderr;
+        // Rust project structure errors
+        if s.contains("could not find `Cargo.toml`") || s.contains("could not find Cargo.toml") {
+            return Self::BuildError;
+        }
+        // Rust assertion failures
+        if s.contains("left") && s.contains("right") && s.contains("panicked") {
+            return Self::AssertionError;
+        }
+        // Rust errors
+        if s.contains("error[E") || (s.contains("error:") && s.contains("-->")) {
+            // Rust type/borrow errors
+            if s.contains("E0308") || s.contains("mismatched types") || s.contains("E0507") {
+                return Self::TypeError;
+            }
+            return Self::BuildError;
+        }
+        if s.contains("thread") && s.contains("panicked") {
+            return Self::AssertionError;
+        }
+        if s.contains("FAILED") && s.contains("test result:") {
+            return Self::AssertionError;
+        }
+        // Python errors
         if s.contains("ModuleNotFoundError") || s.contains("ImportError while importing")
             || s.contains("No module named") {
             return Self::ImportError;

@@ -106,7 +106,22 @@ impl SafeExecutor {
     fn write_file(&self, path: &str, content: &str) -> Result<ExecResult> {
         let p = self.safe_path(path)?;
         if let Some(parent) = p.parent() { std::fs::create_dir_all(parent)?; }
-        std::fs::write(&p, content)?;
+        // Rust brace balance check
+        let content = if path.ends_with(".rs") {
+            let open  = content.chars().filter(|&c| c == '{').count();
+            let close = content.chars().filter(|&c| c == '}').count();
+            if open > close {
+                let mut fixed = content.to_string();
+                for _ in 0..(open - close) { fixed.push_str("
+}"); }
+                std::borrow::Cow::Owned(fixed)
+            } else {
+                std::borrow::Cow::Borrowed(content)
+            }
+        } else {
+            std::borrow::Cow::Borrowed(content)
+        };
+        std::fs::write(&p, content.as_ref())?;
         println!("   📝 {} ({} bytes)", path, content.len());
         Ok(ExecResult::ok(format!("Written: {}", path)))
     }
