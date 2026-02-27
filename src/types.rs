@@ -128,11 +128,12 @@ pub enum FailureKind {
 impl FailureKind {
     pub fn classify(stderr: &str) -> Self {
         let s = stderr;
+        if s.contains("ModuleNotFoundError") || s.contains("ImportError while importing")
+            || s.contains("No module named") {
+            return Self::ImportError;
+        }
         if s.contains("SyntaxError") || s.contains("was never closed") {
             return Self::SyntaxError;
-        }
-        if s.contains("ModuleNotFoundError") || s.contains("ImportError while importing") {
-            return Self::ImportError;
         }
         if s.contains("collected 0 items") {
             return Self::CollectionError;
