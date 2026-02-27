@@ -129,7 +129,7 @@ impl FailureKind {
     pub fn classify(stderr: &str) -> Self {
         let s = stderr;
         // Go errors
-        if s.contains("undefined:") || s.contains("cannot use") {
+        if s.contains("undefined:") || s.contains("cannot use") || s.contains("no required module") || s.contains("cannot find package") {
             return Self::TypeError;
         }
         if s.contains("syntax error:") && (s.contains(".go:") || s.contains("unexpected")) {
