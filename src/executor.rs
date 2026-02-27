@@ -143,6 +143,37 @@ impl SafeExecutor {
     // ─── RunTests ──────────────────────────────────
 
     async fn run_tests(&self, target: &str) -> Result<ExecResult> {
+        // Rust tests
+        if target.ends_with(".rs") || target == "cargo" {
+            println!("   🦀 cargo test");
+            let start = std::time::Instant::now();
+            let out = tokio::time::timeout(
+                std::time::Duration::from_secs(self.timeout_secs),
+                TCmd::new("cargo")
+                    .args(["test", "--", "--nocapture"])
+                    .current_dir(&self.workspace)
+                    .output(),
+            ).await
+            .map_err(|_| anyhow!("cargo test timeout"))??;
+            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+            let combined = format!("{}\n{}", stdout, stderr);
+            let success = out.status.success();
+            if success { println!("   ✅ Tests passed (exit 0)"); }
+            else       { println!("   ❌ Tests FAILED (exit {})", out.status.code().unwrap_or(-1)); }
+            let (passed, failed) = parse_rust_tests(&combined);
+            return Ok(ExecResult {
+                success,
+                exit_code: out.status.code().unwrap_or(-1),
+                stdout: format!("{} passed, {} failed", passed, failed),
+                stderr: if success { String::new() } else {
+                    let start = combined.len().saturating_sub(2000);
+                    combined[start..].to_string()
+                },
+                duration_ms: start.elapsed().as_millis() as u64,
+            });
+        }
+
         // Node.js tests
         if target.ends_with(".js") {
             let t = target.trim();
@@ -299,4 +330,27 @@ mod tests {
         assert!(r.success);
         assert!(r.stdout.contains("hello"));
     }
+}
+
+fn parse_rust_tests(output: &str) -> (usize, usize) {
+    for line in output.lines() {
+        if line.contains("test result:") {
+            let mut passed = 0usize;
+            let mut failed = 0usize;
+            for seg in line.split(';') {
+                let s = seg.trim();
+                let words: Vec<&str> = s.split_whitespace().collect();
+                for (i, w) in words.iter().enumerate() {
+                    if *w == "passed" && i > 0 {
+                        if let Ok(n) = words[i-1].parse() { passed = n; }
+                    }
+                    if *w == "failed" && i > 0 {
+                        if let Ok(n) = words[i-1].parse() { failed = n; }
+                    }
+                }
+            }
+            return (passed, failed);
+        }
+    }
+    (0, 0)
 }

@@ -37,8 +37,16 @@ TESTING:
 - run_tests handles exit codes correctly
 - For Node.js: {"type": "run_tests", "target": "test.js"}
 - For Python: {"type": "run_tests", "target": "test_stats.py"}
+- For Rust: {"type": "run_tests", "target": "cargo"}
 - run_tests uses venv/bin/pytest automatically
 - Test functions must start with test_
+
+RUST PROJECTS:
+- ALWAYS create Cargo.toml with [package] and [dependencies]
+- Tests go inside src/lib.rs or src/main.rs under #[cfg(test)]
+- Use: #[test] fn test_name() { assert_eq!(...); }
+- run_tests: {"type": "run_tests", "target": "cargo"}
+- Do NOT use pytest or python for Rust projects
 
 SQLITE TESTING RULES:
 - ALWAYS use :memory: database in tests (not a file)
