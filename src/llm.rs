@@ -49,6 +49,11 @@ GO PROJECTS:
 - run_tests: {"type": "run_tests", "target": "go"}
 - Do NOT use pytest or cargo for Go projects
 
+PYTHON FILE NAMING:
+- NEVER name files: math.py, string.py, io.py, os.py, re.py, json.py, csv.py
+- These conflict with Python stdlib modules
+- Use descriptive names: math_utils.py, string_ops.py, file_io.py
+
 RUST PROJECTS:
 - NEVER use "cargo new" — create files directly with write_file
 - ALWAYS create Cargo.toml in workspace root (not in subdirectory)
@@ -123,7 +128,10 @@ impl LlmClient {
         let mut msgs = vec![ApiMsg { role: "system".into(), content: SYSTEM_PROMPT.into() }];
         for m in messages { msgs.push(ApiMsg { role: m.role.clone(), content: m.content.clone() }); }
 
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .connect_timeout(std::time::Duration::from_secs(30))
+            .build()?;
         let delays = [15u64, 45, 120];
 
         for (attempt, &delay) in delays.iter().enumerate() {
