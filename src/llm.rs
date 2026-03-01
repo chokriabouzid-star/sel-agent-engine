@@ -119,7 +119,7 @@ impl LlmClient {
     pub fn new(api_key: String) -> Self {
         Self {
             api_key,
-            model:    "llama-3.3-70b-versatile".into(),
+            model:    "moonshotai/kimi-k2-instruct".into(),
             endpoint: "https://api.groq.com/openai/v1/chat/completions".into(),
         }
     }

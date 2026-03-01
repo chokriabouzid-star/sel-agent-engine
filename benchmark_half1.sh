@@ -19,8 +19,10 @@ run_test() {
     fi
 }
 
+bash health_check.sh
+echo ""
 echo "=== Half 1: Python + Rust ==="
-run_test "Python: broken import"  ~/bm/py_f1 "Create app.py that imports from nonexistent_module. Write test_app.py. Install pytest. Run tests."
+run_test "Python: broken import"  ~/bm/py_f1 "Create calculator.py with add(a,b) function. At the top accidentally import nonexistent_lib. Write test_calculator.py testing add(2,3)==5. Install pytest. Run tests."
 run_test "Python: wrong assertion" ~/bm/py_f2 "Create math_ops.py with add(a,b) returning a*b (wrong). test_math_ops.py expects a+b. Install pytest. Run tests."
 run_test "Python: wrong signature" ~/bm/py_f3 "Create utils.py with greet(name) but test calls greet() with no args. Install pytest. Run tests."
 run_test "Rust: wrong logic"      ~/bm/rs_f1 "Create Rust lib. Cargo.toml and src/lib.rs directly. add(a,b) returns a-b. Tests expect a+b. Run tests."

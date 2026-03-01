@@ -25,11 +25,13 @@ run_test() {
     fi
 }
 
+bash health_check.sh
+echo ""
 echo "=== SEL Stress Benchmark ==="
 echo ""
 
 echo "── Python ──"
-run_test "broken import"     ~/bm/py_f1 "Create app.py that imports from nonexistent_module. Write test_app.py. Install pytest. Run tests."
+run_test "broken import"     ~/bm/py_f1 "Create service.py that does import pandas but pandas is not installed. Write test_service.py that imports service. Install pytest but NOT pandas. Run tests."
 run_test "wrong assertion"   ~/bm/py_f2 "Create math_ops.py with add(a,b) returning a*b (wrong). test_math_ops.py expects a+b. Install pytest. Run tests."
 run_test "wrong signature"   ~/bm/py_f3 "Create utils.py with greet(name) but test calls greet() with no args. Install pytest. Run tests."
 

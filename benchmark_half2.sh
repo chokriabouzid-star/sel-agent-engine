@@ -19,6 +19,8 @@ run_test() {
     fi
 }
 
+bash health_check.sh
+echo ""
 echo "=== Half 2: Go + Node ==="
 run_test "Go: undefined func"  ~/bm/go_f1 "Create Go module gotest. math.go with Add only. test calls Multiply which doesnt exist. Run tests."
 run_test "Go: wrong logic"     ~/bm/go_f2 "Create Go module gotest. Add(a,b int) returns a-b. TestAdd expects a+b. Run tests."
