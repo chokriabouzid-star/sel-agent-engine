@@ -35,6 +35,13 @@ impl Agent {
     // ══════════════════════════════════════════════════════════
 
     pub async fn run(&mut self) -> Result<()> {
+        // تحميل الـ hashes من الجلسة السابقة
+        let ws = self.executor.workspace.clone();
+        self.ctx.load_hashes(&ws);
+        let loaded = self.ctx.successful_hashes.len();
+        if loaded > 0 {
+            println!("   💾 Loaded {} cached steps from previous session", loaded);
+        }
         loop {
             match self.state.clone() {
 
@@ -81,6 +88,7 @@ impl Agent {
                         if cmd.is_done() {
                             if self.ctx.tests_passed {
                                 let msg = if let Cmd::Done { message } = cmd { message } else { "Goal complete" };
+                                self.ctx.save_hashes(&self.executor.workspace);
                                 println!("\n✅ {}", if msg.is_empty() { "Goal complete!" } else { msg });
                                 self.state = AgentState::Done;
                             } else {
@@ -136,6 +144,7 @@ impl Agent {
                     // بعد كل الأوامر — قرر الحالة التالية
                     if matches!(self.state, AgentState::Executing) {
                         if self.ctx.tests_passed {
+                            self.ctx.save_hashes(&self.executor.workspace);
                             println!("\n✅ Goal complete! Tests passed.");
                             self.state = AgentState::Done;
                         } else {

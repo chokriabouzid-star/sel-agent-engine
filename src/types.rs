@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use std::collections::HashSet;
+use std::io::Write;
 
 // ══════════════════════════════════════════════════════
 // State Machine
@@ -203,3 +204,20 @@ impl FailureKind {
     }
 }
 
+impl ExecutionContext {
+    pub fn load_hashes(&mut self, workspace: &std::path::Path) {
+        let path = workspace.join(".sel_hashes");
+        if let Ok(content) = std::fs::read_to_string(path) {
+            for line in content.lines() {
+                let h = line.trim();
+                if !h.is_empty() { self.successful_hashes.insert(h.to_string()); }
+            }
+        }
+    }
+
+    pub fn save_hashes(&self, workspace: &std::path::Path) {
+        let path = workspace.join(".sel_hashes");
+        let content = self.successful_hashes.iter().cloned().collect::<Vec<_>>().join("\n");
+        let _ = std::fs::write(path, content);
+    }
+}
