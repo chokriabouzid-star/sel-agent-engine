@@ -218,10 +218,15 @@ impl Agent {
                         "\n\nNETWORK UNAVAILABLE: Use ONLY Python stdlib. NO pandas, NO requests."
                     } else { "" };
 
+                    let attempt_note = if self.ctx.repair_attempts > 1 {
+                        format!("ATTEMPT {}/{}: Previous fix failed — try a completely different approach.", self.ctx.repair_attempts, self.ctx.max_repairs)
+                    } else {
+                        format!("ATTEMPT {}/{}: First repair attempt.", self.ctx.repair_attempts, self.ctx.max_repairs)
+                    };
                     let prompt = format!(
-                        "Goal: {}{}\n\nHINT: {}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}\n\
+                        "Goal: {}{}\n\nHINT: {}\n\n{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}\n\
                          Fix ALL issues. Provide complete corrected plan.",
-                        self.goal, network_note, repair_hint, errors, files_context
+                        self.goal, network_note, repair_hint, attempt_note, errors, files_context
                     );
 
                     match self.llm.call(&[Message::user(prompt)]).await {
