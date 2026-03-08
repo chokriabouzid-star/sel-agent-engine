@@ -246,6 +246,21 @@ impl SafeExecutor {
             "venv/bin/pytest"
         } else { "pytest" };
 
+
+        // StdlibConflict Pre-check v1.3
+        {
+            let conflicts = ["numbers","decimal","types","typing","abc","queue",
+                             "math","string","io","re","json","csv",
+                             "random","time","collections","functools",
+                             "itertools","pathlib","enum","copy"];
+            for name in &conflicts {
+                let f = self.workspace.join(format!("{}.py", name));
+                if f.exists() {
+                    println!("   Removing {}.py (stdlib conflict)", name);
+                    let _ = std::fs::remove_file(&f);
+                }
+            }
+        }
         let t = if target.is_empty() || target == "." { String::new() } else { format!(" {}", target) };
         let cmd = format!("{}{} -v --tb=short", pytest, t);
         println!("   🧪 {}", cmd);
@@ -255,6 +270,7 @@ impl SafeExecutor {
             TCmd::new(pytest)
                 .args(if target.is_empty() || target == "." { vec!["-v", "--tb=short"] } else { vec![target, "-v", "--tb=short"] })
                 .current_dir(&self.workspace)
+                .env("PYTHONPATH", &self.workspace)
                 .output(),
         ).await
         .map_err(|_| anyhow!("pytest timeout"))??;
@@ -264,7 +280,28 @@ impl SafeExecutor {
         let combined = format!("{}\n{}", stdout, stderr);
 
         let (passed, failed) = parse_pytest(&combined);
-        let success = out.status.success() && out.status.code() != Some(5);
+
+        // Smart Success Detection v1.3
+        // exit code وحده غير كافٍ — بعض الأدوات (PyQt6-WebEngine) تُرجع -1 مع اختبارات ناجحة
+        // القاعدة الآمنة: نجاح فقط إذا passed>0 و failed==0 و لا يوجد error في الـ summary
+        let has_passed  = passed > 0;
+        let has_failed  = failed > 0;
+        let has_error   = combined.contains("ERROR collecting")
+                       || combined.contains("error during collection")
+                       || combined.contains("errors in collection");
+        let collected_zero = combined.contains("collected 0 items")
+                          || combined.contains("no tests ran");
+
+        let success = if has_passed && !has_failed && !has_error && !collected_zero {
+            // الاختبارات نجحت — تجاهل exit code غير الصفري من أدوات خارجية
+            if out.status.code().unwrap_or(0) != 0 && out.status.code() != Some(5) {
+                println!("   ⚠ exit code {} — ignored (tests passed cleanly)", out.status.code().unwrap_or(-1));
+            }
+            true
+        } else {
+            // لا توجد passed أو يوجد فشل — اعتمد exit code
+            out.status.success() && out.status.code() != Some(5)
+        };
 
         if success { println!("   ✅ Tests passed (exit 0)"); }
         else       { println!("   ❌ Tests FAILED (exit {})", out.status.code().unwrap_or(-1)); }
@@ -273,7 +310,6 @@ impl SafeExecutor {
             success,
             exit_code:   out.status.code().unwrap_or(-1),
             stdout:      format!("{} passed, {} failed", passed, failed),
-            // احفظ آخر 2000 حرف — الخطأ دائماً في النهاية
             stderr:      if success {
                 String::new()
             } else {
@@ -331,6 +367,100 @@ fn parse_pytest(output: &str) -> (usize, usize) {
         }
     }
     (passed, failed)
+}
+
+
+#[derive(Debug, PartialEq)]
+pub enum MutationResult {
+    Strong,
+    Weak(String, String),  // (original_line, mutated_line)
+    Skipped,
+}
+
+fn apply_all_mutations(code: &str) -> Vec<(String, String, String)> {
+    let strategies: &[(&str, &str)] = &[
+        ("==", "!="), ("!=", "=="),
+        (" > ", " < "), (" < ", " > "),
+        (" >= ", " <= "), (" <= ", " >= "),
+        ("return True", "return False"), ("return False", "return True"),
+        (" + ", " - "), (" - ", " + "),
+    ];
+    let skip_patterns = ["i += ", "i -= ", "j += ", "j -= ",
+                          "idx", "index", "len(", "range(", "count +=", "count -="];
+    let mut result = Vec::new();
+    for (from, to) in strategies {
+        let mut found_line = None;
+        let mutated: String = code.lines()
+            .map(|line| {
+                let trimmed = line.trim_start();
+                let skip = trimmed.starts_with('#') || trimmed.starts_with("//")
+                        || skip_patterns.iter().any(|p| line.contains(p));
+                if found_line.is_none() && !skip && line.contains(*from) {
+                    let new_line = line.replacen(from, to, 1);
+                    found_line = Some((line.trim().to_string(), new_line.trim().to_string()));
+                    new_line
+                } else { line.to_string() }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        if let Some((orig, mutd)) = found_line {
+            result.push((mutated, orig, mutd));
+        }
+    }
+    result
+}
+
+impl SafeExecutor {
+    pub async fn mutation_check(&self, source_file: &str) -> MutationResult {
+        let source_path = self.workspace.join(source_file);
+        if !source_path.exists() { return MutationResult::Skipped; }
+        let ext = source_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if ext != "py" { return MutationResult::Skipped; }
+        let original = match std::fs::read_to_string(&source_path) {
+            Ok(s) => s, Err(_) => return MutationResult::Skipped,
+        };
+        let mutations = apply_all_mutations(&original);
+        if mutations.is_empty() { return MutationResult::Skipped; }
+        let pytest = if self.workspace.join("venv/bin/pytest").exists() {
+            "venv/bin/pytest"
+        } else { "pytest" };
+        let mut survived_orig = String::new();
+        let mut survived_mutd = String::new();
+        let mut any_caught  = false;
+        let mut any_missed  = false;
+        for (mutation, orig_line, mutd_line) in &mutations {
+            if std::fs::write(&source_path, mutation).is_err() {
+                let _ = std::fs::write(&source_path, &original);
+                continue;
+            }
+            let out = tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                tokio::process::Command::new(pytest)
+                    .args(["-x", "-q", "--tb=no"])
+                    .current_dir(&self.workspace)
+                    .env("PYTHONPATH", &self.workspace)
+                    .output(),
+            ).await;
+            let _ = std::fs::write(&source_path, &original);
+            match out {
+                Ok(Ok(result)) => {
+                    if result.status.success() {
+                        if !any_missed {
+                            survived_orig = orig_line.clone();
+                            survived_mutd = mutd_line.clone();
+                        }
+                        any_missed = true;
+                    } else { any_caught = true; }
+                }
+                _ => {}
+            }
+            if any_caught { break; }
+        }
+        let _ = std::fs::write(&source_path, &original);
+        if any_caught { MutationResult::Strong }
+        else if any_missed { MutationResult::Weak(survived_orig, survived_mutd) }
+        else { MutationResult::Skipped }
+    }
 }
 
 #[cfg(test)]

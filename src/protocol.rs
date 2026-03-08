@@ -1,4 +1,4 @@
-// src/protocol.rs — v0.4: JSON Protocol
+// src/protocol.rs — v1.3: JSON Protocol
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};

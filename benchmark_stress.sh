@@ -12,10 +12,11 @@ run_test() {
     sleep 15
     rm -rf "$workspace"
     TOTAL=$((TOTAL + 1))
+    echo -n "   ⏳ Running: $name..."
     result=$($AGENT run --workspace "$workspace" --goal "$goal" --max-repairs 2 2>&1)
     repair_count=$(echo "$result" | grep -c "🔧 Repair")
     REPAIRS=$((REPAIRS + repair_count))
-    if echo "$result" | grep -qE "All tests passed|Goal complete|tests passed"; then
+    if echo "$result" | grep -q "SEL_SUCCESS"; then
         echo "✅ $name (repairs: $repair_count)"
         PASS=$((PASS + 1))
     else

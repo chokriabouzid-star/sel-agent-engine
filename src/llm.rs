@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use crate::types::Message;
 
-const SYSTEM_PROMPT: &str = r#"You are SEL Agent v0.4 — a deterministic software execution agent.
+const SYSTEM_PROMPT: &str = r#"You are SEL Agent v1.3 — a deterministic software execution agent.
 
 OUTPUT: Respond ONLY with a single ```json block. No text outside it.
 
@@ -50,9 +50,9 @@ GO PROJECTS:
 - Do NOT use pytest or cargo for Go projects
 
 PYTHON FILE NAMING:
-- NEVER name files: math.py, string.py, io.py, os.py, re.py, json.py, csv.py
+- NEVER name files: math.py, string.py, io.py, os.py, re.py, json.py, csv.py, numbers.py, decimal.py, types.py, typing.py, abc.py, queue.py
 - These conflict with Python stdlib modules
-- Use descriptive names: math_utils.py, string_ops.py, file_io.py
+- Use descriptive names: math_utils.py, string_ops.py, file_io.py, numbers_utils.py
 
 RUST PROJECTS:
 - NEVER use "cargo new" — create files directly with write_file
@@ -79,6 +79,17 @@ FASTAPI PROJECTS:
 - from fastapi.testclient import TestClient  (NEVER from httpx)
 - POST body must use Pydantic BaseModel
 - autouse fixture to reset in-memory state
+
+PYQT PROJECTS — CRITICAL:
+- ALWAYS use PyQt6 (NEVER PyQt5 — it may not be installed)
+- WebEngine imports: from PyQt6.QtWebEngineWidgets import QWebEngineView
+- WebEngine URL: from PyQt6.QtWebEngineCore import QWebEngineUrlScheme
+- URL type: from PyQt6.QtCore import QUrl  — ALWAYS wrap strings: QUrl('https://...')
+- NEVER: setUrl('https://...') — ALWAYS: setUrl(QUrl('https://...'))
+- NEVER: load('https://...') — ALWAYS: load(QUrl('https://...'))
+- Install: venv/bin/pip3 install PyQt6 PyQt6-WebEngine pytest pytest-qt
+- Headless tests: set QT_QPA_PLATFORM=offscreen in test env
+- isVisible() tests require window.show() first
 
 PYTHON CODE IN JSON — CRITICAL:
 - Inside "content" fields, ONLY use single quotes in Python
@@ -140,7 +151,7 @@ impl LlmClient {
                 tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
             }
 
-            let resp = client
+            let resp = match client
                 .post(&self.endpoint)
                 .bearer_auth(&self.api_key)
                 .json(&Request {
@@ -149,11 +160,25 @@ impl LlmClient {
                     temperature: 0.1,
                     max_tokens: 8192,
                 })
-                .send().await?;
+                .send().await {
+                    Ok(r)  => r,
+                    Err(e) => {
+                        if attempt + 1 == delays.len() {
+                            return Err(anyhow!("Connection error: {}", e));
+                        }
+                        println!("   ⚠ Connection error: {} — retry in {}s...", e, delay);
+                        continue;
+                    }
+                };
 
             let status = resp.status();
-            if status == 429 {
-                if attempt + 1 == delays.len() { return Err(anyhow!("Rate limit exceeded")); }
+            if status == 429 || status == 503 || status == 502 || status == 500 {
+                if attempt + 1 == delays.len() {
+                    let body = resp.text().await.unwrap_or_default();
+                    return Err(anyhow!("API {} — {}", status, &body[..body.len().min(200)]));
+                }
+                let label = if status == 429 { "Rate limit" } else { "Server error" };
+                println!("   ⚠ {} ({}) — retry in {}s...", label, status, delay);
                 continue;
             }
             if !status.is_success() {

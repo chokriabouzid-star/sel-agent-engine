@@ -1,8 +1,7 @@
-// src/types.rs — v0.4: الأنواع الأساسية
+// src/types.rs — v1.3: الأنواع الأساسية
 
 use std::path::PathBuf;
 use std::collections::HashSet;
-use std::io::Write;
 
 // ══════════════════════════════════════════════════════
 // State Machine
@@ -47,12 +46,73 @@ impl ExecutionContext {
 
 #[derive(Debug, Clone)]
 pub struct FailedStep {
-    pub step_index: usize,
-    pub label:      String,
-    pub stderr:     String,
-    pub exit_code:  i32,
+    pub step_index:   usize,
+    pub label:        String,
+    pub stderr:       String,
+    pub exit_code:    i32,
+    pub culprit_file: Option<String>,  // الملف المسؤول عن الخطأ
 }
 
+impl FailedStep {
+    pub fn extract_culprit(stderr: &str) -> Option<String> {
+        for line in stderr.lines() {
+            // Python traceback: File "/path/file.py", line 42
+            if line.contains("File \"") && line.contains(".py") {
+                if let Some(s) = line.find("File \"") {
+                    let rest = &line[s+6..];
+                    if let Some(e) = rest.find('"') {
+                        let path = &rest[..e];
+                        if !path.contains("venv") && !path.contains("site-packages") {
+                            let base = path.rfind('/').map(|i| i+1).unwrap_or(0);
+                            let name = &path[base..];
+                            if !name.starts_with("test_") {
+                                return Some(name.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            // pytest: service.py:1: in <module>
+            if line.contains(".py:") && line.contains(": in ") {
+                // تجاهل مسارات stdlib وvenv
+                if line.contains("/usr/lib") || line.contains("venv/") || line.contains("site-packages") {
+                    continue;
+                }
+                if let Some(pos) = line.find(".py:") {
+                    let start = line[..pos].rfind(|c: char| c == '/' || c == ' ' || c == '\t').map(|i| i+1).unwrap_or(0);
+                    let name = &line[start..pos+3];
+                    if !name.starts_with("test_") && !name.starts_with("__") {
+                        return Some(name.to_string());
+                    }
+                }
+            }
+            // Rust: --> src/lib.rs:42:5
+            if line.trim_start().starts_with("--> ") {
+                let rest = line.trim_start().trim_start_matches("--> ");
+                if let Some(colon) = rest.find(':') {
+                    let path = &rest[..colon];
+                    let base = path.rfind('/').map(|i| i+1).unwrap_or(0);
+                    return Some(path[base..].to_string());
+                }
+            }
+            // Go: file.go:42
+            if line.contains(".go:") {
+                if let Some(pos) = line.find(".go:") {
+                    let start = line[..pos].rfind(|c: char| c == '/' || c == ' ').map(|i| i+1).unwrap_or(0);
+                    return Some(line[start..pos+3].to_string());
+                }
+            }
+            // Node.js: file.js:42
+            if line.contains(".js:") && !line.contains("node_modules") {
+                if let Some(pos) = line.find(".js:") {
+                    let start = line[..pos].rfind(|c: char| c == '/' || c == ' ').map(|i| i+1).unwrap_or(0);
+                    return Some(line[start..pos+3].to_string());
+                }
+            }
+        }
+        None
+    }
+}
 // ══════════════════════════════════════════════════════
 // نتيجة التنفيذ
 // ══════════════════════════════════════════════════════
@@ -123,6 +183,9 @@ pub enum FailureKind {
     TypeError,
     CollectionError,
     BuildError,
+    DatabaseError,
+    NodeTestError,
+    FlaskConcurrency,
     Unknown,
 }
 
@@ -181,6 +244,22 @@ impl FailureKind {
         if s.contains("error[E") || s.contains("error: ") && s.contains("-->") {
             return Self::BuildError;
         }
+        if s.contains("LookupError") && (s.contains("flask") || s.contains("app_ctx") || s.contains("application context"))
+            || s.contains("RuntimeError") && s.contains("Working outside of application context")
+            || s.contains("RuntimeError") && s.contains("Working outside of request context")
+            || s.contains("Push an application context") {
+            return Self::FlaskConcurrency;
+        }
+        if s.contains("ReferenceError: test is not defined")
+            || s.contains("ReferenceError: describe is not defined")
+            || s.contains("ReferenceError: expect is not defined") {
+            return Self::NodeTestError;
+        }
+        if s.contains("OperationalError") || s.contains("no such table")
+            || s.contains("readonly database") || s.contains("sqlite3")
+            || s.contains("sqlalchemy") {
+            return Self::DatabaseError;
+        }
         Self::Unknown
     }
 
@@ -198,6 +277,51 @@ impl FailureKind {
                 "COLLECTION ERROR: pytest found 0 tests. Ensure test functions start with test_",
             Self::BuildError =>
                 "BUILD ERROR: Compilation failed. Fix the compile errors shown.",
+            Self::NodeTestError =>
+                "NODE TEST ERROR: Do NOT use Jest/Mocha syntax (test/describe/expect).                  Use only Node.js built-in assert module.                  Example: const assert = require('assert'); assert.strictEqual(add(2,3), 5);",
+            Self::DatabaseError =>
+                "DATABASE ERROR: The test database is not set up correctly.                  You MUST use this exact pattern in test_main.py:
+                 
+                 from sqlalchemy import create_engine
+                 from sqlalchemy.orm import sessionmaker
+                 from main import app, Base, get_db
+                 from fastapi.testclient import TestClient
+                 
+                 SQLALCHEMY_TEST_URL = 'sqlite:///:memory:'
+                 engine = create_engine(SQLALCHEMY_TEST_URL, connect_args={'check_same_thread': False})
+                 TestingSessionLocal = sessionmaker(bind=engine)
+                 
+                 def override_get_db():
+                     db = TestingSessionLocal()
+                     try: yield db
+                     finally: db.close()
+                 
+                 app.dependency_overrides[get_db] = override_get_db
+                 Base.metadata.create_all(bind=engine)
+                 client = TestClient(app)
+                 
+                 IMPORTANT: main.py must have get_db() as a dependency injection function.",
+            Self::FlaskConcurrency =>
+                "FLASK CONTEXT ERROR: Code is running outside Flask application context.                 
+YOU MUST fix the test file using one of these patterns:                 
+
+PATTERN A — pytest fixture (recommended):                 
+  import pytest                 
+  from main import app                 
+  @pytest.fixture                 
+  def client():                 
+      app.config['TESTING'] = True                 
+      with app.test_client() as c:                 
+          yield c                 
+  def test_route(client):                 
+      r = client.get('/')                 
+      assert r.status_code == 200                 
+
+PATTERN B — app_context manually:                 
+  with app.app_context():                 
+      # code that needs app context                 
+
+NEVER call db or app internals outside app context.",
             Self::Unknown =>
                 "Fix the errors shown above.",
         }

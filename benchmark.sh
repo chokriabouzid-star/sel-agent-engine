@@ -11,7 +11,7 @@ run_test() {
     rm -rf "$workspace"
     TOTAL=$((TOTAL + 1))
     result=$($AGENT run --workspace "$workspace" --goal "$goal" --max-repairs 2 2>&1)
-    if echo "$result" | grep -q "All tests passed\|Goal complete"; then
+    if echo "$result" | grep -q "SEL_SUCCESS"; then
         echo "✅ $name"
         PASS=$((PASS + 1))
     else
