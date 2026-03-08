@@ -80,6 +80,26 @@ FASTAPI PROJECTS:
 - POST body must use Pydantic BaseModel
 - autouse fixture to reset in-memory state
 
+FASTAPI + SQLITE RULES — CRITICAL:
+- ALWAYS call Base.metadata.create_all(bind=engine) before tests run
+- Use :memory: SQLite in tests: SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
+- Add autouse fixture to create and drop tables:
+    @pytest.fixture(autouse=True)
+    def setup_db():
+        Base.metadata.create_all(bind=engine)
+        yield
+        Base.metadata.drop_all(bind=engine)
+- NEVER assume tables exist without creating them first
+- Use Pydantic v2 style: model_config = ConfigDict(...) not class Config
+- ALWAYS install sqlalchemy: pip install fastapi uvicorn pytest httpx sqlalchemy
+
+EDGE CASE RULES — CRITICAL:
+- ALWAYS handle empty string in string functions
+- ALWAYS handle None and zero in numeric functions
+- For palindrome/reverse: check if len(s) == 0 before indexing
+- For math functions: handle n=0 explicitly
+- Write at least one test for empty/zero/None input
+
 PYQT PROJECTS — CRITICAL:
 - ALWAYS use PyQt6 (NEVER PyQt5 — it may not be installed)
 - WebEngine imports: from PyQt6.QtWebEngineWidgets import QWebEngineView
