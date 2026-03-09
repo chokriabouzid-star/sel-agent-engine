@@ -37,8 +37,8 @@ async fn main() -> Result<()> {
             // ── Dry Run v1.3 ──────────────────────────────
             if dry_run {
                 println!("   Mode:         🔍 DRY RUN (preview only — nothing will execute)\n");
-                let api_key = std::env::var("GROQ_API_KEY")
-                    .expect("GROQ_API_KEY not set");
+                let api_key = std::env::var("DEEPSEEK_API_KEY")
+                    .expect("DEEPSEEK_API_KEY not set");
                 let llm = llm::LlmClient::new(api_key);
                 let prompt = format!("Goal: {}\n\nProvide the complete execution plan.", goal);
                 match llm.call(&[types::Message::user(prompt)]).await {
@@ -57,8 +57,8 @@ async fn main() -> Result<()> {
                 return Ok(());
             }
             // ── Normal Run ────────────────────────────────
-            let api_key = std::env::var("GROQ_API_KEY")
-                .expect("GROQ_API_KEY not set");
+            let api_key = std::env::var("DEEPSEEK_API_KEY")
+                .expect("DEEPSEEK_API_KEY not set");
             std::fs::create_dir_all(&workspace)?;
             let mut ag = agent::Agent::new(api_key, workspace, goal, max_repairs);
             ag.run().await?;

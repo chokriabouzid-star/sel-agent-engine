@@ -174,6 +174,25 @@ impl SafeExecutor {
             let stdout = String::from_utf8_lossy(&out.stdout).to_string();
             let stderr = String::from_utf8_lossy(&out.stderr).to_string();
             let combined = format!("{}\n{}", stdout, stderr);
+            // SHA2 Digest Auto-fix v1.4
+            if combined.contains("trait `Digest` which provides") {
+                println!("   🔧 AutoFix: adding sha2::Digest import");
+                for dir in [self.workspace.as_path(), self.workspace.join("src").as_path()] {
+                    if let Ok(entries) = std::fs::read_dir(dir) {
+                        for entry in entries.flatten() {
+                            let p = entry.path();
+                            if p.extension().and_then(|e| e.to_str()) == Some("rs") {
+                                if let Ok(content) = std::fs::read_to_string(&p) {
+                                    if content.contains("sha2::Sha256") && !content.contains("use sha2::Digest") {
+                                        let _ = std::fs::write(&p, format!("use sha2::Digest;\n{}", content));
+                                        println!("   ✅ Fixed {:?}", p.file_name().unwrap_or_default());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             let success = out.status.success();
             if success { println!("   ✅ Tests passed (exit 0)"); }
             else       { println!("   ❌ Tests FAILED (exit {})", out.status.code().unwrap_or(-1)); }

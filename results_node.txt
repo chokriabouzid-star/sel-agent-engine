@@ -1,0 +1,72 @@
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ N1 — Express + CommonJS + Jest + supertest
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+❌ N1 FAILED
+   🔍 Failure type: CollectionError
+SyntaxError: Invalid or unexpected token
+   🔍 Failure type: SyntaxError
+SyntaxError: Invalid or unexpected token
+   🔍 Failure type: SyntaxError
+SyntaxError: Invalid or unexpected token
+SyntaxError: Invalid or unexpected token
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ N2 — ESM modules + native fetch (Node 18+)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+❌ N2 FAILED
+    {"type": "write_file", "path": "WeatherClient.js", "content": "export class WeatherClient {\n  async fetchTemperature(city) {\n    const response = await globalThis.fetch(`https://example.com/weather/${city}`);\n    if (!response.ok) {\n      throw new Error(`Fa
+SyntaxError: Invalid or unexpected token
+ReferenceError: describe is not defined
+   🔍 Failure type: SyntaxError
+SyntaxError: Invalid or unexpected token
+SyntaxError: Named export 'jest' not found. The requested module '@jest/globals' is a CommonJS module, which may not support all module.exports as named exports.
+   🔍 Failure type: SyntaxError
+throw new Error('Do not import `@jest/globals` outside of the Jest test environment');
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ N3 — JWT + bcrypt password hashing
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+❌ N3 FAILED
+SyntaxError: Invalid or unexpected token
+   🔍 Failure type: SyntaxError
+SyntaxError: Invalid or unexpected token
+ReferenceError: describe is not defined
+   🔍 Failure type: SyntaxError
+SyntaxError: Invalid or unexpected token
+ReferenceError: describe is not defined
+   🔍 Failure type: SyntaxError
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ N4 — async/await + Promise.all + proper error handling
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+❌ N4 FAILED
+   - processWithTimeout(task, ms): rejects with TimeoutError if task takes longer than ms.
+5. Custom TimeoutError class extending Error.
+   - processWithTimeout: fast task passes, slow task throws TimeoutError.
+      "path": "TimeoutError.js",
+      "content": "class TimeoutError extends Error {\n  constructor(message) {\n    super(message);\n    this.name = 'TimeoutError';\n  }\n}\nmodule.exports = TimeoutError;"
+[3/7] write_file: TimeoutError.js
+   📝 TimeoutError.js (148 bytes)
+   ✓ (0 ms) → Written: TimeoutError.js
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ N5 — TypeScript + ts-jest + proper tsconfig
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+❌ N5 FAILED
+   - add, subtract, multiply, divide methods (divide throws DivisionByZeroError if divisor is 0).
+   - Custom DivisionByZeroError extends Error.
+    [96msrc/calculator.test.ts[0m:[93m26[0m:[93m44[0m - [91merror[0m[90m TS2339: [0mProperty 'toThrowError' does not exist on type 'JestMatchers<() => any>'.
+    [7m26[0m     expect(() => calculator.divide(10, 0)).toThrowError(DivisionByZeroError);
+
+╔══════════════════════════════════════════╗
+║     Node.js Benchmark Results            ║
+╚══════════════════════════════════════════╝
+  ❌ N1 — Express + CommonJS + Jest + supertest
+  ❌ N2 — ESM modules + native fetch (Node 18+)
+  ❌ N3 — JWT + bcrypt password hashing
+  ❌ N4 — async/await + Promise.all + proper error handling
+  ❌ N5 — TypeScript + ts-jest + proper tsconfig
+
+  PASSED: 0 / 5
+

@@ -62,6 +62,17 @@ RUST PROJECTS:
 - Use: #[test] fn test_name() { assert_eq!(...); }
 - run_tests: {"type": "run_tests", "target": "cargo"}
 - Do NOT use pytest or python for Rust projects
+- RUST CRYPTO CRATES — CRITICAL:
+- ed25519-dalek v2: use { version = "2.1", features = ["rand_core"] }
+  SigningKey::generate(&mut rand::rngs::OsRng)  — NEVER SigningKey::generate(&mut rand::thread_rng())
+  ALWAYS import: use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer, Verifier};
+  NEVER use: Keypair, PublicKey, SecretKey — these are v1 API
+- sha2: ALWAYS import: use sha2::{Sha256, Digest};
+  use Sha256::new() only after importing Digest trait
+- RUST INTEGRATION TESTS that run CLI binary:
+  ALWAYS use: let manifest_dir = env!("CARGO_MANIFEST_DIR");
+  ALWAYS build with: Command::new("cargo").args(["build"]).current_dir(manifest_dir).status()
+  ALWAYS run binary from: Path::new(manifest_dir).join("target/debug/<binary_name>")
 
 SQLITE TESTING RULES:
 - ALWAYS use :memory: database in tests (not a file)
@@ -141,6 +152,37 @@ PYTHON CODE IN JSON — CRITICAL:
 - NEVER: with open(f, "r") — use: with open(f, 'r')
 - This prevents JSON string from breaking
 
+NODE.JS PROJECTS — CRITICAL:
+- ALWAYS create package.json first with: {"name":"app","version":"1.0.0","scripts":{"test":"jest --runInBand"}}
+- ALWAYS install jest BEFORE writing test files
+- ALWAYS add to package.json: "jest":{"testEnvironment":"node"}
+- NEVER use backticks (`) inside JSON content fields — use single quotes or escaped strings only
+- NEVER use template literals in code inside JSON strings
+
+NODE.JS COMMONJS (default) — CRITICAL:
+- Default is CommonJS — NEVER add "type":"module" unless goal explicitly says ESM
+- Use require() and module.exports — NEVER import/export in CJS projects
+- Jest config: {"testEnvironment":"node"} — ALWAYS include this
+
+NODE.JS ESM — CRITICAL (only when goal says ESM or type:module):
+- Add "type":"module" to package.json
+- Use import/export syntax — NEVER require()
+- Jest ESM: install jest + add to package.json scripts: "NODE_OPTIONS=--experimental-vm-modules jest"
+- NEVER use @jest/globals import — jest globals (describe/it/expect) are auto-injected
+
+JEST RULES — CRITICAL:
+- ALWAYS add "jest":{"testEnvironment":"node"} in package.json
+- NEVER use .toThrowError() — it is REMOVED in Jest 29+ — use .toThrow() instead
+- NEVER use jest.config.js with require() in ESM projects — use package.json jest field
+- test files: ALWAYS use describe() and it() or test() — NEVER call assertions outside describe
+
+TYPESCRIPT + TS-JEST — CRITICAL:
+- Install: typescript ts-jest @types/jest jest
+- jest.config.js: module.exports = { preset: 'ts-jest', testEnvironment: 'node' }
+- tsconfig.json: { "compilerOptions": { "target": "ES2020", "module": "commonjs", "strict": true } }
+- NEVER use .toThrowError() — use .toThrow() only
+- test files extension: .test.ts
+
 ALWAYS:
 1. python3 -m venv venv
 2. venv/bin/pip3 install [packages]  (skip if no external packages)
@@ -166,7 +208,7 @@ impl LlmClient {
     pub fn new(api_key: String) -> Self {
         Self {
             api_key,
-            model:    "moonshotai/kimi-k2-instruct".into(),
+            model:    "llama-3.3-70b-versatile".into(),
             endpoint: "https://api.groq.com/openai/v1/chat/completions".into(),
         }
     }
