@@ -92,6 +92,22 @@ FASTAPI + SQLITE RULES — CRITICAL:
 - NEVER assume tables exist without creating them first
 - Use Pydantic v2 style: model_config = ConfigDict(...) not class Config
 - ALWAYS install sqlalchemy: pip install fastapi uvicorn pytest httpx sqlalchemy
+ASYNC PYTHON RULES — CRITICAL:
+- ALWAYS install: pytest pytest-asyncio aiohttp
+- ALWAYS add @pytest.mark.asyncio on every async test function
+- ALWAYS create conftest.py with content: import pytest
+- The ONLY correct way to mock aiohttp session:
+    from unittest.mock import MagicMock, AsyncMock
+    mock_resp = AsyncMock()
+    mock_resp.status = 200
+    mock_cm = MagicMock()
+    mock_cm.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_cm.__aexit__ = AsyncMock(return_value=False)
+    mock_session = MagicMock()
+    mock_session.get.return_value = mock_cm
+- session.get() returns a context manager NOT a coroutine — use MagicMock for session and get()
+- ONLY use AsyncMock for __aenter__ and __aexit__
+- NEVER call asyncio.run() inside tests
 
 EDGE CASE RULES — CRITICAL:
 - ALWAYS handle empty string in string functions
