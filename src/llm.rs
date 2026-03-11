@@ -291,7 +291,7 @@ impl LlmClient {
 
             let data: Response = resp.json().await?;
             let raw = data.choices.iter().next().map(|c| &c.message.content).cloned().unwrap_or_default();
-            eprintln!("🔍 RAW[0..500]: {}", &raw[..raw.len().min(500)]);
+            // debug removed v1.5
             return data.choices.into_iter().next()
                 .map(|c| c.message.content)
                 .ok_or_else(|| anyhow!("Empty response"));

@@ -1,6 +1,6 @@
 [package]
 name    = "sel-agent"
-version = "1.3.0"
+version = "1.5.0"
 edition = "2021"
 
 [[bin]]
@@ -15,6 +15,8 @@ serde      = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest    = { version = "0.12", features = ["json"] }
 clap       = { version = "4",  features = ["derive"] }
+indicatif  = "0.17"
+colored    = "2"
 
 [dev-dependencies]
 tempfile = "3"

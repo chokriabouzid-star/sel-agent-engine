@@ -33,6 +33,9 @@ impl Agent {
             repair_fingerprints: Vec::new(),
         }
     }
+    pub fn repair_count(&self) -> usize {
+        self.ctx.repair_attempts as usize
+    }
 
     // ══════════════════════════════════════════════════════════
     // Goal Validator v1.2
