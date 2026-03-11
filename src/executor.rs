@@ -13,7 +13,7 @@ const ALLOWED: &[&str] = &[
     "venv/bin/pip3",    "venv/bin/pip",
     "venv/bin/uvicorn", "venv/bin/gunicorn",
     "venv/bin/pytest",  "pytest",
-    "node", "node_modules/.bin/jest",
+    "node", "npm", "npx", "node_modules/.bin/jest",
     "cargo", "rustc", "git",
     "go",
     "mkdir", "touch", "ls", "cat", "cp", "mv",
@@ -240,24 +240,57 @@ impl SafeExecutor {
             });
         }
 
-        // Node.js tests
-        if target.ends_with(".js") {
-            let t = target.trim();
-            println!("   🧪 node {}", t);
+        // Node.js tests — npm test / jest / npx jest
+        let is_node_target = target.ends_with(".js")
+            || target == "npm test"
+            || target == "npm"
+            || target == "jest"
+            || target == "npx jest"
+            || target.contains("jest");
+        if is_node_target {
+            // تحديد الأمر الصحيح
+            let (prog, args): (&str, Vec<&str>) = if target == "jest" {
+                // شغّل jest مباشرة من node_modules
+                ("npx", vec!["jest", "--runInBand", "--forceExit"])
+            } else if target == "npx jest" {
+                ("npx", vec!["jest", "--runInBand", "--forceExit"])
+            } else if target == "npm test" || target == "npm" {
+                ("npm", vec!["test", "--", "--runInBand", "--forceExit"])
+            } else {
+                // .js file — شغّل مع node
+                ("node", vec![target])
+            };
+            println!("   🟨 {} {}", prog, args.join(" "));
             let start = std::time::Instant::now();
             let out = tokio::time::timeout(
                 std::time::Duration::from_secs(self.timeout_secs),
-                TCmd::new("node").arg(t).current_dir(&self.workspace).output(),
+                TCmd::new(prog).args(&args).current_dir(&self.workspace).output(),
             ).await
-            .map_err(|_| anyhow!("Timeout after {}s", self.timeout_secs))??;
+            .map_err(|_| anyhow!("Node.js test timeout after {}s", self.timeout_secs))??;
             let stdout = String::from_utf8_lossy(&out.stdout).to_string();
             let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+            let combined = format!("{}
+{}", stdout, stderr);
             let success = out.status.success();
             if success { println!("   ✅ Tests passed (exit 0)"); }
             else       { println!("   ❌ Tests FAILED (exit {})", out.status.code().unwrap_or(-1)); }
+            // parse Jest results
+            let passed = combined.lines()
+                .filter(|l| l.contains("✓") || l.contains("✔") || l.contains("passed"))
+                .count();
+            let failed = combined.lines()
+                .filter(|l| l.contains("✗") || l.contains("✘") || l.contains("failed") || l.contains("FAIL"))
+                .count();
             return Ok(ExecResult {
-                success, exit_code: out.status.code().unwrap_or(-1),
-                stdout, stderr, duration_ms: start.elapsed().as_millis() as u64,
+                success,
+                exit_code: out.status.code().unwrap_or(-1),
+                stdout: format!("{} passed, {} failed
+{}", passed, failed, &stdout[..stdout.len().min(1000)]),
+                stderr: if success { String::new() } else {
+                    let start = combined.len().saturating_sub(2000);
+                    combined[start..].to_string()
+                },
+                duration_ms: start.elapsed().as_millis() as u64,
             });
         }
 

@@ -36,7 +36,7 @@ run_test() {
         FAIL=$((FAIL + 1))
         RESULTS+=("❌ $id — $name")
     fi
-    sleep 20
+    sleep 35
 }
 
 # ─────────────────────────────────────────────

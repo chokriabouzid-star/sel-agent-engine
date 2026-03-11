@@ -1,0 +1,39 @@
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ N1 — Express + CommonJS + Jest + supertest
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ N1 PASSED (repairs: 2)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ N2 — ESM modules + native fetch (Node 18+)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+❌ N2 FAILED
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ N3 — JWT + bcrypt password hashing
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ N3 PASSED (repairs: 2)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ N4 — async/await + Promise.all + proper error handling
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ N4 PASSED (repairs: 1)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ N5 — TypeScript + ts-jest + proper tsconfig
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+❌ N5 FAILED
+   - add, subtract, multiply, divide methods (divide throws DivisionByZeroError if divisor is 0).
+   - Custom DivisionByZeroError extends Error.
+
+╔══════════════════════════════════════════╗
+║     Node.js Benchmark Results            ║
+╚══════════════════════════════════════════╝
+  ✅ N1 — Express + CommonJS + Jest + supertest (repairs: 2)
+  ❌ N2 — ESM modules + native fetch (Node 18+)
+  ✅ N3 — JWT + bcrypt password hashing (repairs: 2)
+  ✅ N4 — async/await + Promise.all + proper error handling (repairs: 1)
+  ❌ N5 — TypeScript + ts-jest + proper tsconfig
+
+  PASSED: 3 / 5
+
