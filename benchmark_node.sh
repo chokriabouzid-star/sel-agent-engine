@@ -10,6 +10,8 @@ PASS=0
 FAIL=0
 RESULTS=()
 
+sleep 60 && echo "⏳ Warm-up delay done..."
+
 run_test() {
     local id="$1"
     local name="$2"

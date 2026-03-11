@@ -2,6 +2,8 @@
 AGENT=~/projects/sel-agent-v4/target/release/sel-agent
 PASS=0; FAIL=0; RESULTS=()
 
+sleep 60 && echo "⏳ Warm-up delay done..."
+
 run_test() {
     local id="$1" name="$2" workspace="$3" goal="$4"
     echo ""; echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

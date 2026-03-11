@@ -1,0 +1,42 @@
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ N1 — Express + CommonJS + Jest + supertest
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+❌ N1 FAILED
+● Validation Error:
+● Validation Error:
+● Validation Error:
+● Validation Error:
+● Validation Error:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ N2 — ESM modules + native fetch (Node 18+)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ N2 PASSED (repairs: 2)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ N3 — JWT + bcrypt password hashing
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ N3 PASSED (repairs: 2)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ N4 — async/await + Promise.all + proper error handling
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ N4 PASSED (repairs: 1)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ N5 — TypeScript + ts-jest + proper tsconfig
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ N5 PASSED (repairs: 2)
+
+╔══════════════════════════════════════════╗
+║     Node.js Benchmark Results            ║
+╚══════════════════════════════════════════╝
+  ❌ N1 — Express + CommonJS + Jest + supertest
+  ✅ N2 — ESM modules + native fetch (Node 18+) (repairs: 2)
+  ✅ N3 — JWT + bcrypt password hashing (repairs: 2)
+  ✅ N4 — async/await + Promise.all + proper error handling (repairs: 1)
+  ✅ N5 — TypeScript + ts-jest + proper tsconfig (repairs: 2)
+
+  PASSED: 4 / 5
+
