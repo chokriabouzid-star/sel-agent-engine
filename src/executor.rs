@@ -212,6 +212,14 @@ impl SafeExecutor {
         // Go tests
         if target.ends_with(".go") || target == "go" {
             println!("   🐹 go test ./...");
+            // Auto-fix: run go mod tidy before tests if go.mod exists
+            if self.workspace.join("go.mod").exists() {
+                let _ = TCmd::new("go")
+                    .args(["mod", "tidy"])
+                    .current_dir(&self.workspace)
+                    .output().await;
+                println!("   🔧 AutoFix: go mod tidy done");
+            }
             let start = std::time::Instant::now();
             let out = tokio::time::timeout(
                 std::time::Duration::from_secs(self.timeout_secs),

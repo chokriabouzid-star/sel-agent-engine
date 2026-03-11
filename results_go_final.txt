@@ -1,0 +1,37 @@
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ G1 — net/http + os.ReadFile (no ioutil)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ G1 PASSED (repairs: 1)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ G2 — chi router + middleware
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ G2 PASSED (repairs: 1)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ G3 — JWT with golang-jwt/jwt v5
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ G3 PASSED (repairs: 0)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ G4 — GORM v2 + SQLite
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ G4 PASSED (repairs: 2)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ G5 — Goroutines + channels + sync.WaitGroup
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+❌ G5 FAILED
+
+╔══════════════════════════════════════════╗
+║      Go Benchmark Results                ║
+╚══════════════════════════════════════════╝
+  ✅ G1 — net/http + os.ReadFile (no ioutil) (repairs: 1)
+  ✅ G2 — chi router + middleware (repairs: 1)
+  ✅ G3 — JWT with golang-jwt/jwt v5 (repairs: 0)
+  ✅ G4 — GORM v2 + SQLite (repairs: 2)
+  ❌ G5 — Goroutines + channels + sync.WaitGroup
+
+  PASSED: 4 / 5
+

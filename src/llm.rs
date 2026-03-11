@@ -152,6 +152,31 @@ PYTHON CODE IN JSON — CRITICAL:
 - NEVER: with open(f, "r") — use: with open(f, 'r')
 - This prevents JSON string from breaking
 
+GO PROJECTS — CRITICAL:
+- go.mod: ALWAYS specify exact go version: "go 1.21"
+- ALWAYS run "go mod tidy" after writing go.mod
+- Go struct tags use backticks: `gorm:"primaryKey"` — INSIDE JSON this BREAKS
+  SOLUTION: write struct tags WITHOUT backticks in JSON content:
+  WRONG in JSON: `gorm:"primaryKey"`
+  CORRECT in JSON: use \u0060gorm:\"primaryKey\"\u0060 OR avoid tags entirely
+  BEST SOLUTION: put Go code with struct tags in separate file and use write_file carefully
+- NEVER mix single quotes and double quotes in Go import blocks
+- Go imports: ALWAYS use double quotes: import "gorm.io/gorm"
+- GORM v2: use gorm.io/gorm and gorm.io/driver/sqlite (NOT github.com/jinzhu/gorm)
+- GORM SQLite memory: db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+- ioutil is DEPRECATED since Go 1.16 — use os.ReadFile, os.WriteFile instead
+- chi router: github.com/go-chi/chi/v5 (NOT gorilla/mux)
+- JWT: github.com/golang-jwt/jwt/v5 (v5 API — NOT v4)
+- ALWAYS use "go mod tidy" to download dependencies — NEVER "go get <package>"
+- go mod tidy sequence: write go.mod first → write all .go files → run "go mod tidy" → run tests
+- NEVER run "go get g4" or "go get ." — this breaks module resolution
+- GO CODE IN JSON — CRITICAL:
+  NEVER use backticks inside JSON string values
+  Replace struct tags backticks with raw string workaround:
+  Instead of: type User struct { ID uint `gorm:"primaryKey"` }
+  Write file content without tags first, then add tags via separate patch
+  OR use: type User struct { gorm.Model; Name string; Email string }
+
 NODE.JS PROJECTS — CRITICAL:
 - ALWAYS create package.json first with: {"name":"app","version":"1.0.0","scripts":{"test":"jest --runInBand"}}
 - ALWAYS install jest BEFORE writing test files
