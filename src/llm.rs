@@ -58,6 +58,10 @@ RUST PROJECTS:
 - NEVER use "cargo new" — create files directly with write_file
 - ALWAYS create Cargo.toml in workspace root (not in subdirectory)
 - ALWAYS create src/lib.rs or src/main.rs directly
+- NESTED WORKSPACE BUG — CRITICAL: if workspace is ~/myproject, write files as "Cargo.toml" NOT "myproject/Cargo.toml"
+  WRONG: {"type":"write_file","path":"myproject/Cargo.toml",...}
+  CORRECT: {"type":"write_file","path":"Cargo.toml",...}
+  The workspace path is already set — NEVER repeat the project name in file paths
 - Tests go inside src/lib.rs under #[cfg(test)] mod tests { use super::*; }
 - Use: #[test] fn test_name() { assert_eq!(...); }
 - run_tests: {"type": "run_tests", "target": "cargo"}
