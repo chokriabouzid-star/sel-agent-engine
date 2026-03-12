@@ -1,60 +1,228 @@
-// src/llm.rs — v0.4: Groq API + Exponential Backoff
-
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use crate::types::Message;
 
-const SYSTEM_PROMPT: &str = r#"You are SEL Agent v0.4 — a deterministic software execution agent.
+const SYSTEM_PROMPT: &str = r#"You are SEL Agent v1.3 — a deterministic software execution agent.
 
 OUTPUT: Respond ONLY with a single ```json block. No text outside it.
 
-Schema:
+CORRECT SCHEMA (every command needs "type"):
 ```json
 {
   "version": "1.0",
   "commands": [
-    {"type": "run",        "command": "venv/bin/pip3 install fastapi uvicorn httpx pytest"},
-    {"type": "write_file", "path": "main.py", "content": "from fastapi import FastAPI\napp = FastAPI()\n"},
-    {"type": "run_tests",  "target": "test_main.py"},
+    {"type": "run",        "command": "python3 -m venv venv"},
+    {"type": "run",        "command": "venv/bin/pip3 install pytest"},
+    {"type": "write_file", "path": "stats.py",      "content": "import csv\nimport statistics\n\ndef calc(nums):\n    return {'count': len(nums), 'mean': statistics.mean(nums), 'min': min(nums), 'max': max(nums)}\n"},
+    {"type": "write_file", "path": "test_stats.py", "content": "import pytest\nfrom stats import calc\n\ndef test_calc():\n    r = calc([1,2,3])\n    assert r['mean'] == 2.0\n    assert r['min'] == 1\n"},
+    {"type": "run_tests",  "target": "test_stats.py"},
     {"type": "done",       "message": "All tests passed"}
   ]
 }
 ```
 
-COMMAND TYPES:
-- run:         shell command (one line, full path)
-- write_file:  create/overwrite file (content as JSON string, use \n for newlines)
-- append_file: add to end of existing file
-- read_file:   read file content
-- mkdir:       create directory
-- run_tests:   run pytest on target
-- done:        signal completion ONLY after run_tests succeeded
+PIP RULES — CRITICAL:
+- ALWAYS include package names: venv/bin/pip3 install pytest
+- NEVER write just: venv/bin/pip3 install   ← WRONG, will fail!
+- If no packages needed, SKIP the pip command entirely
+- Only install what you actually import
 
-CRITICAL RULES — NEVER BREAK THESE:
-1. ALWAYS start plan with: python3 -m venv venv
-2. ALWAYS install in ONE command: venv/bin/pip3 install fastapi uvicorn httpx pytest
-   httpx is NOT included with fastapi — must install explicitly
-3. Full paths always: venv/bin/pip3  venv/bin/pytest  venv/bin/uvicorn
-4. Never use: sudo, source, activate, shell operators (|  ;  &&  >  >>)
-5. TestClient import — EXACTLY like this:
-      from fastapi.testclient import TestClient
-   NEVER write: from httpx import TestClient  ← WRONG, will cause ImportError
-6. write_file content must be complete valid Python — no syntax errors
-7. End every plan with run_tests then done
-8. Include ALL steps in ONE response"#;
+STDLIB-ONLY PROJECTS (no internet/pip issues):
+- csv, statistics, os, sys, json, re, pathlib — already built in
+- Only need: venv/bin/pip3 install pytest
+- Never use pandas if stdlib works
 
-pub struct LlmClient {
-    api_key:  String,
-    model:    String,
-    endpoint: String,
-}
+TESTING:
+- ALWAYS use run_tests command for tests — NEVER "run: node test.js" or "run: python test.py"
+- run_tests handles exit codes correctly
+- For Node.js: {"type": "run_tests", "target": "test.js"}
+- For Python: {"type": "run_tests", "target": "test_stats.py"}
+- For Rust: {"type": "run_tests", "target": "cargo"}
+- run_tests uses venv/bin/pytest automatically
+- Test functions must start with test_
+
+GO PROJECTS:
+- ALWAYS create go.mod with: module <name> and go 1.21
+- Test files must end with _test.go
+- Test functions must start with Test (capital T): func TestAdd(t *testing.T)
+- Use t.Errorf() for assertions
+- run_tests: {"type": "run_tests", "target": "go"}
+- Do NOT use pytest or cargo for Go projects
+
+PYTHON FILE NAMING:
+- NEVER name files: math.py, string.py, io.py, os.py, re.py, json.py, csv.py, numbers.py, decimal.py, types.py, typing.py, abc.py, queue.py
+- These conflict with Python stdlib modules
+- Use descriptive names: math_utils.py, string_ops.py, file_io.py, numbers_utils.py
+
+RUST PROJECTS:
+- NEVER use "cargo new" — create files directly with write_file
+- ALWAYS create Cargo.toml in workspace root (not in subdirectory)
+- ALWAYS create src/lib.rs or src/main.rs directly
+- NESTED WORKSPACE BUG — CRITICAL: if workspace is ~/myproject, write files as "Cargo.toml" NOT "myproject/Cargo.toml"
+  WRONG: {"type":"write_file","path":"myproject/Cargo.toml",...}
+  CORRECT: {"type":"write_file","path":"Cargo.toml",...}
+  The workspace path is already set — NEVER repeat the project name in file paths
+- Tests go inside src/lib.rs under #[cfg(test)] mod tests { use super::*; }
+- Use: #[test] fn test_name() { assert_eq!(...); }
+- run_tests: {"type": "run_tests", "target": "cargo"}
+- Do NOT use pytest or python for Rust projects
+- RUST CRYPTO CRATES — CRITICAL:
+- ed25519-dalek v2: use { version = "2.1", features = ["rand_core"] }
+  SigningKey::generate(&mut rand::rngs::OsRng)  — NEVER SigningKey::generate(&mut rand::thread_rng())
+  ALWAYS import: use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer, Verifier};
+  NEVER use: Keypair, PublicKey, SecretKey — these are v1 API
+- sha2: ALWAYS import: use sha2::{Sha256, Digest};
+  use Sha256::new() only after importing Digest trait
+- RUST INTEGRATION TESTS that run CLI binary:
+  ALWAYS use: let manifest_dir = env!("CARGO_MANIFEST_DIR");
+  ALWAYS build with: Command::new("cargo").args(["build"]).current_dir(manifest_dir).status()
+  ALWAYS run binary from: Path::new(manifest_dir).join("target/debug/<binary_name>")
+
+SQLITE TESTING RULES:
+- ALWAYS use :memory: database in tests (not a file)
+- OR use autouse fixture to delete db file before each test:
+    import pytest, os
+    @pytest.fixture(autouse=True)
+    def clean_db():
+        if os.path.exists("users.db"): os.remove("users.db")
+        yield
+        if os.path.exists("users.db"): os.remove("users.db")
+- NEVER assert exact count without resetting state first
+- Each test must be independent
+
+FASTAPI PROJECTS:
+- from fastapi.testclient import TestClient  (NEVER from httpx)
+- POST body must use Pydantic BaseModel
+- autouse fixture to reset in-memory state
+
+FASTAPI + SQLITE RULES — CRITICAL:
+- ALWAYS call Base.metadata.create_all(bind=engine) before tests run
+- Use :memory: SQLite in tests: SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
+- Add autouse fixture to create and drop tables:
+    @pytest.fixture(autouse=True)
+    def setup_db():
+        Base.metadata.create_all(bind=engine)
+        yield
+        Base.metadata.drop_all(bind=engine)
+- NEVER assume tables exist without creating them first
+- Use Pydantic v2 style: model_config = ConfigDict(...) not class Config
+- ALWAYS install sqlalchemy: pip install fastapi uvicorn pytest httpx sqlalchemy
+ASYNC PYTHON RULES — CRITICAL:
+- ALWAYS install: pytest pytest-asyncio aiohttp
+- ALWAYS add @pytest.mark.asyncio on every async test function
+- ALWAYS create conftest.py with content: import pytest
+- The ONLY correct way to mock aiohttp session:
+    from unittest.mock import MagicMock, AsyncMock
+    mock_resp = AsyncMock()
+    mock_resp.status = 200
+    mock_cm = MagicMock()
+    mock_cm.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_cm.__aexit__ = AsyncMock(return_value=False)
+    mock_session = MagicMock()
+    mock_session.get.return_value = mock_cm
+- session.get() returns a context manager NOT a coroutine — use MagicMock for session and get()
+- ONLY use AsyncMock for __aenter__ and __aexit__
+- NEVER call asyncio.run() inside tests
+
+EDGE CASE RULES — CRITICAL:
+- ALWAYS handle empty string in string functions
+- ALWAYS handle None and zero in numeric functions
+- For palindrome/reverse: check if len(s) == 0 before indexing
+- For math functions: handle n=0 explicitly
+- Write at least one test for empty/zero/None input
+
+PYQT PROJECTS — CRITICAL:
+- ALWAYS use PyQt6 (NEVER PyQt5 — it may not be installed)
+- WebEngine imports: from PyQt6.QtWebEngineWidgets import QWebEngineView
+- WebEngine URL: from PyQt6.QtWebEngineCore import QWebEngineUrlScheme
+- URL type: from PyQt6.QtCore import QUrl  — ALWAYS wrap strings: QUrl('https://...')
+- NEVER: setUrl('https://...') — ALWAYS: setUrl(QUrl('https://...'))
+- NEVER: load('https://...') — ALWAYS: load(QUrl('https://...'))
+- Install: venv/bin/pip3 install PyQt6 PyQt6-WebEngine pytest pytest-qt
+- Headless tests: set QT_QPA_PLATFORM=offscreen in test env
+- isVisible() tests require window.show() first
+
+PYTHON CODE IN JSON — CRITICAL:
+- Inside "content" fields, ONLY use single quotes in Python
+- NEVER: print("hello") — use: print('hello')
+- NEVER: f"text {var}" — use: f'text {var}'
+- NEVER: with open(f, "r") — use: with open(f, 'r')
+- This prevents JSON string from breaking
+
+PYTHON CODE IN JSON — CRITICAL:
+- Inside "content" fields, ONLY use single quotes in Python
+- NEVER: print("hello") — use: print('hello')
+- NEVER: f"text {var}" — use: f'text {var}'
+- NEVER: with open(f, "r") — use: with open(f, 'r')
+- This prevents JSON string from breaking
+
+GO PROJECTS — CRITICAL:
+- go.mod: ALWAYS specify exact go version: "go 1.21"
+- ALWAYS run "go mod tidy" after writing go.mod
+- Go struct tags use backticks: `gorm:"primaryKey"` — INSIDE JSON this BREAKS
+  SOLUTION: write struct tags WITHOUT backticks in JSON content:
+  WRONG in JSON: `gorm:"primaryKey"`
+  CORRECT in JSON: use \u0060gorm:\"primaryKey\"\u0060 OR avoid tags entirely
+  BEST SOLUTION: put Go code with struct tags in separate file and use write_file carefully
+- NEVER mix single quotes and double quotes in Go import blocks
+- Go imports: ALWAYS use double quotes: import "gorm.io/gorm"
+- GORM v2: use gorm.io/gorm and gorm.io/driver/sqlite (NOT github.com/jinzhu/gorm)
+- GORM SQLite memory: db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+- ioutil is DEPRECATED since Go 1.16 — use os.ReadFile, os.WriteFile instead
+- chi router: github.com/go-chi/chi/v5 (NOT gorilla/mux)
+- JWT: github.com/golang-jwt/jwt/v5 (v5 API — NOT v4)
+- ALWAYS use "go mod tidy" to download dependencies — NEVER "go get <package>"
+- go mod tidy sequence: write go.mod first → write all .go files → run "go mod tidy" → run tests
+- NEVER run "go get g4" or "go get ." — this breaks module resolution
+- GO CODE IN JSON — CRITICAL:
+  NEVER use backticks inside JSON string values
+  Replace struct tags backticks with raw string workaround:
+  Instead of: type User struct { ID uint `gorm:"primaryKey"` }
+  Write file content without tags first, then add tags via separate patch
+  OR use: type User struct { gorm.Model; Name string; Email string }
+
+NODE.JS PROJECTS — CRITICAL:
+- ALWAYS create package.json first with: {"name":"app","version":"1.0.0","scripts":{"test":"jest --runInBand"}}
+- ALWAYS install jest BEFORE writing test files
+- ALWAYS add to package.json: "jest":{"testEnvironment":"node"}
+- NEVER use backticks (`) inside JSON content fields — use single quotes or escaped strings only
+- NEVER use template literals in code inside JSON strings
+
+NODE.JS COMMONJS (default) — CRITICAL:
+- Default is CommonJS — NEVER add "type":"module" unless goal explicitly says ESM
+- Use require() and module.exports — NEVER import/export in CJS projects
+- Jest config: {"testEnvironment":"node"} — ALWAYS include this
+
+NODE.JS ESM — CRITICAL (only when goal says ESM or type:module):
+- Add "type":"module" to package.json
+- Use import/export syntax — NEVER require()
+- Jest ESM: install jest + add to package.json scripts: "NODE_OPTIONS=--experimental-vm-modules jest"
+- NEVER use @jest/globals import — jest globals (describe/it/expect) are auto-injected
+
+JEST RULES — CRITICAL:
+- ALWAYS add "jest":{"testEnvironment":"node"} in package.json
+- NEVER use .toThrowError() — it is REMOVED in Jest 29+ — use .toThrow() instead
+- NEVER use jest.config.js with require() in ESM projects — use package.json jest field
+- test files: ALWAYS use describe() and it() or test() — NEVER call assertions outside describe
+
+TYPESCRIPT + TS-JEST — CRITICAL:
+- Install: typescript ts-jest @types/jest jest
+- jest.config.js: module.exports = { preset: 'ts-jest', testEnvironment: 'node' }
+- tsconfig.json: { "compilerOptions": { "target": "ES2020", "module": "commonjs", "strict": true } }
+- NEVER use .toThrowError() — use .toThrow() only
+- test files extension: .test.ts
+
+ALWAYS:
+1. python3 -m venv venv
+2. venv/bin/pip3 install [packages]  (skip if no external packages)
+3. write_file for all source files
+4. run_tests
+5. done"#;
+
+pub struct LlmClient { api_key: String, model: String, endpoint: String }
 
 #[derive(Serialize)]
-struct Request {
-    model:       String,
-    messages:    Vec<ApiMsg>,
-    temperature: f32,
-}
+struct Request { model: String, messages: Vec<ApiMsg>, temperature: f32, max_tokens: u32 }
 
 #[derive(Serialize, Deserialize, Clone)]
 struct ApiMsg { role: String, content: String }
@@ -69,20 +237,19 @@ impl LlmClient {
     pub fn new(api_key: String) -> Self {
         Self {
             api_key,
-            model:    "llama-3.3-70b-versatile".into(),
+            model:    "moonshotai/kimi-k2-instruct".into(),
             endpoint: "https://api.groq.com/openai/v1/chat/completions".into(),
         }
     }
 
     pub async fn call(&self, messages: &[Message]) -> Result<String> {
-        let mut msgs: Vec<ApiMsg> = vec![
-            ApiMsg { role: "system".into(), content: SYSTEM_PROMPT.into() }
-        ];
-        for m in messages {
-            msgs.push(ApiMsg { role: m.role.clone(), content: m.content.clone() });
-        }
+        let mut msgs = vec![ApiMsg { role: "system".into(), content: SYSTEM_PROMPT.into() }];
+        for m in messages { msgs.push(ApiMsg { role: m.role.clone(), content: m.content.clone() }); }
 
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .connect_timeout(std::time::Duration::from_secs(30))
+            .build()?;
         let delays = [15u64, 45, 120];
 
         for (attempt, &delay) in delays.iter().enumerate() {
@@ -91,37 +258,48 @@ impl LlmClient {
                 tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
             }
 
-            let resp = client
+            let resp = match client
                 .post(&self.endpoint)
                 .bearer_auth(&self.api_key)
                 .json(&Request {
-                    model: self.model.clone(), messages: msgs.clone(), temperature: 0.1,
+                    model: self.model.clone(),
+                    messages: msgs.clone(),
+                    temperature: 0.1,
+                    max_tokens: 8192,
                 })
-                .send().await?;
+                .send().await {
+                    Ok(r)  => r,
+                    Err(e) => {
+                        if attempt + 1 == delays.len() {
+                            return Err(anyhow!("Connection error: {}", e));
+                        }
+                        println!("   ⚠ Connection error: {} — retry in {}s...", e, delay);
+                        continue;
+                    }
+                };
 
             let status = resp.status();
-
-            if status == 429 {
-                println!("   ⚠ Rate limit (attempt {})", attempt + 1);
+            if status == 429 || status == 503 || status == 502 || status == 500 {
                 if attempt + 1 == delays.len() {
-                    return Err(anyhow!("Rate limit exceeded after {} attempts", delays.len()));
+                    let body = resp.text().await.unwrap_or_default();
+                    return Err(anyhow!("API {} — {}", status, &body[..body.len().min(200)]));
                 }
+                let label = if status == 429 { "Rate limit" } else { "Server error" };
+                println!("   ⚠ {} ({}) — retry in {}s...", label, status, delay);
                 continue;
             }
-
             if !status.is_success() {
                 let body = resp.text().await.unwrap_or_default();
                 return Err(anyhow!("API {} — {}", status, &body[..body.len().min(200)]));
             }
 
-            let data: Response = resp.json().await
-                .map_err(|e| anyhow!("Response parse error: {}", e))?;
-
+            let data: Response = resp.json().await?;
+            let raw = data.choices.iter().next().map(|c| &c.message.content).cloned().unwrap_or_default();
+            // debug removed v1.5
             return data.choices.into_iter().next()
                 .map(|c| c.message.content)
-                .ok_or_else(|| anyhow!("Empty choices in response"));
+                .ok_or_else(|| anyhow!("Empty response"));
         }
-
-        Err(anyhow!("LLM failed after all retries"))
+        Err(anyhow!("LLM failed"))
     }
 }

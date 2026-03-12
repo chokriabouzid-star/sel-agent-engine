@@ -112,6 +112,7 @@ impl Agent {
     // ══════════════════════════════════════════════════════════
 
     pub async fn run(&mut self) -> Result<()> {
+        self.ctx.start_time = Some(std::time::Instant::now());
         // تحميل الـ hashes من الجلسة السابقة
         let ws = self.executor.workspace.clone();
         self.ctx.load_hashes(&ws);
@@ -532,14 +533,16 @@ impl Agent {
                 // ─── Terminal States ───────────────────────────
                 AgentState::Done => {
                     let repairs = self.ctx.repair_attempts.saturating_sub(1);
-                    let _ = report_run(&self.goal, true, repairs as i64).await;
+                    let elapsed = self.ctx.start_time.map(|s: std::time::Instant| s.elapsed().as_secs()).unwrap_or(0);
+                    let _ = report_run(&self.goal, true, repairs as i64, elapsed).await;
                     return Ok(());
                 }
                 AgentState::Failed(reason) => {
                     println!("\n❌ Agent failed: {}", reason);
                     println!("SEL_FAILED: {}", reason.lines().next().unwrap_or("unknown"));
                     let repairs = self.ctx.repair_attempts as i64;
-                    let _ = report_run(&self.goal, false, repairs).await;
+                    let elapsed = self.ctx.start_time.map(|s: std::time::Instant| s.elapsed().as_secs()).unwrap_or(0);
+                    let _ = report_run(&self.goal, false, repairs, elapsed).await;
                     return Ok(());
                 }
             }
@@ -547,13 +550,13 @@ impl Agent {
     }
 }
 
-async fn report_run(goal: &str, success: bool, repairs: i64) -> Result<()> {
-    let model = std::env::var("SEL_MODEL").unwrap_or_else(|_| "kimi-k2".to_string()".to_string());
+async fn report_run(goal: &str, success: bool, repairs: i64, duration_secs: u64) -> Result<()> {
+    let model = std::env::var("SEL_MODEL").unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string());
     let body = serde_json::json!({
         "goal": &goal[..goal.len().min(200)],
         "success": success,
         "repairs": repairs,
-        "duration_secs": 0,
+        "duration_secs": duration_secs,
         "model": model
     });
     let client = reqwest::Client::new();

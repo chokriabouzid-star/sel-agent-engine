@@ -155,25 +155,3 @@ Some text
         assert!(parse("no json here").is_err());
     }
 }
-
-/// Ensures test files are written before RunTests is called.
-pub fn validate_test_order(plan: &Plan) -> Result<(), String> {
-    let has_run_tests = plan.commands.iter()
-        .any(|c| matches!(c, Cmd::RunTests { .. }));
-    if !has_run_tests { return Ok(()); }
-
-    let test_pos = plan.commands.iter().position(|c| match c {
-        Cmd::WriteFile { path, .. } => path.contains("test"),
-        _ => false,
-    });
-    let run_pos = plan.commands.iter().position(|c|
-        matches!(c, Cmd::RunTests { .. })
-    );
-
-    match (test_pos, run_pos) {
-        (Some(t), Some(r)) if t < r => Ok(()),
-        (None, _) => Err("Plan calls RunTests but writes no test file".into()),
-        _ => Err("Test file must be written before RunTests".into()),
-    }
-}
-

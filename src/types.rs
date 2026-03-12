@@ -28,11 +28,12 @@ pub struct ExecutionContext {
     pub repair_attempts:   u8,
     pub successful_hashes: HashSet<String>,
     pub max_repairs:       u8,
+    pub start_time:        Option<std::time::Instant>,
 }
 
 impl ExecutionContext {
     pub fn new(max_repairs: u8) -> Self {
-        Self { max_repairs, successful_hashes: std::collections::HashSet::new(), ..Default::default() }
+        Self { max_repairs, start_time: None, successful_hashes: std::collections::HashSet::new(), ..Default::default() }
     }
     pub fn reset_for_repair(&mut self) {
         self.tests_passed   = false;

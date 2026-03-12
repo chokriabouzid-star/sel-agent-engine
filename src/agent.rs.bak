@@ -1,4 +1,4 @@
-// src/agent.rs — v0.4: State Machine
+// src/agent.rs — v1.3: State Machine
 
 use anyhow::Result;
 use std::path::PathBuf;
@@ -33,6 +33,9 @@ impl Agent {
             repair_fingerprints: Vec::new(),
         }
     }
+    pub fn repair_count(&self) -> usize {
+        self.ctx.repair_attempts as usize
+    }
 
     // ══════════════════════════════════════════════════════════
     // Goal Validator v1.2
@@ -63,6 +66,51 @@ impl Agent {
     // الحلقة الرئيسية
     // ══════════════════════════════════════════════════════════
 
+
+    // ══════════════════════════════════════════════════════════
+    // Protocol Resilience v1.3
+    async fn plan_with_resilience(&self, base_prompt: String) -> Result<Vec<Cmd>, String> {
+        const MAX_RETRIES: u8 = 2;
+        for attempt in 0..=MAX_RETRIES {
+            let prompt = if attempt == 0 {
+                base_prompt.clone()
+            } else {
+                format!(
+                    "{}\n\n                     WARNING — PROTOCOL RETRY {}/{}: previous response could not be parsed.\n                     STRICT RULES:\n                     1. Output ONLY a ```json block — zero text outside it.\n                     2. Keep all content strings SHORT (< 40 chars per line).\n                     3. Use ONLY single quotes inside Python/shell code.\n                     4. No raw newlines inside JSON strings — use \\n instead.\n                     5. No special characters that break JSON strings.",
+                    base_prompt, attempt, MAX_RETRIES
+                )
+            };
+
+            match self.llm.call(&[Message::user(prompt)]).await {
+                Ok(response) => match crate::protocol::parse(&response) {
+                    Ok(plan) => {
+                        if attempt > 0 {
+                            println!("   ✅ Protocol retry {} succeeded.", attempt);
+                        }
+                        return Ok(plan.commands);
+                    }
+                    Err(e) => {
+                        if attempt < MAX_RETRIES {
+                            println!(
+                                "   ⚠ JSON parse failed (attempt {}/{}) — retrying with simplified prompt...",
+                                attempt + 1, MAX_RETRIES + 1
+                            );
+                            println!("     Reason: {}", e.to_string().lines().next().unwrap_or("?"));
+                        } else {
+                            return Err(format!(
+                                "JSON parse failed after {} attempts: {}",
+                                MAX_RETRIES + 1, e
+                            ));
+                        }
+                    }
+                },
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+        unreachable!()
+    }
+    // ══════════════════════════════════════════════════════════
+
     pub async fn run(&mut self) -> Result<()> {
         // تحميل الـ hashes من الجلسة السابقة
         let ws = self.executor.workspace.clone();
@@ -88,16 +136,16 @@ impl Agent {
                         "Goal: {}\n\nProvide the complete execution plan.",
                         self.goal
                     );
-                    let response = self.llm.call(&[Message::user(prompt)]).await?;
-                    match protocol::parse(&response) {
-                        Ok(plan) => {
-                            println!("   ✓ {} commands\n", plan.commands.len());
-                            self.plan  = plan.commands;
+                    // Protocol Resilience v1.3
+                    match self.plan_with_resilience(prompt).await {
+                        Ok(commands) => {
+                            println!("   ✓ {} commands\n", commands.len());
+                            self.plan  = commands;
                             self.state = AgentState::Executing;
                         }
                         Err(e) => {
-                            println!("   ❌ Invalid plan: {}", e);
-                            self.state = AgentState::Failed(e.to_string());
+                            println!("   ❌ Plan parse failed: {}", e);
+                            self.state = AgentState::Failed(e);
                         }
                     }
                 }
@@ -115,16 +163,25 @@ impl Agent {
 
                         // skip الخطوات الناجحة سابقاً
                         let cmd_hash = cmd.hash();
-                        if self.ctx.successful_hashes.contains(&cmd_hash) && !cmd.is_run_tests() && !cmd.is_write_file() {
+                        // pip install يُعاد تشغيله إذا كان venv غير موجود (مثلاً بعد rm -rf venv)
+                        let is_pip = cmd.label().contains("pip");
+                        let venv_ok = self.executor.workspace.join("venv/bin/pip3").exists()
+                                   || self.executor.workspace.join("venv/bin/pip").exists();
+                        let skip_allowed = !cmd.is_run_tests() && !cmd.is_write_file()
+                                        && !(is_pip && !venv_ok);
+                        if self.ctx.successful_hashes.contains(&cmd_hash) && skip_allowed {
                             println!("   ⏭ Skipping: {} (already passed)", cmd.label());
                             continue;
+                        }
+                        if is_pip && !venv_ok {
+                            println!("   🔄 venv missing — re-running pip install");
                         }
 
                         // done مشروط — لا يُنفَّذ إذا لم تنجح الاختبارات
                         if cmd.is_done() {
                             if self.ctx.tests_passed {
                                 let msg = if let Cmd::Done { message } = cmd { message } else { "Goal complete" };
-                                // ─── Mutation Check v1.1 ───
+                                // ─── Mutation Check v1.3 ───
                                 let py_source = self.plan.iter().find_map(|c| match c {
                                     crate::protocol::Cmd::WriteFile { path, .. }
                                         if path.ends_with(".py") && !path.contains("test") => Some(path.clone()),
@@ -135,9 +192,25 @@ impl Agent {
                                     use crate::executor::MutationResult;
                                     println!("\n🧬 Mutation check on {}...", src);
                                     match self.executor.mutation_check(&src).await {
-                                        MutationResult::Weak => {
-                                            println!("   ⚠️  Tests are weak (passed on broken code).");
-                                            println!("   Continuing — mutation check is advisory in v1.1.");
+                                        MutationResult::Weak(orig_line, mutd_line) => {
+                                            println!("   ⚠️  Tests are WEAK — triggering repair (Mutation Enforcement v1.3).");
+                                            println!("     Survived mutation: [{}] → [{}]", orig_line, mutd_line);
+                                            mutation_passed = false;
+                                            self.ctx.failed_steps.push(crate::types::FailedStep {
+                                                step_index:   0,
+                                                label:        "mutation_check".into(),
+                                                stderr:       format!(
+                                                    "WEAK TESTS: Tests passed on mutated code in '{}'.
+                                                     SURVIVED MUTATION DIFF:
+                                                     - Original : {}
+                                                     + Mutated  : {}
+                                                     The tests did NOT catch this change.
+                                                     Add assertions that distinguish these two behaviors.",
+                                                    src, orig_line, mutd_line
+                                                ),
+                                                exit_code:    -3,
+                                                culprit_file: Some(src.clone()),
+                                            });
                                         }
                                         MutationResult::Strong  => println!("   ✅ Tests are solid."),
                                         MutationResult::Skipped => println!("   ⏭  Mutation check skipped."),
@@ -149,6 +222,8 @@ impl Agent {
                                     println!("\n✅ {}", if msg.is_empty() { "Goal complete!" } else { msg });
                                     println!("SEL_SUCCESS");
                                     self.state = AgentState::Done;
+                                } else {
+                                    self.state = AgentState::Repairing;
                                 }
                             } else {
                                 println!("   ⛔ done rejected — tests must pass first");
@@ -206,7 +281,7 @@ impl Agent {
                     // بعد كل الأوامر — قرر الحالة التالية
                     if matches!(self.state, AgentState::Executing) {
                         if self.ctx.tests_passed {
-                            // ─── Mutation Check v1.1 ───
+                            // ─── Mutation Check v1.3 ───
                             let py_source = self.plan.iter().find_map(|c| match c {
                                 crate::protocol::Cmd::WriteFile { path, .. }
                                     if path.ends_with(".py") && !path.contains("test") => Some(path.clone()),
@@ -216,19 +291,47 @@ impl Agent {
                                 use crate::executor::MutationResult;
                                 println!("\n🧬 Mutation check on {}...", src);
                                 match self.executor.mutation_check(&src).await {
-                                    MutationResult::Weak => {
-                                        println!("   ⚠️  Tests are weak (passed on broken code).");
-                                        println!("   Continuing — mutation check is advisory in v1.1.");
+                                    MutationResult::Weak(orig_line, mutd_line) => {
+                                        println!("   ⚠️  Tests are WEAK — triggering repair (Mutation Enforcement v1.3).");
+                                        println!("     Survived mutation: [{}] → [{}]", orig_line, mutd_line);
+                                        self.ctx.failed_steps.push(crate::types::FailedStep {
+                                            step_index:   0,
+                                            label:        "mutation_check".into(),
+                                            stderr:       format!(
+                                                "WEAK TESTS: Tests passed on mutated code in '{}'.
+                                                 SURVIVED MUTATION DIFF:
+                                                 - Original : {}
+                                                 + Mutated  : {}
+                                                 The tests did NOT catch this change.
+                                                 Add assertions that distinguish these two behaviors.",
+                                                src, orig_line, mutd_line
+                                            ),
+                                            exit_code:    -3,
+                                            culprit_file: Some(src.clone()),
+                                        });
+                                        self.state = AgentState::Repairing;
                                     }
-                                    MutationResult::Strong  => println!(" ✅ Tests are solid."),
-                                    MutationResult::Skipped => println!(" ⏭  Skipped."),
+                                    MutationResult::Strong  => {
+                                        println!(" ✅ Tests are solid.");
+                                        self.ctx.save_hashes(&self.executor.workspace);
+                                        println!("\n✅ Goal complete! Tests passed.");
+                                        println!("SEL_SUCCESS");
+                                        self.state = AgentState::Done;
+                                    }
+                                    MutationResult::Skipped => {
+                                        println!(" ⏭  Skipped.");
+                                        self.ctx.save_hashes(&self.executor.workspace);
+                                        println!("\n✅ Goal complete! Tests passed.");
+                                        println!("SEL_SUCCESS");
+                                        self.state = AgentState::Done;
+                                    }
                                 }
+                            } else {
+                                self.ctx.save_hashes(&self.executor.workspace);
+                                println!("\n✅ Goal complete! Tests passed.");
+                                println!("SEL_SUCCESS");
+                                self.state = AgentState::Done;
                             }
-                            // ─────────────────────────────
-                            self.ctx.save_hashes(&self.executor.workspace);
-                            println!("\n✅ Goal complete! Tests passed.");
-                            println!("SEL_SUCCESS");
-                            self.state = AgentState::Done;
                         } else {
                             self.state = AgentState::Repairing;
                         }
@@ -270,7 +373,7 @@ impl Agent {
                             _ => None,
                         })
                         .collect();
-                    // ─── Context Budget v1.1 ───
+                    // ─── Context Budget v1.3 ───
                     let all_workspace_files: Vec<std::path::PathBuf> = written_files.iter()
                         .map(|f| ws.join(f))
                         .filter(|p| p.exists())
@@ -358,7 +461,15 @@ impl Agent {
                         "\n\nNETWORK UNAVAILABLE: Use ONLY Python stdlib. NO pandas, NO requests."
                     } else { "" };
 
-                    // ─── Structured Repair Memory v1.1 ───
+                    // Mutation Enforcement v1.3
+                    let mutation_note = if errors.contains("WEAK TESTS") {
+                        "\n\n🧬 MUTATION ENFORCEMENT: Your tests are too weak.\nYOU MUST strengthen the test file:\n1. Add assert statements with EXACT expected values.\n2. Test edge cases: negative numbers, zero, empty input.\n3. Each function must have at least 2 independent assertions.\nDO NOT modify the source file."
+                    } else { "" };
+                    // Mutation Enforcement v1.3
+                    let mutation_note = if errors.contains("WEAK TESTS") {
+                        "\n\nMUTATION ENFORCEMENT: Your tests are too weak — they passed on broken code.\n                         YOU MUST strengthen the test file:\n                         1. Add assert statements with EXACT expected values (e.g. assert result == 42).\n                         2. Test edge cases: negative numbers, zero, empty input.\n                         3. Each function must have at least 2 independent assertions.\n                         DO NOT modify the source file — only improve the test file."
+                    } else { "" };
+                    // ─── Structured Repair Memory v1.3 ───
                     let attempt_note = if self.ctx.repair_attempts > 1 {
                         match &self.previous_error {
                             Some(prev) => format!(
@@ -393,39 +504,63 @@ impl Agent {
                         self.repair_fingerprints.push(fingerprint);
                     }
                     let prompt = format!(
-                        "Goal: {}{}\n\nHINT: {}\n\n{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}\n\
+                        "Goal: {}{}{}\n\nHINT: {}\n\n{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}\n\
                          Fix ALL issues. Provide complete corrected plan.",
-                        self.goal, network_note, repair_hint, attempt_note, errors, files_context
+                        self.goal, network_note, mutation_note, repair_hint, attempt_note, errors, files_context
                     );
 
-                    match self.llm.call(&[Message::user(prompt)]).await {
-                        Ok(response) => {
-                            match protocol::parse(&response) {
-                                Ok(plan) => {
-                                    println!("   ✓ Repair plan: {} commands", plan.commands.len());
-                                    self.plan  = plan.commands;
-                                    self.state = AgentState::Executing;
-                                }
-                                Err(e) => {
-                                    println!("   ⚠ Invalid repair plan: {}", e);
-                                    // أعد المحاولة في دورة Repairing التالية
-                                }
-                            }
+                    // Protocol Resilience v1.3
+                    match self.plan_with_resilience(prompt).await {
+                        Ok(commands) => {
+                            println!("   ✓ Repair plan: {} commands", commands.len());
+                            self.plan  = commands;
+                            self.state = AgentState::Executing;
                         }
                         Err(e) => {
-                            println!("   ⚠ LLM error: {}", e);
+                            println!("   ⚠ Repair plan parse failed: {}", e);
+                            self.ctx.failed_steps.push(crate::types::FailedStep {
+                                step_index:   0,
+                                label:        "repair_planning".into(),
+                                stderr:       format!("Protocol parse error: {}", e),
+                                exit_code:    -2,
+                                culprit_file: None,
+                            });
                         }
                     }
                 }
 
                 // ─── Terminal States ───────────────────────────
-                AgentState::Done => return Ok(()),
+                AgentState::Done => {
+                    let repairs = self.ctx.repair_attempts.saturating_sub(1);
+                    let _ = report_run(&self.goal, true, repairs as i64).await;
+                    return Ok(());
+                }
                 AgentState::Failed(reason) => {
                     println!("\n❌ Agent failed: {}", reason);
                     println!("SEL_FAILED: {}", reason.lines().next().unwrap_or("unknown"));
+                    let repairs = self.ctx.repair_attempts as i64;
+                    let _ = report_run(&self.goal, false, repairs).await;
                     return Ok(());
                 }
             }
         }
     }
+}
+
+async fn report_run(goal: &str, success: bool, repairs: i64) -> Result<()> {
+    let model = std::env::var("SEL_MODEL").unwrap_or_else(|_| "kimi-k2".to_string()".to_string());
+    let body = serde_json::json!({
+        "goal": &goal[..goal.len().min(200)],
+        "success": success,
+        "repairs": repairs,
+        "duration_secs": 0,
+        "model": model
+    });
+    let client = reqwest::Client::new();
+    let _ = client.post("http://localhost:8777/api/runs")
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(2))
+        .send()
+        .await;
+    Ok(())
 }

@@ -217,7 +217,12 @@ ALWAYS:
 2. venv/bin/pip3 install [packages]  (skip if no external packages)
 3. write_file for all source files
 4. run_tests
-5. done"#;
+5. done
+PYTHON TESTING (MANDATORY):
+1. Floats: ALWAYS use pytest.approx(x, rel=1e-6) — NEVER compare floats with ==
+2. Branches: every if/else MUST have a test for EACH branch (both True and False paths)
+3. Assume your code is wrong. Tests must try to BREAK the code, not mirror its logic.
+"#;
 
 pub struct LlmClient { api_key: String, model: String, endpoint: String }
 
