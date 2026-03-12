@@ -183,13 +183,19 @@ impl Agent {
                             if self.ctx.tests_passed {
                                 let msg = if let Cmd::Done { message } = cmd { message } else { "Goal complete" };
                                 // ─── Mutation Check v1.3 ───
-                                let py_source = self.plan.iter().find_map(|c| match c {
+                                let impl_source = self.plan.iter().find_map(|c| match c {
                                     crate::protocol::Cmd::WriteFile { path, .. }
-                                        if path.ends_with(".py") && !path.contains("test") => Some(path.clone()),
+                                        if (path.ends_with(".py") || path.ends_with(".go")
+                                            || path.ends_with(".js") || path.ends_with(".ts")
+                                            || path.ends_with(".rs"))
+                                           && !path.contains("test")
+                                           && !path.contains("Cargo.toml")
+                                           && !path.contains("go.mod")
+                                           && !path.contains("package.json") => Some(path.clone()),
                                     _ => None,
                                 });
                                 let mut mutation_passed = true;
-                                if let Some(src) = py_source {
+                                if let Some(src) = impl_source {
                                     use crate::executor::MutationResult;
                                     println!("\n🧬 Mutation check on {}...", src);
                                     match self.executor.mutation_check(&src).await {

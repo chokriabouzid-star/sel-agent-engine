@@ -475,15 +475,29 @@ impl SafeExecutor {
         let source_path = self.workspace.join(source_file);
         if !source_path.exists() { return MutationResult::Skipped; }
         let ext = source_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        if ext != "py" { return MutationResult::Skipped; }
         let original = match std::fs::read_to_string(&source_path) {
             Ok(s) => s, Err(_) => return MutationResult::Skipped,
         };
         let mutations = apply_all_mutations(&original);
         if mutations.is_empty() { return MutationResult::Skipped; }
-        let pytest = if self.workspace.join("venv/bin/pytest").exists() {
-            "venv/bin/pytest"
-        } else { "pytest" };
+        // test runner per language
+        let test_cmd: Vec<String> = match ext {
+            "py" => {
+                let pytest = if self.workspace.join("venv/bin/pytest").exists() {
+                    "venv/bin/pytest"
+                } else { "pytest" };
+                vec![pytest.into(), "-x".into(), "-q".into(), "--tb=no".into()]
+            }
+            "go" => vec!["go".into(), "test".into(), "./...".into(), "-count=1".into()],
+            "js" | "ts" => {
+                let npx = if self.workspace.join("node_modules/.bin/jest").exists() {
+                    "node_modules/.bin/jest"
+                } else { "npx" };
+                vec![npx.into(), "--forceExit".into(), "--silent".into()]
+            }
+            "rs" => vec!["cargo".into(), "test".into(), "--quiet".into()],
+            _ => return MutationResult::Skipped,
+        };
         let mut survived_orig = String::new();
         let mut survived_mutd = String::new();
         let mut any_caught  = false;
@@ -495,8 +509,8 @@ impl SafeExecutor {
             }
             let out = tokio::time::timeout(
                 std::time::Duration::from_secs(30),
-                tokio::process::Command::new(pytest)
-                    .args(["-x", "-q", "--tb=no"])
+                tokio::process::Command::new(&test_cmd[0])
+                    .args(&test_cmd[1..])
                     .current_dir(&self.workspace)
                     .env("PYTHONPATH", &self.workspace)
                     .output(),
