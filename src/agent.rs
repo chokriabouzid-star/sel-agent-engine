@@ -530,13 +530,37 @@ impl Agent {
                 }
 
                 // ─── Terminal States ───────────────────────────
-                AgentState::Done => return Ok(()),
+                AgentState::Done => {
+                    let repairs = self.ctx.repair_attempts.saturating_sub(1);
+                    let _ = report_run(&self.goal, true, repairs as i64).await;
+                    return Ok(());
+                }
                 AgentState::Failed(reason) => {
                     println!("\n❌ Agent failed: {}", reason);
                     println!("SEL_FAILED: {}", reason.lines().next().unwrap_or("unknown"));
+                    let repairs = self.ctx.repair_attempts as i64;
+                    let _ = report_run(&self.goal, false, repairs).await;
                     return Ok(());
                 }
             }
         }
     }
+}
+
+async fn report_run(goal: &str, success: bool, repairs: i64) -> Result<()> {
+    let model = std::env::var("SEL_MODEL").unwrap_or_else(|_| "kimi-k2".to_string()".to_string());
+    let body = serde_json::json!({
+        "goal": &goal[..goal.len().min(200)],
+        "success": success,
+        "repairs": repairs,
+        "duration_secs": 0,
+        "model": model
+    });
+    let client = reqwest::Client::new();
+    let _ = client.post("http://localhost:8777/api/runs")
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(2))
+        .send()
+        .await;
+    Ok(())
 }
