@@ -92,7 +92,7 @@ async fn run_health(api_key: &str) -> Result<()> {
 
 async fn run_stress(api_key: &str, max_repairs: u8) -> Result<()> {
     println!("\n╔══════════════════════════════════════════╗");
-    println!("║   SEL Agent v1.5 — Stress Test           ║");
+    println!("║   SEL Agent v1.7 — Stress Test           ║");
     println!("╚══════════════════════════════════════════╝\n");
 
     let cases: &[(&str, &str)] = &[
@@ -108,6 +108,21 @@ async fn run_stress(api_key: &str, max_repairs: u8) -> Result<()> {
         ("wrong return",     "Create Python function reverse_string(s) returning s[::-1]. Write pytest test expecting reverse_string('hello')=='olleh'. Run tests."),
         ("missing function", "Create Python class Stack with push(item) and pop() methods. Write pytest test. Run tests."),
         ("runtime error",    "Create Python function divide(a,b) returning None if b==0 else a/b. Write pytest test for divide(10,0)==None. Run tests."),
+        // Go cases
+        ("go add",           "Create Go package main with Add(a,b int) int. Create go.mod with module gotest and go 1.21. Write _test.go testing Add(2,3)==5 and Add(-1,1)==0. Run go test."),
+        ("go fizzbuzz",      "Create Go package main with FizzBuzz(n int) string returning Fizz/Buzz/FizzBuzz/number. Create go.mod module gotest go 1.21. Write _test.go with 4 test cases. Run go test."),
+        ("go reverse",       "Create Go package main with Reverse(s string) string. Create go.mod module gotest go 1.21. Write _test.go testing Reverse(hello)==olleh and Reverse()==empty. Run go test."),
+        ("go divide",        "Create Go package main with Divide(a,b float64) (float64,error) returning error if b==0. Create go.mod module gotest go 1.21. Write _test.go testing normal and zero cases. Run go test."),
+        // Node cases
+        ("node add",         "Create Node.js CommonJS module math.js exporting add(a,b). Create package.json with jest. Write math.test.js testing add(2,3)===5 and add(-1,1)===0. Run npm test."),
+        ("node palindrome",  "Create Node.js CommonJS module palindrome.js exporting isPalindrome(s). Create package.json with jest. Write test file testing racecar==true and hello==false. Run npm test."),
+        ("node factorial",   "Create Node.js CommonJS module factorial.js exporting factorial(n) with base case 0==1. Create package.json with jest. Write test for factorial(5)==120 and factorial(0)==1. Run npm test."),
+        ("node filter",      "Create Node.js CommonJS module filter.js exporting filterEven(arr) returning even numbers. Create package.json with jest. Write test with arrays including empty array case. Run npm test."),
+        // Rust cases
+        ("rust add",         "Create Rust library crate. Write Cargo.toml with name=rustadd edition=2021. Write src/lib.rs with pub fn add(a:i32,b:i32)->i32. Write tests module inside lib.rs testing add(2,3)==5 and add(-1,1)==0. Run cargo test."),
+        ("rust fizzbuzz",    "Create Rust library crate. Write Cargo.toml name=rustfizz edition=2021. Write src/lib.rs with pub fn fizzbuzz(n:u32)->String returning Fizz Buzz FizzBuzz or number. Write tests module with 4 cases. Run cargo test."),
+        ("rust reverse",     "Create Rust library crate. Write Cargo.toml name=rustreverse edition=2021. Write src/lib.rs with pub fn reverse(s:&str)->String. Write tests module testing hello->olleh and empty string. Run cargo test."),
+        ("rust stack",       "Create Rust library crate. Write Cargo.toml name=ruststack edition=2021. Write src/lib.rs with pub struct Stack and impl with push pop is_empty. Write tests module. Run cargo test."),
     ];
 
     let total = cases.len();
