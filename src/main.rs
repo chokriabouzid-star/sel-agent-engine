@@ -35,6 +35,7 @@ enum Commands {
     Bench {
         #[arg(long, default_value = "all")] suite: String,
         #[arg(long, default_value = "3")]   max_repairs: u8,
+        #[arg(long, default_value = "1")]   iterations: u8,
     },
 }
 
@@ -95,7 +96,7 @@ async fn run_health(api_key: &str) -> Result<()> {
 }
 
 
-async fn run_bench(api_key: &str, suite: &str, max_repairs: u8) -> Result<()> {
+async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8) -> Result<()> {
     let all_cases: &[(&str, &str, &str)] = &[
         // Python
         ("python", "broken import",    "Create Python file importing from math_utils import add. Create math_utils.py with add(a,b) function. Write pytest test. Run tests."),
@@ -141,40 +142,46 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8) -> Result<()> {
     println!("╚══════════════════════════════════════════╝\n");
 
     let total = cases.len();
+    let total_runs = total * iterations as usize;
     let mut passed = 0usize;
     let mut total_repairs = 0usize;
     let mut mutation_killed = 0u32;
     let mut mutation_total  = 0u32;
     let tmpdir = std::env::temp_dir();
 
-    for (i, (_lang, name, goal)) in cases.iter().enumerate() {
-        let workspace = tmpdir.join(format!("sel-bench-{}", i));
-        let _ = std::fs::remove_dir_all(&workspace);
-        let pb = ProgressBar::new_spinner();
-        pb.set_style(ProgressStyle::default_spinner()
-            .template(&format!("{{spinner:.cyan}} 🔬 Bench: {}...", name)).unwrap());
-        pb.enable_steady_tick(Duration::from_millis(80));
+    for iter in 0..iterations {
+        if iterations > 1 {
+            println!("\n── Iteration {}/{} ──────────────────────────", iter+1, iterations);
+        }
+        for (i, (_lang, name, goal)) in cases.iter().enumerate() {
+            let workspace = tmpdir.join(format!("sel-bench-{}-{}", iter, i));
+            let _ = std::fs::remove_dir_all(&workspace);
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(ProgressStyle::default_spinner()
+                .template(&format!("{{spinner:.cyan}} 🔬 [{}/{}] {}...", iter+1, iterations, name)).unwrap());
+            pb.enable_steady_tick(Duration::from_millis(80));
 
-        let mut agent = crate::agent::Agent::new(
-            api_key.to_string(), workspace.clone(),
-            goal.to_string(), max_repairs,
-        );
-        let ok = agent.run().await.is_ok();
-        pb.finish_and_clear();
+            let mut agent = crate::agent::Agent::new(
+                api_key.to_string(), workspace.clone(),
+                goal.to_string(), max_repairs,
+            );
+            let ok = agent.run().await.is_ok();
+            pb.finish_and_clear();
 
-        let repairs = agent.repair_count();
-        total_repairs += repairs;
-        let ms = agent.mutation_score();
-        if ms >= 0.0 { mutation_total += 1; if ms >= 1.0 { mutation_killed += 1; } }
+            let repairs = agent.repair_count();
+            total_repairs += repairs;
+            let ms = agent.mutation_score();
+            if ms >= 0.0 { mutation_total += 1; if ms >= 1.0 { mutation_killed += 1; } }
 
-        let status = if ok { "✅".to_string() } else { "❌".to_string() };
-        let ms_str = if ms >= 0.0 { format!("{:.0}%", ms * 100.0) } else { "—".to_string() };
-        println!("   {} {:20} repairs:{} mutation:{}", status, name, repairs, ms_str);
-        if ok { passed += 1; }
+            let status = if ok { "✅" } else { "❌" };
+            let ms_str = if ms >= 0.0 { format!("{:.0}%", ms * 100.0) } else { "—".to_string() };
+            println!("   {} {:20} repairs:{} mutation:{}", status, name, repairs, ms_str);
+            if ok { passed += 1; }
+        }
     }
 
-    let success_rate = passed as f64 / total as f64;
-    let avg_repairs  = total_repairs as f64 / total as f64;
+    let success_rate = passed as f64 / total_runs as f64;
+    let avg_repairs  = total_repairs as f64 / total_runs as f64;
     let mut_score    = if mutation_total > 0 { mutation_killed as f64 / mutation_total as f64 } else { -1.0 };
     let quality      = if mut_score >= 0.0 { success_rate * mut_score } else { success_rate };
 
@@ -182,7 +189,8 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8) -> Result<()> {
     println!("║   SEL Bench Results                      ║");
     println!("╠══════════════════════════════════════════╣");
     println!("║  Suite:          {:<23}║", suite);
-    println!("║  Passed:         {:<23}║", format!("{}/{}", passed, total));
+    println!("║  Iterations:     {:<23}║", iterations);
+    println!("║  Passed:         {:<23}║", format!("{}/{}", passed, total_runs));
     println!("║  Success Rate:   {:<23}║", format!("{:.1}%", success_rate * 100.0));
     println!("║  Avg Repairs:    {:<23}║", format!("{:.1}", avg_repairs));
     println!("║  Mutation Score: {:<23}║", if mut_score >= 0.0 { format!("{:.0}%", mut_score * 100.0) } else { "N/A".to_string() });
@@ -301,9 +309,9 @@ async fn main() -> Result<()> {
             let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
             run_health(&api_key).await?;
         }
-        Commands::Bench { suite, max_repairs } => {
+        Commands::Bench { suite, max_repairs, iterations } => {
             let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
-            run_bench(&api_key, &suite, max_repairs).await?;
+            run_bench(&api_key, &suite, max_repairs, iterations).await?;
         }
         Commands::Stress { max_repairs } => {
             let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
