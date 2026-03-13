@@ -223,6 +223,7 @@ PYTHON TESTING (MANDATORY):
 2. Branches: every if/else MUST have a test for EACH branch (both True and False paths)
 3. Assume your code is wrong. Tests must try to BREAK the code, not mirror its logic.
 4. For None/null returns: ALWAYS test BOTH the normal case AND the edge case (e.g. divide(10,2) AND divide(10,0)).
+5. For conditional returns (if x: return A else return B): test BOTH branches explicitly — one test where condition is True, one where it is False.
 "#;
 
 pub struct LlmClient { api_key: String, model: String, endpoint: String }
