@@ -224,6 +224,9 @@ PYTHON TESTING (MANDATORY):
 3. Assume your code is wrong. Tests must try to BREAK the code, not mirror its logic.
 4. For None/null returns: ALWAYS test BOTH the normal case AND the edge case (e.g. divide(10,2) AND divide(10,0)).
 5. For conditional returns (if x: return A else return B): test BOTH branches explicitly — one test where condition is True, one where it is False.
+6. MINIMUM 6 tests per file — fewer tests almost always means weak mutation coverage.
+7. ALWAYS include edge cases: empty input, zero, negative numbers, boundary values (e.g. n=0, n=1, n=-1).
+8. NEVER write tests that only check the happy path — mutations survive when you only test the expected output.
 "#;
 
 pub struct LlmClient { api_key: String, model: String, endpoint: String }
