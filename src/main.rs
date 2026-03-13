@@ -189,6 +189,29 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8) -> Result<()> {
     println!("║  Quality Index:  {:<23}║", format!("{:.2}", quality));
     println!("╚══════════════════════════════════════════╝\n");
 
+    // POST to Observatory
+    let model = std::env::var("SEL_MODEL")
+        .unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string());
+    let version = std::env::var("SEL_VERSION").unwrap_or_else(|_| "v1.9".to_string());
+    let body = serde_json::json!({
+        "version": version,
+        "suite": suite,
+        "model": model,
+        "passed": passed as i64,
+        "total": total as i64,
+        "success_rate": success_rate,
+        "mutation_score": mut_score,
+        "avg_repairs": avg_repairs,
+        "quality_index": quality,
+        "created_at": ""
+    });
+    let _ = reqwest::Client::new()
+        .post("http://localhost:8777/api/bench")
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(2))
+        .send()
+        .await;
+
     Ok(())
 }
 
