@@ -199,7 +199,7 @@ impl Agent {
                                     use crate::executor::MutationResult;
                                     println!("\n🧬 Mutation check on {}...", src);
                                     match self.executor.mutation_check(&src).await {
-                                        MutationResult::Weak(orig_line, mutd_line) => {
+                                        MutationResult::Weak(orig_line, mutd_line) => { self.ctx.mutations_total += 1;
                                             println!("   ⚠️  Tests are WEAK — triggering repair (Mutation Enforcement v1.3).");
                                             println!("     Survived mutation: [{}] → [{}]", orig_line, mutd_line);
                                             mutation_passed = false;
@@ -219,7 +219,7 @@ impl Agent {
                                                 culprit_file: Some(src.clone()),
                                             });
                                         }
-                                        MutationResult::Strong  => println!("   ✅ Tests are solid."),
+                                        MutationResult::Strong  => { println!("   ✅ Tests are solid."); self.ctx.mutations_total += 1; self.ctx.mutations_killed += 1; }
                                         MutationResult::Skipped => println!("   ⏭  Mutation check skipped."),
                                     }
                                 }
@@ -540,7 +540,8 @@ impl Agent {
                 AgentState::Done => {
                     let repairs = self.ctx.repair_attempts.saturating_sub(1);
                     let elapsed = self.ctx.start_time.map(|s: std::time::Instant| s.elapsed().as_secs()).unwrap_or(0);
-                    let _ = report_run(&self.goal, true, repairs as i64, elapsed).await;
+                    let ms = if self.ctx.mutations_total > 0 { self.ctx.mutations_killed as f64 / self.ctx.mutations_total as f64 } else { -1.0 };
+                    let _ = report_run(&self.goal, true, repairs as i64, elapsed, ms).await;
                     return Ok(());
                 }
                 AgentState::Failed(reason) => {
@@ -548,7 +549,8 @@ impl Agent {
                     println!("SEL_FAILED: {}", reason.lines().next().unwrap_or("unknown"));
                     let repairs = self.ctx.repair_attempts as i64;
                     let elapsed = self.ctx.start_time.map(|s: std::time::Instant| s.elapsed().as_secs()).unwrap_or(0);
-                    let _ = report_run(&self.goal, false, repairs, elapsed).await;
+                    let ms = if self.ctx.mutations_total > 0 { self.ctx.mutations_killed as f64 / self.ctx.mutations_total as f64 } else { -1.0 };
+                    let _ = report_run(&self.goal, false, repairs, elapsed, ms).await;
                     return Ok(());
                 }
             }
@@ -556,13 +558,14 @@ impl Agent {
     }
 }
 
-async fn report_run(goal: &str, success: bool, repairs: i64, duration_secs: u64) -> Result<()> {
+async fn report_run(goal: &str, success: bool, repairs: i64, duration_secs: u64, mutation_score: f64) -> Result<()> {
     let model = std::env::var("SEL_MODEL").unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string());
     let body = serde_json::json!({
         "goal": &goal[..goal.len().min(200)],
         "success": success,
         "repairs": repairs,
         "duration_secs": duration_secs,
+        "mutation_score": mutation_score,
         "model": model
     });
     let client = reqwest::Client::new();

@@ -29,6 +29,8 @@ pub struct ExecutionContext {
     pub successful_hashes: HashSet<String>,
     pub max_repairs:       u8,
     pub start_time:        Option<std::time::Instant>,
+    pub mutations_total:    u32,
+    pub mutations_killed:   u32,
 }
 
 impl ExecutionContext {
