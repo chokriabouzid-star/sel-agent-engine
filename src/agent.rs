@@ -36,6 +36,11 @@ impl Agent {
     pub fn repair_count(&self) -> usize {
         self.ctx.repair_attempts as usize
     }
+    pub fn mutation_score(&self) -> f64 {
+        if self.ctx.mutations_total > 0 {
+            self.ctx.mutations_killed as f64 / self.ctx.mutations_total as f64
+        } else { -1.0 }
+    }
 
     // ══════════════════════════════════════════════════════════
     // Goal Validator v1.2

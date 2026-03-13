@@ -222,6 +222,7 @@ PYTHON TESTING (MANDATORY):
 1. Floats: ALWAYS use pytest.approx(x, rel=1e-6) — NEVER compare floats with ==
 2. Branches: every if/else MUST have a test for EACH branch (both True and False paths)
 3. Assume your code is wrong. Tests must try to BREAK the code, not mirror its logic.
+4. For None/null returns: ALWAYS test BOTH the normal case AND the edge case (e.g. divide(10,2) AND divide(10,0)).
 "#;
 
 pub struct LlmClient { api_key: String, model: String, endpoint: String }

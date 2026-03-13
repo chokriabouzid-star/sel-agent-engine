@@ -32,6 +32,10 @@ enum Commands {
     Stress {
         #[arg(long, default_value = "3")] max_repairs: u8,
     },
+    Bench {
+        #[arg(long, default_value = "all")] suite: String,
+        #[arg(long, default_value = "3")]   max_repairs: u8,
+    },
 }
 
 async fn run_health(api_key: &str) -> Result<()> {
@@ -87,6 +91,104 @@ async fn run_health(api_key: &str) -> Result<()> {
     let binary = std::env::current_exe().unwrap_or_default();
     println!("⚙️  SEL Binary:   {} ({})", "✅ Built".green(), binary.display());
     println!();
+    Ok(())
+}
+
+
+async fn run_bench(api_key: &str, suite: &str, max_repairs: u8) -> Result<()> {
+    let all_cases: &[(&str, &str, &str)] = &[
+        // Python
+        ("python", "broken import",    "Create Python file importing from math_utils import add. Create math_utils.py with add(a,b) function. Write pytest test. Run tests."),
+        ("python", "wrong assertion",  "Create Python function double(x) returning x*2. Write pytest test asserting double(3)==6. Run tests."),
+        ("python", "wrong signature",  "Create Python function greet(name) returning f'Hi {name}'. Write pytest test expecting greet('Alice')=='Hi Alice'. Run tests."),
+        ("python", "wrong logic",      "Create Python function is_even(n) returning n%2==0. Write pytest test for is_even(4)==True and is_even(3)==False. Run tests."),
+        ("python", "type mismatch",    "Create Python function add(a,b) returning a+b for integers. Write pytest test expecting add(2,3)==5. Run tests."),
+        ("python", "missing closing",  "Create Python function factorial(n) with base case n==0 returns 1. Write pytest test for factorial(5)==120. Run tests."),
+        ("python", "undefined func",   "Create Python module with helper() returning 42. Write pytest test asserting helper()==42. Run tests."),
+        ("python", "wrong logic 2",    "Create Python function max_of_three(a,b,c) returning max(a,b,c). Write pytest test. Run tests."),
+        ("python", "syntax error",     "Create Python function add(a,b) returning a+b with correct syntax. Write pytest test. Run tests."),
+        ("python", "wrong return",     "Create Python function reverse_string(s) returning s[::-1]. Write pytest test expecting reverse_string('hello')=='olleh'. Run tests."),
+        ("python", "missing function", "Create Python class Stack with push(item) and pop() methods. Write pytest test. Run tests."),
+        ("python", "runtime error",    "Create Python function divide(a,b) returning None if b==0 else a/b. Write pytest test for divide(10,0)==None. Run tests."),
+        // Go
+        ("go", "go add",       "Create Go package main with Add(a,b int) int. Create go.mod with module gotest and go 1.21. Write _test.go testing Add(2,3)==5 and Add(-1,1)==0. Run go test."),
+        ("go", "go fizzbuzz",  "Create Go package main with FizzBuzz(n int) string returning Fizz/Buzz/FizzBuzz/number. Create go.mod module gotest go 1.21. Write _test.go with 4 test cases. Run go test."),
+        ("go", "go reverse",   "Create Go package main with Reverse(s string) string. Create go.mod module gotest go 1.21. Write _test.go testing Reverse(hello)==olleh and Reverse()==empty. Run go test."),
+        ("go", "go divide",    "Create Go package main with Divide(a,b float64) (float64,error) returning error if b==0. Create go.mod module gotest go 1.21. Write _test.go testing normal and zero cases. Run go test."),
+        // Node
+        ("node", "node add",        "Create Node.js CommonJS module math.js exporting add(a,b). Create package.json with jest. Write math.test.js testing add(2,3)===5 and add(-1,1)===0. Run npm test."),
+        ("node", "node palindrome", "Create Node.js CommonJS module palindrome.js exporting isPalindrome(s). Create package.json with jest. Write test file testing racecar==true and hello==false. Run npm test."),
+        ("node", "node factorial",  "Create Node.js CommonJS module factorial.js exporting factorial(n) with base case 0==1. Create package.json with jest. Write test for factorial(5)==120 and factorial(0)==1. Run npm test."),
+        ("node", "node filter",     "Create Node.js CommonJS module filter.js exporting filterEven(arr) returning even numbers. Create package.json with jest. Write test with arrays including empty array case. Run npm test."),
+        // Rust
+        ("rust", "rust add",     "Create Rust library crate. Write Cargo.toml with name=rustadd edition=2021. Write src/lib.rs with pub fn add(a:i32,b:i32)->i32. Write tests module inside lib.rs testing add(2,3)==5 and add(-1,1)==0. Run cargo test."),
+        ("rust", "rust fizzbuzz","Create Rust library crate. Write Cargo.toml name=rustfizz edition=2021. Write src/lib.rs with pub fn fizzbuzz(n:u32)->String returning Fizz Buzz FizzBuzz or number. Write tests module with 4 cases. Run cargo test."),
+        ("rust", "rust reverse", "Create Rust library crate. Write Cargo.toml name=rustreverse edition=2021. Write src/lib.rs with pub fn reverse(s:&str)->String. Write tests module testing hello->olleh and empty string. Run cargo test."),
+        ("rust", "rust stack",   "Create Rust library crate. Write Cargo.toml name=ruststack edition=2021. Write src/lib.rs with pub struct Stack and impl with push pop is_empty. Write tests module. Run cargo test."),
+    ];
+
+    let cases: Vec<_> = all_cases.iter().filter(|(lang, _, _)| {
+        suite == "all" || *lang == suite
+    }).collect();
+
+    if cases.is_empty() {
+        println!("❌ Unknown suite '{}'. Use: python, go, node, rust, all", suite);
+        return Ok(());
+    }
+
+    println!("\n╔══════════════════════════════════════════╗");
+    println!("║   SEL Bench v1.8 — suite: {:<14}║", suite);
+    println!("╚══════════════════════════════════════════╝\n");
+
+    let total = cases.len();
+    let mut passed = 0usize;
+    let mut total_repairs = 0usize;
+    let mut mutation_killed = 0u32;
+    let mut mutation_total  = 0u32;
+    let tmpdir = std::env::temp_dir();
+
+    for (i, (_lang, name, goal)) in cases.iter().enumerate() {
+        let workspace = tmpdir.join(format!("sel-bench-{}", i));
+        let _ = std::fs::remove_dir_all(&workspace);
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(ProgressStyle::default_spinner()
+            .template(&format!("{{spinner:.cyan}} 🔬 Bench: {}...", name)).unwrap());
+        pb.enable_steady_tick(Duration::from_millis(80));
+
+        let mut agent = crate::agent::Agent::new(
+            api_key.to_string(), workspace.clone(),
+            goal.to_string(), max_repairs,
+        );
+        let ok = agent.run().await.is_ok();
+        pb.finish_and_clear();
+
+        let repairs = agent.repair_count();
+        total_repairs += repairs;
+        let ms = agent.mutation_score();
+        if ms >= 0.0 { mutation_total += 1; if ms >= 1.0 { mutation_killed += 1; } }
+
+        let status = if ok { "✅".to_string() } else { "❌".to_string() };
+        let ms_str = if ms >= 0.0 { format!("{:.0}%", ms * 100.0) } else { "—".to_string() };
+        println!("   {} {:20} repairs:{} mutation:{}", status, name, repairs, ms_str);
+        if ok { passed += 1; }
+    }
+
+    let success_rate = passed as f64 / total as f64;
+    let avg_repairs  = total_repairs as f64 / total as f64;
+    let mut_score    = if mutation_total > 0 { mutation_killed as f64 / mutation_total as f64 } else { -1.0 };
+    let quality      = if mut_score >= 0.0 { success_rate * mut_score } else { success_rate };
+
+    println!("\n╔══════════════════════════════════════════╗");
+    println!("║   SEL Bench Results                      ║");
+    println!("╠══════════════════════════════════════════╣");
+    println!("║  Suite:          {:<23}║", suite);
+    println!("║  Passed:         {:<23}║", format!("{}/{}", passed, total));
+    println!("║  Success Rate:   {:<23}║", format!("{:.1}%", success_rate * 100.0));
+    println!("║  Avg Repairs:    {:<23}║", format!("{:.1}", avg_repairs));
+    println!("║  Mutation Score: {:<23}║", if mut_score >= 0.0 { format!("{:.0}%", mut_score * 100.0) } else { "N/A".to_string() });
+    println!("║  Quality Index:  {:<23}║", format!("{:.2}", quality));
+    println!("╚══════════════════════════════════════════╝\n");
+
     Ok(())
 }
 
@@ -175,6 +277,10 @@ async fn main() -> Result<()> {
         Commands::Health => {
             let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
             run_health(&api_key).await?;
+        }
+        Commands::Bench { suite, max_repairs } => {
+            let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
+            run_bench(&api_key, &suite, max_repairs).await?;
         }
         Commands::Stress { max_repairs } => {
             let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
