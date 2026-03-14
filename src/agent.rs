@@ -36,6 +36,30 @@ impl Agent {
     pub fn repair_count(&self) -> usize {
         self.ctx.repair_attempts as usize
     }
+    fn send_event(&self, event_type: &str, step: Option<&str>, detail: Option<&str>, success: Option<bool>, mutation: Option<f64>) {
+        let model = std::env::var("SEL_MODEL")
+            .unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string());
+        let body = serde_json::json!({
+            "event_type": event_type,
+            "goal": &self.goal,
+            "step": step.unwrap_or(""),
+            "detail": detail.unwrap_or(""),
+            "success": success,
+            "mutation": mutation,
+            "repairs": self.ctx.repair_attempts,
+            "model": model,
+            "timestamp": ""
+        });
+        let url = std::env::var("SEL_OBSERVATORY")
+            .unwrap_or_else(|_| "http://localhost:8777".to_string());
+        let _ = std::process::Command::new("curl")
+            .args(["-s", "-X", "POST",
+                   &format!("{}/api/event", url),
+                   "-H", "Content-Type: application/json",
+                   "-d", &body.to_string()])
+            .output();
+    }
+
     pub fn mutation_score(&self) -> f64 {
         if self.ctx.mutations_total > 0 {
             self.ctx.mutations_killed as f64 / self.ctx.mutations_total as f64
@@ -138,6 +162,7 @@ impl Agent {
                         break Ok(());
                     }
                     println!("\n🧠 Planning...");
+                    self.send_event("step", Some("Planning"), Some("Generating execution plan"), None, None);
                     let prompt = format!(
                         "Goal: {}\n\nProvide the complete execution plan.",
                         self.goal
@@ -146,6 +171,7 @@ impl Agent {
                     match self.plan_with_resilience(prompt).await {
                         Ok(commands) => {
                             println!("   ✓ {} commands\n", commands.len());
+                            self.send_event("start", None, None, None, None);
                             self.plan  = commands;
                             self.state = AgentState::Executing;
                         }
@@ -224,7 +250,8 @@ impl Agent {
                                                 culprit_file: Some(src.clone()),
                                             });
                                         }
-                                        MutationResult::Strong  => { println!("   ✅ Tests are solid."); self.ctx.mutations_total += 1; self.ctx.mutations_killed += 1; }
+                                        MutationResult::Strong  => { println!("   ✅ Tests are solid.");
+                                        self.send_event("mutation", None, None, None, Some(1.0)); self.ctx.mutations_total += 1; self.ctx.mutations_killed += 1; }
                                         MutationResult::Skipped => println!("   ⏭  Mutation check skipped."),
                                     }
                                 }
@@ -233,6 +260,7 @@ impl Agent {
                                     self.ctx.save_hashes(&self.executor.workspace);
                                     println!("\n✅ {}", if msg.is_empty() { "Goal complete!" } else { msg });
                                     println!("SEL_SUCCESS");
+                                    self.send_event("done", None, None, Some(true), None);
                                     self.state = AgentState::Done;
                                 } else {
                                     self.state = AgentState::Repairing;
@@ -354,6 +382,7 @@ impl Agent {
                 // استدعاء LLM واحد لخطة إصلاح
                 AgentState::Repairing => {
                     self.ctx.repair_attempts += 1;
+                            self.send_event("repair", None, None, None, None);
 
                     if self.ctx.repair_attempts > self.ctx.max_repairs {
                         let reason = format!(
