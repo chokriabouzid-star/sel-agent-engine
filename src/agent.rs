@@ -176,27 +176,35 @@ impl Agent {
                     } else if has_go_mod {
                         "\nCRITICAL: This is a Go project (go.mod exists). Write ONLY Go code."
                     } else { "" };
-                    // قراءة الملفات الموجودة وإضافتها للـ prompt للحفاظ عليها
+                    // قراءة الملفات الموجودة بشكل recursive وإضافتها للـ prompt
                     let existing_files = {
                         let mut files_ctx = String::new();
                         let extensions = [".rs", ".py", ".js", ".ts", ".go"];
-                        let src_dir = ws.join("src");
-                        let dirs = [ws.as_path(), src_dir.as_path()];
-                        for dir in &dirs {
-                            if let Ok(entries) = std::fs::read_dir(dir) {
-                                for entry in entries.flatten() {
-                                    let p = entry.path();
+                        // walk recursive حتى عمق 3
+                        fn walk(dir: &std::path::Path, ws: &std::path::Path,
+                                exts: &[&str], out: &mut String, depth: u8) {
+                            if depth > 3 { return; }
+                            let Ok(entries) = std::fs::read_dir(dir) else { return };
+                            for entry in entries.flatten() {
+                                let p = entry.path();
+                                if p.is_dir() {
                                     let name = p.file_name()
-                                        .and_then(|n| n.to_str())
-                                        .unwrap_or("");
-                                    let is_code = extensions.iter().any(|e| name.ends_with(e));
+                                        .and_then(|n| n.to_str()).unwrap_or("");
+                                    if !matches!(name, "target"|".git"|"node_modules"|"venv") {
+                                        walk(&p, ws, exts, out, depth + 1);
+                                    }
+                                } else {
+                                    let name = p.file_name()
+                                        .and_then(|n| n.to_str()).unwrap_or("");
+                                    let is_code = exts.iter().any(|e| name.ends_with(e));
                                     if is_code {
                                         if let Ok(content) = std::fs::read_to_string(&p) {
-                                            if content.len() > 100 {
+                                            if content.len() > 50 {
                                                 let rel = p.strip_prefix(ws).unwrap_or(&p);
-                                                files_ctx.push_str(&format!(
+                                                out.push_str(&format!(
                                                     "\n\nEXISTING FILE: {}\n```\n{}\n```",
-                                                    rel.display(), &content[..content.len().min(3000)]
+                                                    rel.display(),
+                                                    &content[..content.len().min(2500)]
                                                 ));
                                             }
                                         }
@@ -204,8 +212,9 @@ impl Agent {
                                 }
                             }
                         }
+                        walk(ws, ws, &extensions, &mut files_ctx, 0);
                         if !files_ctx.is_empty() {
-                            format!("\n\nCRITICAL — EXISTING FILES (you MUST preserve ALL existing code, only ADD new code):{}", files_ctx)
+                            format!("\n\nCRITICAL — EXISTING FILES (you MUST preserve ALL existing code and APPEND only):{}", files_ctx)
                         } else {
                             String::new()
                         }

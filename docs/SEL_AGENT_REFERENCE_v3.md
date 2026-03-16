@@ -212,3 +212,34 @@ cargo build --release 2>&1 | grep -E "^error|Finished"
 3. أرسل مخرجات الأوامر المطلوبة
 4. النموذج سيفهم السياق الكامل فوراً
 
+
+---
+
+## 11. تحديث v3.1 (2026-03-16)
+
+### مشاكل اكتُشفت من الاختبار الميداني
+1. **انتكاسة اللغة** — agent يكتب Python في مشروع Rust
+2. **استبدال الملفات** — write_file يمسح كود موجود عند الإضافة
+3. **تحذير صامت** — write_file يحذر لكن لا يوقف التنفيذ
+
+### الإصلاحات المطبقة
+
+**executor.rs — write_file overwrite warning:**
+إذا كان الملف موجوداً > 500 bytes والمحتوى الجديد < ثلثه → يطبع تحذيراً.
+
+**agent.rs — Language Detection في Planning:**
+يفحص workspace قبل بناء الـ prompt:
+- Cargo.toml موجود → CRITICAL: Write ONLY Rust code
+- package.json موجود → CRITICAL: Write ONLY JS/TS code
+- go.mod موجود → CRITICAL: Write ONLY Go code
+
+**agent.rs — Existing Files Context:**
+يقرأ كل ملفات .rs/.py/.js/.ts/.go الموجودة في workspace/src
+ويضيفها للـ prompt مع:
+"CRITICAL — EXISTING FILES (you MUST preserve ALL existing code, only ADD new code)"
+الحد الأقصى: 3000 chars per file.
+
+### نتيجة الاختبار
+- LlmClient محفوظ ✅
+- subtract مضافة ✅
+- 60 سطر بعد 28 سطر ✅
