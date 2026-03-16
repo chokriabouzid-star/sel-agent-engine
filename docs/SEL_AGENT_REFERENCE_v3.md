@@ -277,3 +277,35 @@ cargo build --release 2>&1 | grep -E "^error|Finished"
 - 12 passed (قديم + جديد) ✅
 - 0 repairs ✅
 - Mutation 100% ✅
+
+---
+
+## 12. تحديث v3.2 (2026-03-16)
+
+### المشكلة المكتشفة
+Refactoring يفشل 5/5 مرات لأن الـ agent يحتاج حذف ملف متعارض
+لكن `rm` محظور في allowed programs — الـ agent عالق في loop.
+
+### الإصلاح: delete_file command
+
+**protocol.rs:**
+- أضيف `DeleteFile { path: String }` في enum Cmd
+- label: `delete_file: {path}`
+- hash: يتتبع العملية في الـ cache
+
+**executor.rs — fn delete_file():**
+حماية 4 طبقات:
+1. safe_path() — لا خروج من workspace، لا path traversal
+2. لا يحذف: Cargo.toml, go.mod, package.json, Cargo.lock
+3. لا يحذف مجلدات — ملفات فقط
+4. إذا الملف غير موجود → ok (idempotent)
+
+**llm.rs — system prompt:**
+أضيفت قاعدة FILE OPERATIONS:
+- استخدم delete_file بدل rm
+- إذا تعارض ملفان (executor.rs + executor/mod.rs) → احذف أحدهما أولاً
+
+### نتيجة الاختبار
+- الـ agent استخدم delete_file تلقائياً ✅
+- الـ cache يتذكر الحذف في repair cycles ✅
+- السيناريو الذي فشل 5 مرات → SEL_SUCCESS ✅
