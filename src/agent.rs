@@ -164,9 +164,55 @@ impl Agent {
                     }
                     println!("\n🧠 Planning...");
                     self.send_event("step", Some("Planning"), Some("Generating execution plan"), None, None);
+                    // كشف لغة المشروع من الملفات الموجودة في workspace
+                    let ws = &self.executor.workspace;
+                    let has_cargo = ws.join("Cargo.toml").exists();
+                    let has_package_json = ws.join("package.json").exists();
+                    let has_go_mod = ws.join("go.mod").exists();
+                    let lang_hint = if has_cargo {
+                        "\nCRITICAL: This is a RUST project (Cargo.toml exists). Write ONLY Rust code. Do NOT create Python or JS files."
+                    } else if has_package_json {
+                        "\nCRITICAL: This is a Node.js project (package.json exists). Write ONLY JS/TS code."
+                    } else if has_go_mod {
+                        "\nCRITICAL: This is a Go project (go.mod exists). Write ONLY Go code."
+                    } else { "" };
+                    // قراءة الملفات الموجودة وإضافتها للـ prompt للحفاظ عليها
+                    let existing_files = {
+                        let mut files_ctx = String::new();
+                        let extensions = [".rs", ".py", ".js", ".ts", ".go"];
+                        let src_dir = ws.join("src");
+                        let dirs = [ws.as_path(), src_dir.as_path()];
+                        for dir in &dirs {
+                            if let Ok(entries) = std::fs::read_dir(dir) {
+                                for entry in entries.flatten() {
+                                    let p = entry.path();
+                                    let name = p.file_name()
+                                        .and_then(|n| n.to_str())
+                                        .unwrap_or("");
+                                    let is_code = extensions.iter().any(|e| name.ends_with(e));
+                                    if is_code {
+                                        if let Ok(content) = std::fs::read_to_string(&p) {
+                                            if content.len() > 100 {
+                                                let rel = p.strip_prefix(ws).unwrap_or(&p);
+                                                files_ctx.push_str(&format!(
+                                                    "\n\nEXISTING FILE: {}\n```\n{}\n```",
+                                                    rel.display(), &content[..content.len().min(3000)]
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if !files_ctx.is_empty() {
+                            format!("\n\nCRITICAL — EXISTING FILES (you MUST preserve ALL existing code, only ADD new code):{}", files_ctx)
+                        } else {
+                            String::new()
+                        }
+                    };
                     let prompt = format!(
-                        "Goal: {}\n\nProvide the complete execution plan.",
-                        self.goal
+                        "Goal: {}{}{}\n\nProvide the complete execution plan.",
+                        self.goal, lang_hint, existing_files
                     );
                     // Protocol Resilience v1.3
                     match self.plan_with_resilience(prompt).await {

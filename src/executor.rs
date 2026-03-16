@@ -107,6 +107,15 @@ impl SafeExecutor {
     fn write_file(&self, path: &str, content: &str) -> Result<ExecResult> {
         let p = self.safe_path(path)?;
         if let Some(parent) = p.parent() { std::fs::create_dir_all(parent)?; }
+        // حماية: إذا كان الملف موجوداً وأكبر بكثير من المحتوى الجديد → تحذير
+        if p.exists() {
+            let existing_len = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+            let new_len = content.len() as u64;
+            if existing_len > 500 && new_len < existing_len / 3 {
+                println!("   ⚠ WARNING: Overwriting {} ({} bytes) with much smaller content ({} bytes)",
+                    path, existing_len, new_len);
+            }
+        }
         // Rust brace balance check
         let content = if path.ends_with(".rs") {
             let open  = content.chars().filter(|&c| c == '{').count();
