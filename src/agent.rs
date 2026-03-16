@@ -47,7 +47,7 @@ impl Agent {
             "success": success,
             "mutation": mutation,
             "repairs": self.ctx.repair_attempts,
-            "model": model,
+            "model": &self.llm.model,
             "timestamp": ""
         });
         let url = std::env::var("SEL_OBSERVATORY")
@@ -142,6 +142,7 @@ impl Agent {
 
     pub async fn run(&mut self) -> Result<()> {
         self.ctx.start_time = Some(std::time::Instant::now());
+        self.send_event("start", None, None, None, None);
         // تحميل الـ hashes من الجلسة السابقة
         let ws = self.executor.workspace.clone();
         self.ctx.load_hashes(&ws);
@@ -171,7 +172,6 @@ impl Agent {
                     match self.plan_with_resilience(prompt).await {
                         Ok(commands) => {
                             println!("   ✓ {} commands\n", commands.len());
-                            self.send_event("start", None, None, None, None);
                             self.plan  = commands;
                             self.state = AgentState::Executing;
                         }
@@ -192,6 +192,7 @@ impl Agent {
 
                     for (i, cmd) in plan.iter().enumerate() {
                         println!("[{}/{}] {}", i + 1, total, cmd.label());
+                        { let _lbl = cmd.label(); let _prog = format!("{}/{}", i+1, total); self.send_event("step", Some(&_lbl), Some(&_prog), None, None); }
 
                         // skip الخطوات الناجحة سابقاً
                         let cmd_hash = cmd.hash();
@@ -260,7 +261,7 @@ impl Agent {
                                     self.ctx.save_hashes(&self.executor.workspace);
                                     println!("\n✅ {}", if msg.is_empty() { "Goal complete!" } else { msg });
                                     println!("SEL_SUCCESS");
-                                    self.send_event("done", None, None, Some(true), None);
+                                    self.send_event("done", None, None, Some(true), Some(self.mutation_score()));
                                     self.state = AgentState::Done;
                                 } else {
                                     self.state = AgentState::Repairing;
@@ -382,7 +383,7 @@ impl Agent {
                 // استدعاء LLM واحد لخطة إصلاح
                 AgentState::Repairing => {
                     self.ctx.repair_attempts += 1;
-                            self.send_event("repair", None, None, None, None);
+                            self.send_event("repair", None, Some(&format!("Repair attempt {}", self.ctx.repair_attempts)), None, None);
 
                     if self.ctx.repair_attempts > self.ctx.max_repairs {
                         let reason = format!(

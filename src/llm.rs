@@ -229,7 +229,7 @@ PYTHON TESTING (MANDATORY):
 8. NEVER write tests that only check the happy path — mutations survive when you only test the expected output.
 "#;
 
-pub struct LlmClient { api_key: String, model: String, endpoint: String }
+pub struct LlmClient { pub api_key: String, pub model: String, pub endpoint: String }
 
 #[derive(Serialize)]
 struct Request { model: String, messages: Vec<ApiMsg>, temperature: f32, max_tokens: u32 }
