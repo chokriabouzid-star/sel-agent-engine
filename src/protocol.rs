@@ -19,6 +19,7 @@ pub enum Cmd {
     Run       { command: String },
     WriteFile { path: String, content: String },
     AppendFile{ path: String, content: String },
+    DeleteFile{ path: String },
     ReadFile  { path: String },
     Mkdir     { path: String },
     RunTests  { target: String },
@@ -31,6 +32,7 @@ impl Cmd {
             Cmd::Run       { command }    => format!("run: {}", &command[..command.len().min(60)]),
             Cmd::WriteFile { path, .. }   => format!("write_file: {}", path),
             Cmd::AppendFile{ path, .. }   => format!("append_file: {}", path),
+            Cmd::DeleteFile{ path }        => format!("delete_file: {}", path),
             Cmd::ReadFile  { path }       => format!("read_file: {}", path),
             Cmd::Mkdir     { path }       => format!("mkdir: {}", path),
             Cmd::RunTests  { target }     => format!("run_tests: {}", target),
@@ -45,6 +47,7 @@ impl Cmd {
             Cmd::Run       { command }         => { "run".hash(&mut h);        command.hash(&mut h); }
             Cmd::WriteFile { path, content }   => { "write_file".hash(&mut h); path.hash(&mut h); content.hash(&mut h); }
             Cmd::AppendFile{ path, content }   => { "append_file".hash(&mut h);path.hash(&mut h); content.hash(&mut h); }
+            Cmd::DeleteFile{ path }              => { "delete_file".hash(&mut h); path.hash(&mut h); }
             Cmd::ReadFile  { path }            => { "read_file".hash(&mut h);  path.hash(&mut h); }
             Cmd::Mkdir     { path }            => { "mkdir".hash(&mut h);      path.hash(&mut h); }
             Cmd::RunTests  { target }          => { "run_tests".hash(&mut h);  target.hash(&mut h); }
@@ -55,6 +58,7 @@ impl Cmd {
     pub fn is_done(&self)     -> bool { matches!(self, Cmd::Done { .. }) }
     pub fn is_run_tests(&self)-> bool { matches!(self, Cmd::RunTests { .. }) }
     pub fn is_write_file(&self) -> bool { matches!(self, Cmd::WriteFile { .. } | Cmd::AppendFile { .. }) }
+    pub fn is_delete_file(&self) -> bool { matches!(self, Cmd::DeleteFile { .. }) }
 }
 
 // ══════════════════════════════════════════════════════

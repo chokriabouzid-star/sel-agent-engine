@@ -218,6 +218,11 @@ ALWAYS:
 3. write_file for all source files
 4. run_tests
 5. done
+FILE OPERATIONS:
+- To delete a conflicting file use: {"type":"delete_file","path":"..."}
+- NEVER use shell rm commands — always use delete_file instead.
+- If two files conflict (e.g. src/executor.rs AND src/executor/mod.rs), use delete_file to remove one before proceeding.
+
 PYTHON TESTING (MANDATORY):
 1. Floats: ALWAYS use pytest.approx(x, rel=1e-6) — NEVER compare floats with ==
 2. Branches: every if/else MUST have a test for EACH branch (both True and False paths)

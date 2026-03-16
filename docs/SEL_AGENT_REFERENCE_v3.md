@@ -243,3 +243,37 @@ cargo build --release 2>&1 | grep -E "^error|Finished"
 - LlmClient محفوظ ✅
 - subtract مضافة ✅
 - 60 سطر بعد 28 سطر ✅
+
+---
+
+## 11. تحديث v3.1 (2026-03-16)
+
+### مشاكل اكتُشفت من الاختبار الميداني
+1. انتكاسة اللغة — agent يكتب Python في مشروع Rust
+2. استبدال الملفات — write_file يمسح كود موجود عند الإضافة
+3. recursive walker — الكود القديم لا يقرأ المجلدات الفرعية
+
+### الإصلاحات المطبقة
+
+**executor.rs — write_file overwrite warning:**
+إذا كان الملف > 500 bytes والمحتوى الجديد < ثلثه → يطبع تحذيراً.
+
+**agent.rs — Language Detection في Planning:**
+يفحص workspace قبل بناء الـ prompt:
+- Cargo.toml → CRITICAL: Write ONLY Rust code
+- package.json → CRITICAL: Write ONLY JS/TS code
+- go.mod → CRITICAL: Write ONLY Go code
+
+**agent.rs — Recursive File Walker:**
+يقرأ كل ملفات .rs/.py/.js/.ts/.go بشكل recursive حتى عمق 3
+يتجاهل: target/ .git/ node_modules/ venv/
+يضيفها للـ prompt مع:
+"CRITICAL — EXISTING FILES (you MUST preserve ALL existing code and APPEND only)"
+الحد الأقصى: 2500 chars per file.
+
+### نتيجة الاختبار النهائي
+- LlmClient محفوظ في lib.rs (2695 bytes) ✅
+- subtract مضافة ✅
+- 12 passed (قديم + جديد) ✅
+- 0 repairs ✅
+- Mutation 100% ✅

@@ -42,6 +42,7 @@ impl SafeExecutor {
             Cmd::Run       { command }         => self.shell(command).await,
             Cmd::WriteFile { path, content }   => self.write_file(path, content),
             Cmd::AppendFile{ path, content }   => self.append_file(path, content),
+            Cmd::DeleteFile{ path }               => self.delete_file(path),
             Cmd::ReadFile  { path }            => self.read_file(path),
             Cmd::Mkdir     { path }            => self.mkdir(path),
             Cmd::RunTests  { target }          => self.run_tests(target).await,
@@ -148,6 +149,30 @@ impl SafeExecutor {
         std::fs::write(&p, &orig)?;
         println!("   ➕ {} (+{} bytes)", path, content.len());
         Ok(ExecResult::ok(format!("Appended: {}", path)))
+    }
+
+    fn delete_file(&self, path: &str) -> Result<ExecResult> {
+        let p = self.safe_path(path)?;
+        // حماية: لا نحذف ملفات الإعداد الجذرية
+        let protected = ["Cargo.toml", "go.mod", "package.json", "Cargo.lock"];
+        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if protected.contains(&name) {
+            return Ok(ExecResult::fail(format!(
+                "delete_file: '{}' is protected and cannot be deleted", path
+            )));
+        }
+        // حماية: لا نحذف مجلدات
+        if p.is_dir() {
+            return Ok(ExecResult::fail(format!(
+                "delete_file: '{}' is a directory — only files allowed", path
+            )));
+        }
+        if !p.exists() {
+            return Ok(ExecResult::ok(format!("delete_file: '{}' already absent", path)));
+        }
+        std::fs::remove_file(&p)?;
+        println!("   🗑  Deleted: {}", path);
+        Ok(ExecResult::ok(format!("Deleted: {}", path)))
     }
 
     fn read_file(&self, path: &str) -> Result<ExecResult> {
