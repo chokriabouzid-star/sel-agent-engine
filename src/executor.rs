@@ -186,9 +186,24 @@ impl SafeExecutor {
         }
         let content = std::fs::read_to_string(&p)?;
         let count = content.matches(search).count();
+        // إذا لم يُوجد مباشرة — جرب normalize whitespace
+        let (effective_search, effective_replace, normalized) = if count == 0 {
+            let norm_content = content.split_whitespace().collect::<Vec<_>>().join(" ");
+            let norm_search  = search.split_whitespace().collect::<Vec<_>>().join(" ");
+            let norm_replace = replace.split_whitespace().collect::<Vec<_>>().join(" ");
+            (norm_content, norm_replace, Some(norm_search))
+        } else {
+            (content.clone(), replace.to_string(), None)
+        };
+        let (search_key, content_key) = if let Some(ref ns) = normalized {
+            (ns.as_str(), effective_search.as_str())
+        } else {
+            (search, content.as_str())
+        };
+        let count = content_key.matches(search_key).count();
         if count == 0 {
             return Ok(ExecResult::fail(format!(
-                "patch_file: search block not found in '{}' — copy the exact text from the file", path
+                "patch_file: search block not found in '{}' (tried exact + whitespace-normalized) — copy the exact text from the file", path
             )));
         }
         if count > 1 {
@@ -196,7 +211,11 @@ impl SafeExecutor {
                 "patch_file: search block found {} times in '{}' — must be unique, use more context", count, path
             )));
         }
-        let new_content = content.replacen(search, replace, 1);
+        let new_content = if normalized.is_some() {
+            content_key.replacen(search_key, &effective_replace, 1)
+        } else {
+            content.replacen(search, replace, 1)
+        };
         std::fs::write(&p, &new_content)?;
         println!("   🔧 patch_file: {} ({} bytes → {} bytes)", path, content.len(), new_content.len());
         Ok(ExecResult::ok(format!("Patched: {}", path)))

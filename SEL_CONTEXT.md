@@ -4,7 +4,7 @@
 ---
 
 ## الإصدار الحالي
-- SEL Agent: v2.0-final
+- SEL Agent: v4.0
 - SEL Observatory: v1.3-final
 
 ---
@@ -26,8 +26,9 @@
 
 ---
 
-## نتائج آخر Benchmark (v2.0-final)
-- Suite: python × 3 iterations (36 runs)
+## نتائج آخر Benchmark (v4.0)
+- Stress: 24/24 passed | avg repairs: 0.9
+- v3.2 → v4.0: avg repairs 1.0 → 0.9 (patch_file)
 - kimi-k2:  mutation 83%, quality 0.83, repairs 1.9 ✅ PRIMARY
 - llama-3.3: mutation 75%, quality 0.75, repairs 1.7
 
@@ -40,7 +41,7 @@ src/
   types.rs     — ExecutionContext (start_time, mutations_total, mutations_killed)
   executor.rs  — apply_all_mutations(), mutation_check(), ALLOWED programs
   llm.rs       — SYSTEM_PROMPT, model_name(), قواعد Python/Go/Node/Rust
-  protocol.rs  — Cmd enum, validate_test_order()
+  protocol.rs  — Cmd enum (+ PatchFile v4.0), validate_test_order()
   context.rs   — workspace management
 
 ---
@@ -66,6 +67,14 @@ Python (8 قواعد):
 
 ---
 
+## FILE OPERATIONS RULES (v4.0)
+- write_file:  فقط للملفات الجديدة
+- patch_file:  دائماً لتعديل الملفات الموجودة (search/replace موضعي)
+- append_file: فقط للإضافة في نهاية الملف
+- Validation:  search block موجود مرة واحدة بالضبط أو error
+
+---
+
 ## Observatory API
 - GET  /api/projects    — قائمة المشاريع
 - GET  /api/runs        — آخر 20 run
@@ -82,6 +91,8 @@ Python (8 قواعد):
 - v1.8-final: bench subcommand, quality index
 - v1.9-final: bench POST to Observatory
 - v2.0-final: iterations, prompt rules 6-8, model comparison
+- v3.2-final: delete_file, language guard, recursive walker, 24/24
+- v4.0: patch_file (search/replace), tool selection bias fixed
 
 ---
 
@@ -93,20 +104,20 @@ Python (8 قواعد):
 
 ---
 
-## الخطوة التالية: v3.0
-هدف: Live UI في المتصفح
-  - WebSocket في Observatory
-  - SEL Agent يرسل events حياً
-  - المتصفح يعرض: الهدف، الخطوة، mutation، النتيجة
-  - يعمل من Windows عبر الشبكة المحلية
+## الخطوة التالية: v4.1
+هدف: تحسين patch_file + TypeScript suite
+  - auto-retry عند فشل patch (expanded context)
+  - bench --suite typescript
+  - avg repairs هدف: 0.7
 
 ---
 
 ## خارطة الطريق الكاملة
-v3.0 → Live View (WebSocket)
-v3.1 → History + Charts
-v3.2 → Bench Dashboard
-v4.0 → TypeScript suite
+v3.0 → Live View (WebSocket) ✅
+v3.1 → Language Guard + File Walker ✅
+v3.2 → delete_file + stress 24/24 ✅
+v4.0 → patch_file (surgical edits) ✅
+v4.1 → TypeScript suite + auto-retry patch
 v4.1 → Java suite
 v4.2 → C suite
 v5.0 → Regression Detection
@@ -125,4 +136,4 @@ v6.2 → Web Interface كامل
 - bench --suite rust الأسرع للاختبار السريع
 
 ---
-آخر تحديث: v2.0-final — 2026-03-14
+آخر تحديث: v4.0 — 2026-03-17

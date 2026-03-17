@@ -62,6 +62,7 @@ impl Cmd {
     pub fn is_run_tests(&self)-> bool { matches!(self, Cmd::RunTests { .. }) }
     pub fn is_write_file(&self) -> bool { matches!(self, Cmd::WriteFile { .. } | Cmd::AppendFile { .. }) }
     pub fn is_delete_file(&self) -> bool { matches!(self, Cmd::DeleteFile { .. }) }
+    pub fn is_patch_file(&self)  -> bool { matches!(self, Cmd::PatchFile  { .. }) }
 }
 
 // ══════════════════════════════════════════════════════

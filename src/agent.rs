@@ -256,6 +256,7 @@ impl Agent {
                         let venv_ok = self.executor.workspace.join("venv/bin/pip3").exists()
                                    || self.executor.workspace.join("venv/bin/pip").exists();
                         let skip_allowed = !cmd.is_run_tests() && !cmd.is_write_file()
+                                        && !cmd.is_patch_file()
                                         && !(is_pip && !venv_ok);
                         if self.ctx.successful_hashes.contains(&cmd_hash) && skip_allowed {
                             println!("   ⏭ Skipping: {} (already passed)", cmd.label());
@@ -600,10 +601,13 @@ impl Agent {
                     } else {
                         self.repair_fingerprints.push(fingerprint);
                     }
+                    let patch_note = if !files_context.starts_with("FILES IN PROJECT:") {
+                        "\n\n⚠ REPAIR RULES — MANDATORY:\n1. DO NOT use write_file on files that already exist — this resets them to broken state.\n2. Use patch_file to fix existing files. Copy search text EXACTLY from CURRENT FILES above.\n3. write_file is FORBIDDEN for existing files during repair.\nWRONG: {\"type\":\"write_file\",\"path\":\"calc.py\",...}  ← overwrites with wrong code\nRIGHT: {\"type\":\"patch_file\",\"path\":\"calc.py\",\"search\":\"return a - b\",\"replace\":\"return a + b\"}"
+                    } else { "" };
                     let prompt = format!(
-                        "Goal: {}{}{}\n\nHINT: {}\n\n{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}\n\
+                        "Goal: {}{}{}{}\n\nHINT: {}\n\n{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}\n\
                          Fix ALL issues. Provide complete corrected plan.",
-                        self.goal, network_note, mutation_note, repair_hint, attempt_note, errors, files_context
+                        self.goal, network_note, mutation_note, patch_note, repair_hint, attempt_note, errors, files_context
                     );
 
                     // Protocol Resilience v1.3
