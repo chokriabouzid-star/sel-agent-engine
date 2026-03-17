@@ -121,6 +121,11 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8) 
         ("node", "node palindrome", "Create Node.js CommonJS module palindrome.js exporting isPalindrome(s). Create package.json with jest. Write test file testing racecar==true and hello==false. Run npm test."),
         ("node", "node factorial",  "Create Node.js CommonJS module factorial.js exporting factorial(n) with base case 0==1. Create package.json with jest. Write test for factorial(5)==120 and factorial(0)==1. Run npm test."),
         ("node", "node filter",     "Create Node.js CommonJS module filter.js exporting filterEven(arr) returning even numbers. Create package.json with jest. Write test with arrays including empty array case. Run npm test."),
+        // TypeScript
+        ("typescript", "ts add",        "Create TypeScript file math.ts exporting function add(a:number,b:number):number. Create package.json with jest and ts-jest. Create tsconfig.json. Write math.test.ts testing add(2,3)===5 and add(-1,1)===0. Run npm test."),
+        ("typescript", "ts palindrome", "Create TypeScript file palindrome.ts exporting function isPalindrome(s:string):boolean. Create package.json with jest and ts-jest. Create tsconfig.json. Write palindrome.test.ts testing racecar===true and hello===false. Run npm test."),
+        ("typescript", "ts factorial",  "Create TypeScript file factorial.ts exporting function factorial(n:number):number with base case 0 returns 1. Create package.json with jest and ts-jest. Create tsconfig.json. Write factorial.test.ts testing factorial(5)===120 and factorial(0)===1. Run npm test."),
+        ("typescript", "ts stack",      "Create TypeScript file stack.ts exporting class Stack<T> with push(item:T) pop():T|undefined and isEmpty():boolean. Create package.json with jest and ts-jest. Create tsconfig.json. Write stack.test.ts with push/pop/isEmpty tests. Run npm test."),
         // Rust
         ("rust", "rust add",     "Create Rust library crate. Write Cargo.toml with name=rustadd edition=2021. Write src/lib.rs with pub fn add(a:i32,b:i32)->i32. Write tests module inside lib.rs testing add(2,3)==5 and add(-1,1)==0. Run cargo test."),
         ("rust", "rust fizzbuzz","Create Rust library crate. Write Cargo.toml name=rustfizz edition=2021. Write src/lib.rs with pub fn fizzbuzz(n:u32)->String returning Fizz Buzz FizzBuzz or number. Write tests module with 4 cases. Run cargo test."),
@@ -133,7 +138,7 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8) 
     }).collect();
 
     if cases.is_empty() {
-        println!("❌ Unknown suite '{}'. Use: python, go, node, rust, all", suite);
+        println!("❌ Unknown suite '{}'. Use: python, go, node, rust, typescript, all", suite);
         return Ok(());
     }
 
