@@ -279,7 +279,9 @@ impl Agent {
                                            && !path.contains("test")
                                            && !path.contains("Cargo.toml")
                                            && !path.contains("go.mod")
-                                           && !path.contains("package.json") => Some(path.clone()),
+                                           && !path.contains("package.json")
+                                           && !path.contains("jest.config")
+                                           && !path.contains("tsconfig") => Some(path.clone()),
                                     _ => None,
                                 });
                                 let mut mutation_passed = true;

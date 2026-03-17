@@ -134,6 +134,23 @@ impl SafeExecutor {
             std::borrow::Cow::Borrowed(content)
         };
         std::fs::write(&p, content.as_ref())?;
+        // Auto-fix: إذا كُتب jest.config.js → احذف "jest" field من package.json
+        if path.ends_with("jest.config.js") {
+            let pkg = self.workspace.join("package.json");
+            if pkg.exists() {
+                if let Ok(pkg_src) = std::fs::read_to_string(&pkg) {
+                    if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&pkg_src) {
+                        if v.get("jest").is_some() {
+                            v.as_object_mut().unwrap().remove("jest");
+                            if let Ok(fixed) = serde_json::to_string_pretty(&v) {
+                                let _ = std::fs::write(&pkg, fixed);
+                                println!("   🔧 AutoFix: removed jest field from package.json (conflicts with jest.config.js)");
+                            }
+                        }
+                    }
+                }
+            }
+        }
         println!("   📝 {} ({} bytes)", path, content.len());
         Ok(ExecResult::ok(format!("Written: {}", path)))
     }

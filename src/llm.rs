@@ -206,11 +206,17 @@ JEST RULES — CRITICAL:
 - test files: ALWAYS use describe() and it() or test() — NEVER call assertions outside describe
 
 TYPESCRIPT + TS-JEST — CRITICAL:
-- Install: typescript ts-jest @types/jest jest
-- jest.config.js: module.exports = { preset: 'ts-jest', testEnvironment: 'node' }
-- tsconfig.json: { "compilerOptions": { "target": "ES2020", "module": "commonjs", "strict": true } }
+- Install order: npm install typescript ts-jest @types/jest jest
+- ALWAYS use jest.config.js (NOT package.json jest field) for ts-jest:
+  module.exports = { preset: "ts-jest", testEnvironment: "node" }
+- tsconfig.json MUST have: { "compilerOptions": { "target": "ES2020", "module": "commonjs", "strict": false } }
+- strict: false — avoids type errors blocking tests
+- package.json scripts: { "test": "jest --runInBand --forceExit" }
+- NEVER add "jest" field in package.json when using jest.config.js — they conflict
+- test files: .test.ts extension ONLY
+- source files: export functions with "export function" or "export default"
 - NEVER use .toThrowError() — use .toThrow() only
-- test files extension: .test.ts
+- STEP ORDER: 1) package.json 2) npm install 3) tsconfig.json 4) jest.config.js 5) source.ts 6) source.test.ts 7) run_tests
 
 ALWAYS:
 1. python3 -m venv venv
@@ -267,7 +273,7 @@ impl LlmClient {
     pub fn new(api_key: String) -> Self {
         Self {
             api_key,
-            model:    "moonshotai/kimi-k2-instruct".into(),
+            model:    "moonshotai/kimi-k2-instruct-0905".into(),
             endpoint: "https://api.groq.com/openai/v1/chat/completions".into(),
         }
     }
