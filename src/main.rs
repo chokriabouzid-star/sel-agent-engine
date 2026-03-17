@@ -110,7 +110,7 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8) 
         ("python", "syntax error",     "Create Python function add(a,b) returning a+b with correct syntax. Write pytest test. Run tests."),
         ("python", "wrong return",     "Create Python function reverse_string(s) returning s[::-1]. Write pytest test expecting reverse_string('hello')=='olleh'. Run tests."),
         ("python", "missing function", "Create Python class Stack with push(item) and pop() methods. Write pytest test. Run tests."),
-        ("python", "runtime error",    "Create Python function divide(a,b) returning None if b==0 else a/b. Write pytest test for divide(10,0)==None. Run tests."),
+        ("python", "runtime error",    "Create Python function divide(a,b) returning None if b==0 else a/b. Write pytest tests: test divide(10,2)==5.0 AND divide(10,0)==None (both branches required). Run tests."),
         // Go
         ("go", "go add",       "Create Go package main with Add(a,b int) int. Create go.mod with module gotest and go 1.21. Write _test.go testing Add(2,3)==5 and Add(-1,1)==0. Run go test."),
         ("go", "go fizzbuzz",  "Create Go package main with FizzBuzz(n int) string returning Fizz/Buzz/FizzBuzz/number. Create go.mod module gotest go 1.21. Write _test.go with 4 test cases. Run go test."),
@@ -240,7 +240,7 @@ async fn run_stress(api_key: &str, max_repairs: u8) -> Result<()> {
         ("syntax error",     "Create Python function add(a,b) returning a+b with correct syntax. Write pytest test. Run tests."),
         ("wrong return",     "Create Python function reverse_string(s) returning s[::-1]. Write pytest test expecting reverse_string('hello')=='olleh'. Run tests."),
         ("missing function", "Create Python class Stack with push(item) and pop() methods. Write pytest test. Run tests."),
-        ("runtime error",    "Create Python function divide(a,b) returning None if b==0 else a/b. Write pytest test for divide(10,0)==None. Run tests."),
+        ("runtime error",    "Create Python function divide(a,b) returning None if b==0 else a/b. Write pytest tests: test divide(10,2)==5.0 AND divide(10,0)==None (both branches required). Run tests."),
         // Go cases
         ("go add",           "Create Go package main with Add(a,b int) int. Create go.mod with module gotest and go 1.21. Write _test.go testing Add(2,3)==5 and Add(-1,1)==0. Run go test."),
         ("go fizzbuzz",      "Create Go package main with FizzBuzz(n int) string returning Fizz/Buzz/FizzBuzz/number. Create go.mod module gotest go 1.21. Write _test.go with 4 test cases. Run go test."),
