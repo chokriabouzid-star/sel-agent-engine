@@ -43,6 +43,7 @@ impl SafeExecutor {
             Cmd::WriteFile { path, content }   => self.write_file(path, content),
             Cmd::AppendFile{ path, content }   => self.append_file(path, content),
             Cmd::DeleteFile{ path }               => self.delete_file(path),
+            Cmd::PatchFile { path, search, replace } => self.patch_file(path, search, replace),
             Cmd::ReadFile  { path }            => self.read_file(path),
             Cmd::Mkdir     { path }            => self.mkdir(path),
             Cmd::RunTests  { target }          => self.run_tests(target).await,
@@ -173,6 +174,32 @@ impl SafeExecutor {
         std::fs::remove_file(&p)?;
         println!("   🗑  Deleted: {}", path);
         Ok(ExecResult::ok(format!("Deleted: {}", path)))
+    }
+
+    fn patch_file(&self, path: &str, search: &str, replace: &str) -> Result<ExecResult> {
+        let p = self.safe_path(path)?;
+        if !p.exists() {
+            return Ok(ExecResult::fail(format!("patch_file: '{}' not found — use write_file to create it first", path)));
+        }
+        if search.trim().is_empty() {
+            return Ok(ExecResult::fail("patch_file: search block is empty".to_string()));
+        }
+        let content = std::fs::read_to_string(&p)?;
+        let count = content.matches(search).count();
+        if count == 0 {
+            return Ok(ExecResult::fail(format!(
+                "patch_file: search block not found in '{}' — copy the exact text from the file", path
+            )));
+        }
+        if count > 1 {
+            return Ok(ExecResult::fail(format!(
+                "patch_file: search block found {} times in '{}' — must be unique, use more context", count, path
+            )));
+        }
+        let new_content = content.replacen(search, replace, 1);
+        std::fs::write(&p, &new_content)?;
+        println!("   🔧 patch_file: {} ({} bytes → {} bytes)", path, content.len(), new_content.len());
+        Ok(ExecResult::ok(format!("Patched: {}", path)))
     }
 
     fn read_file(&self, path: &str) -> Result<ExecResult> {
@@ -336,6 +363,15 @@ impl SafeExecutor {
             });
         }
 
+        // Auto-install pytest في venv إذا لم يكن موجوداً
+        if self.workspace.join("venv").exists()
+            && !self.workspace.join("venv/bin/pytest").exists() {
+            println!("   🔧 AutoFix: installing pytest in venv...");
+            let _ = tokio::process::Command::new("venv/bin/pip")
+                .args(["install", "pytest", "-q"])
+                .current_dir(&self.workspace)
+                .output().await;
+        }
         let pytest = if self.workspace.join("venv/bin/pytest").exists() {
             "venv/bin/pytest"
         } else { "pytest" };

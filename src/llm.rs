@@ -219,6 +219,21 @@ ALWAYS:
 4. run_tests
 5. done
 FILE OPERATIONS:
+- write_file:  ONLY for creating NEW files that do not exist yet
+- patch_file:  ALWAYS for modifying EXISTING files (add/change/fix code)
+- append_file: ONLY for adding content at the END of an existing file
+- delete_file: ONLY for removing files that are no longer needed
+
+PATCH_FILE RULES — CRITICAL:
+- The "search" block MUST be copied EXACTLY from the file (no approximation)
+- The "search" block MUST appear exactly ONCE in the file
+- If the search block is not unique, use MORE surrounding context
+- NEVER use patch_file on a file that does not exist yet
+
+WRONG:  {"type":"write_file","path":"src/lib.rs","content":"...entire file..."}  ← when file already exists
+CORRECT: {"type":"patch_file","path":"src/lib.rs","search":"fn old()","replace":"fn new() -> i32"}
+
+OLD FILE OPERATIONS:
 - To delete a conflicting file use: {"type":"delete_file","path":"..."}
 - NEVER use shell rm commands — always use delete_file instead.
 - If two files conflict (e.g. src/executor.rs AND src/executor/mod.rs), use delete_file to remove one before proceeding.

@@ -20,6 +20,7 @@ pub enum Cmd {
     WriteFile { path: String, content: String },
     AppendFile{ path: String, content: String },
     DeleteFile{ path: String },
+    PatchFile { path: String, search: String, replace: String },
     ReadFile  { path: String },
     Mkdir     { path: String },
     RunTests  { target: String },
@@ -33,6 +34,7 @@ impl Cmd {
             Cmd::WriteFile { path, .. }   => format!("write_file: {}", path),
             Cmd::AppendFile{ path, .. }   => format!("append_file: {}", path),
             Cmd::DeleteFile{ path }        => format!("delete_file: {}", path),
+            Cmd::PatchFile { path, .. }     => format!("patch_file: {}", path),
             Cmd::ReadFile  { path }       => format!("read_file: {}", path),
             Cmd::Mkdir     { path }       => format!("mkdir: {}", path),
             Cmd::RunTests  { target }     => format!("run_tests: {}", target),
@@ -48,6 +50,7 @@ impl Cmd {
             Cmd::WriteFile { path, content }   => { "write_file".hash(&mut h); path.hash(&mut h); content.hash(&mut h); }
             Cmd::AppendFile{ path, content }   => { "append_file".hash(&mut h);path.hash(&mut h); content.hash(&mut h); }
             Cmd::DeleteFile{ path }              => { "delete_file".hash(&mut h); path.hash(&mut h); }
+            Cmd::PatchFile { path, search, replace } => { "patch_file".hash(&mut h); path.hash(&mut h); search.hash(&mut h); replace.hash(&mut h); }
             Cmd::ReadFile  { path }            => { "read_file".hash(&mut h);  path.hash(&mut h); }
             Cmd::Mkdir     { path }            => { "mkdir".hash(&mut h);      path.hash(&mut h); }
             Cmd::RunTests  { target }          => { "run_tests".hash(&mut h);  target.hash(&mut h); }
