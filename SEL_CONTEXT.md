@@ -4,7 +4,7 @@
 ---
 
 ## الإصدار الحالي
-- SEL Agent: v4.0
+- SEL Agent: v4.1-final
 - SEL Observatory: v1.3-final
 
 ---
@@ -20,17 +20,16 @@
 ---
 
 ## النموذج الأساسي
-- Primary: moonshotai/kimi-k2-instruct (via Groq API)
+- Primary: moonshotai/kimi-k2-instruct-0905 (via Groq API)
 - Fallback: llama-3.3-70b-versatile
 - ENV: SEL_MODEL, SEL_VERSION, GROQ_API_KEY
 
 ---
 
-## نتائج آخر Benchmark (v4.0)
-- Stress: 24/24 passed | avg repairs: 0.9
-- v3.2 → v4.0: avg repairs 1.0 → 0.9 (patch_file)
-- kimi-k2:  mutation 83%, quality 0.83, repairs 1.9 ✅ PRIMARY
-- llama-3.3: mutation 75%, quality 0.75, repairs 1.7
+## نتائج آخر Benchmark (v4.1-final)
+- Stress: 24/24 passed | avg repairs: 0.8
+- TypeScript: 4/4 | avg repairs: 0.2 | mutation: 100%
+- v4.0 → v4.1: avg repairs 0.9 → 0.8
 
 ---
 
@@ -38,19 +37,38 @@
 src/
   main.rs      — CLI: Run, Health, Stress, Bench
   agent.rs     — Agent::run(), repair_count(), mutation_score()
-  types.rs     — ExecutionContext (start_time, mutations_total, mutations_killed)
-  executor.rs  — apply_all_mutations(), mutation_check(), ALLOWED programs
-  llm.rs       — SYSTEM_PROMPT, model_name(), قواعد Python/Go/Node/Rust
-  protocol.rs  — Cmd enum (+ PatchFile v4.0), validate_test_order()
-  context.rs   — workspace management
+                 Goal Validator v1.2, Language Detection, Recursive Walker (max 20 files)
+  types.rs     — ExecutionContext, FailedStep, FailureKind
+  executor.rs  — patch_file(), mutation_check(), ALLOWED programs
+                 AutoFix: pytest install, jest conflict, go mod tidy, sha2::Digest
+  llm.rs       — SYSTEM_PROMPT, model_name()
+  protocol.rs  — Cmd enum (WriteFile, AppendFile, PatchFile, DeleteFile, ReadFile, Run, RunTests, Done)
+  context.rs   — Context Budget Engine (MAX_REPAIR_TOKENS=8000)
 
 ---
 
-## Bench System
-- الأمر: sel-agent bench --suite [python|go|node|rust|all] --iterations N
-- الحالات: 24 حالة (12 Python, 4 Go, 4 Node, 4 Rust)
-- POST تلقائي إلى Observatory بعد كل bench
-- ENV: SEL_VERSION لتسمية الجلسة
+## Suites المتاحة
+- sel-agent bench --suite [python|go|node|rust|typescript|all]
+- الحالات: 28 حالة (12 Python, 4 Go, 4 Node, 4 Rust, 4 TypeScript)
+- Stress test: 24 حالة (بدون TypeScript)
+
+---
+
+## FILE OPERATIONS RULES (v4.0)
+- write_file:  فقط للملفات الجديدة
+- patch_file:  دائماً لتعديل الملفات الموجودة (search/replace موضعي)
+- append_file: فقط للإضافة في نهاية الملف
+- Validation:  search block موجود مرة واحدة بالضبط أو error
+- whitespace normalization: تلقائي عند فشل البحث
+
+---
+
+## TypeScript Rules (v4.1)
+- Install: npm install typescript ts-jest @types/jest jest
+- jest.config.js: module.exports = { preset: "ts-jest", testEnvironment: "node" }
+- tsconfig.json: strict: false, module: commonjs
+- AutoFix: إزالة jest field من package.json عند وجود jest.config.js
+- Mutation selector: يتجاهل jest.config.js و tsconfig.json
 
 ---
 
@@ -64,51 +82,33 @@ Python (8 قواعد):
   6. minimum 6 tests per file
   7. edge cases: empty, zero, negative, boundary
   8. لا تختبر happy path فقط
-
----
-
-## FILE OPERATIONS RULES (v4.0)
-- write_file:  فقط للملفات الجديدة
-- patch_file:  دائماً لتعديل الملفات الموجودة (search/replace موضعي)
-- append_file: فقط للإضافة في نهاية الملف
-- Validation:  search block موجود مرة واحدة بالضبط أو error
-
----
-
-## Observatory API
-- GET  /api/projects    — قائمة المشاريع
-- GET  /api/runs        — آخر 20 run
-- GET  /api/run-stats   — إحصائيات عامة
-- POST /api/run         — تسجيل run جديد
-- GET  /api/bench       — bench history
-- POST /api/bench       — تسجيل bench جديد
+Repair rules: patch_file إلزامي للملفات الموجودة، write_file محظور في الـ repair
 
 ---
 
 ## Git Tags المهمة
-- v1.5-final: heartbeat UI (indicatif)
-- v1.7-final: stress 24/24, mutation 4 لغات
-- v1.8-final: bench subcommand, quality index
-- v1.9-final: bench POST to Observatory
-- v2.0-final: iterations, prompt rules 6-8, model comparison
 - v3.2-final: delete_file, language guard, recursive walker, 24/24
 - v4.0: patch_file (search/replace), tool selection bias fixed
+- v4.0-final: skip guard fixed, whitespace normalization, repair prompt
+- v4.1: TypeScript suite 4/4
+- v4.1-final: kimi-k2-0905 default, jest autofix, avg repairs 0.8
 
 ---
 
-## القرارات المهمة (لا تتغير)
-- Workspace ephemeral لكل حالة (tmpdir/sel-bench-N)
-- Mutation check يعمل على: .py .go .js .ts .rs
-- Observatory يُحذف db عند تغيير schema ثم يُعاد تشغيله
-- fuser -k 8777/tcp قبل كل تشغيل للـ Observatory
+## الحدود المعروفة (مرشحة لـ v5.0)
+- Goal Validator يرفض أهداف المشاريع الحقيقية (لا قيم محددة)
+- Recursive Walker محدود بـ 20 ملف — لا يكفي للمشاريع الكبيرة
+- patch_file يفشل مع ملفات كبيرة (search block غير فريد)
+- Groq free tier: TPM limit 10,000 — مشاريع كبيرة تسبب 413
 
 ---
 
-## الخطوة التالية: v4.1
-هدف: تحسين patch_file + TypeScript suite
-  - auto-retry عند فشل patch (expanded context)
-  - bench --suite typescript
-  - avg repairs هدف: 0.7
+## الخطوة التالية: v5.0
+هدف: دعم المشاريع الحقيقية
+  1. Goal Validator مرن — يقبل أهداف "fix failing tests"
+  2. Context Chunking — إرسال أجزاء من الملفات الكبيرة فقط
+  3. patch_file مع line number hint — لتجنب ambiguity
+  4. --focus flag — تحديد الملفات المستهدفة يدوياً
 
 ---
 
@@ -117,23 +117,65 @@ v3.0 → Live View (WebSocket) ✅
 v3.1 → Language Guard + File Walker ✅
 v3.2 → delete_file + stress 24/24 ✅
 v4.0 → patch_file (surgical edits) ✅
-v4.1 → TypeScript suite + auto-retry patch
-v4.1 → Java suite
-v4.2 → C suite
-v5.0 → Regression Detection
-v5.1 → Model Comparison Engine
-v5.2 → Export & Research
+v4.1 → TypeScript suite + kimi-k2-0905 ✅
+v5.0 → Real Project Support (Goal Validator + Context Chunking)
+v5.1 → Java suite
+v5.2 → Model Comparison Engine
 v6.0 → Self-Improvement
 v6.1 → Multi-Agent
-v6.2 → Web Interface كامل
 
 ---
 
 ## ملاحظات تشغيلية
-- Groq free tier: حد يومي للـ tokens — انتبه عند bench --iterations كبير
-- Observatory يحتاج sleep 6 بعد التشغيل قبل أي curl
-- DeepSeek free tier: غير متاح (402)
+- Groq free tier: حد يومي للـ tokens
 - bench --suite rust الأسرع للاختبار السريع
+- SEL_MODEL env var لتغيير النموذج مؤقتاً
+- Observatory: fuser -k 8777/tcp قبل التشغيل
 
 ---
-آخر تحديث: v4.0 — 2026-03-17
+آخر تحديث: v4.1-final — 2026-03-18
+
+---
+
+## تجربة حقيقية: القسطاس — violations crate (2026-03-18)
+
+### المهمة
+تنفيذ violations crate الفارغ بناءً على اختبارات موجودة.
+
+### ما حدث
+- SEL كتب الكود الأساسي ✅
+- SEL كتب أنواع خاطئة ([u8;4] بدل [u64;4]) ❌
+- SEL دمّر Cargo.toml (558 → 167 bytes) ❌
+- SEL قبل 0 passed كنجاح ❌
+- التدخل اليدوي أصلح كل شيء ✅
+- النتيجة النهائية: 59 اختبار، صفر فشل ✅
+
+### الدروس
+1. Goal غامض → SEL يخمّن الأنواع ويخطئ
+   الحل: حدد الأنواع بدقة في الـ goal أو أعطه ملف مرجعي
+2. SEL يعتبر 0 passed نجاحاً — خطأ خطير
+   الحل v5.0: فرض minimum_tests > 0 في Goal Validator
+3. write_file على Cargo.toml موجود = خطر
+   الحل v5.0: Cargo.toml محمي افتراضياً مثل constitution
+4. المهمة المثالية لـ SEL: ملفات محددة + مواصفة دقيقة + اختبارات مرجعية موجودة
+
+### قاعدة جديدة للـ v5.0
+- PROTECTED_FILES: Cargo.toml, Cargo.lock, constitution/*
+- GOAL_VALIDATOR: يرفض النجاح إذا passed == 0
+- GOAL_FORMAT المثالي:
+  "--workspace <crate> --goal <task> --ref-file <archive/original>"
+
+---
+
+## إصلاحات v5.0-dev (2026-03-18)
+
+### الإصلاح 1: منع 0 passed من أن يُعتبر نجاحاً
+- الملف: src/executor.rs
+- المشكلة: success = exit_ok فقط، بغض النظر عن عدد الاختبارات
+- الحل: success = exit_ok && passed > 0
+- يطبق على: Rust, Go, Jest
+
+### الإصلاح 2: parse_rust_tests يجمع كل النتائج
+- المشكلة: كانت تأخذ أول test result فقط (غالباً 0 passed)
+- الحل: تجمع كل test result lines وتجمع الأعداد
+- النتيجة: 0+2+0 = 2 passed بدل 0

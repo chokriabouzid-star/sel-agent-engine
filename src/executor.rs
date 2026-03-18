@@ -108,6 +108,14 @@ impl SafeExecutor {
 
     fn write_file(&self, path: &str, content: &str) -> Result<ExecResult> {
         let p = self.safe_path(path)?;
+        // حماية: ملفات محمية لا يُكتب عليها إذا كانت موجودة
+        let protected = ["Cargo.toml", "Cargo.lock", "go.mod", "go.sum"];
+        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if protected.contains(&name) && p.exists() {
+            return Ok(ExecResult::fail(format!(
+                "write_file: '{}' is protected — use patch_file to modify existing files", path
+            )));
+        }
         if let Some(parent) = p.parent() { std::fs::create_dir_all(parent)?; }
         // حماية: إذا كان الملف موجوداً وأكبر بكثير من المحتوى الجديد → تحذير
         if p.exists() {
@@ -290,10 +298,12 @@ impl SafeExecutor {
                     }
                 }
             }
-            let success = out.status.success();
-            if success { println!("   ✅ Tests passed (exit 0)"); }
-            else       { println!("   ❌ Tests FAILED (exit {})", out.status.code().unwrap_or(-1)); }
+            let exit_ok = out.status.success();
             let (passed, failed) = parse_rust_tests(&combined);
+            let success = exit_ok && passed > 0;
+            if success { println!("   ✅ Tests passed (exit 0)"); }
+            else if exit_ok && passed == 0 { println!("   ❌ Tests FAILED — 0 tests ran"); }
+            else       { println!("   ❌ Tests FAILED (exit {})", out.status.code().unwrap_or(-1)); }
             return Ok(ExecResult {
                 success,
                 exit_code: out.status.code().unwrap_or(-1),
@@ -329,10 +339,12 @@ impl SafeExecutor {
             let stdout = String::from_utf8_lossy(&out.stdout).to_string();
             let stderr = String::from_utf8_lossy(&out.stderr).to_string();
             let combined = format!("{}\n{}", stdout, stderr);
-            let success = out.status.success();
-            if success { println!("   ✅ Tests passed (exit 0)"); }
-            else       { println!("   ❌ Tests FAILED (exit {})", out.status.code().unwrap_or(-1)); }
+            let exit_ok = out.status.success();
             let (passed, failed) = parse_go_tests(&combined);
+            let success = exit_ok && passed > 0;
+            if success { println!("   ✅ Tests passed (exit 0)"); }
+            else if exit_ok && passed == 0 { println!("   ❌ Tests FAILED — 0 tests ran"); }
+            else       { println!("   ❌ Tests FAILED (exit {})", out.status.code().unwrap_or(-1)); }
             return Ok(ExecResult {
                 success,
                 exit_code: out.status.code().unwrap_or(-1),
@@ -376,13 +388,15 @@ impl SafeExecutor {
             let stderr = String::from_utf8_lossy(&out.stderr).to_string();
             let combined = format!("{}
 {}", stdout, stderr);
-            let success = out.status.success();
-            if success { println!("   ✅ Tests passed (exit 0)"); }
-            else       { println!("   ❌ Tests FAILED (exit {})", out.status.code().unwrap_or(-1)); }
+            let exit_ok = out.status.success();
             // parse Jest results
             let passed = combined.lines()
                 .filter(|l| l.contains("✓") || l.contains("✔") || l.contains("passed"))
                 .count();
+            let success = exit_ok && passed > 0;
+            if success { println!("   ✅ Tests passed (exit 0)"); }
+            else if exit_ok && passed == 0 { println!("   ❌ Tests FAILED — 0 tests ran"); }
+            else       { println!("   ❌ Tests FAILED (exit {})", out.status.code().unwrap_or(-1)); }
             let failed = combined.lines()
                 .filter(|l| l.contains("✗") || l.contains("✘") || l.contains("failed") || l.contains("FAIL"))
                 .count();
@@ -690,26 +704,25 @@ mod tests {
 }
 
 fn parse_rust_tests(output: &str) -> (usize, usize) {
+    let mut total_passed = 0usize;
+    let mut total_failed = 0usize;
     for line in output.lines() {
         if line.contains("test result:") {
-            let mut passed = 0usize;
-            let mut failed = 0usize;
             for seg in line.split(';') {
                 let s = seg.trim();
                 let words: Vec<&str> = s.split_whitespace().collect();
                 for (i, w) in words.iter().enumerate() {
                     if *w == "passed" && i > 0 {
-                        if let Ok(n) = words[i-1].parse() { passed = n; }
+                        if let Ok(n) = words[i-1].parse::<usize>() { total_passed += n; }
                     }
                     if *w == "failed" && i > 0 {
-                        if let Ok(n) = words[i-1].parse() { failed = n; }
+                        if let Ok(n) = words[i-1].parse::<usize>() { total_failed += n; }
                     }
                 }
             }
-            return (passed, failed);
         }
     }
-    (0, 0)
+    (total_passed, total_failed)
 }
 
 fn parse_go_tests(output: &str) -> (usize, usize) {

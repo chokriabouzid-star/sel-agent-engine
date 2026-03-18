@@ -71,28 +71,27 @@ impl Agent {
     fn validate_goal(goal: &str) -> Option<String> {
         let g = goal.to_lowercase();
         let len = goal.trim().len();
-
-        // الـ goal قصير جداً
-        if len < 20 {
-            return Some("Goal too short — please describe what to build and test.".to_string());
+        if len < 10 {
+            return Some("Goal too short.".to_string());
         }
-
-        // لا يذكر اختبارات
-        let has_test = g.contains("test") || g.contains("pytest") || g.contains("assert");
+        let real_keywords = ["fix", "implement", "refactor",
+            "update", "migrate", "failing", "crate", "existing", "workspace"];
+        if real_keywords.iter().any(|kw| g.contains(kw)) {
+            return None;
+        }
+        let has_test = g.contains("test") || g.contains("pytest")
+            || g.contains("assert") || g.contains("spec") || g.contains("verify");
         if !has_test {
-            return Some("Goal has no test requirement — add tests to verify the implementation.".to_string());
+            return Some("Goal has no test requirement — add tests to verify.".to_string());
         }
-
-        // يذكر قيم عددية في الاختبارات بدون تحديدها
-        let vague_test = (g.contains("test") || g.contains("assert"))
-            && (g.contains("some value") || g.contains("correct value") || g.contains("expected value"));
-        if vague_test {
-            return Some("Ambiguous test values — specify exact expected values (e.g., add(2,3)==5).".to_string());
+        let vague = (g.contains("test") || g.contains("assert"))
+            && (g.contains("some value") || g.contains("correct value"));
+        if vague {
+            return Some("Ambiguous values — specify exact expected values.".to_string());
         }
-
         None
     }
-    // الحلقة الرئيسية
+
     // ══════════════════════════════════════════════════════════
 
 
@@ -182,7 +181,7 @@ impl Agent {
                         let extensions = [".rs", ".py", ".js", ".ts", ".go"];
                         // walk recursive حتى عمق 3
                         fn walk(dir: &std::path::Path, ws: &std::path::Path,
-                                exts: &[&str], out: &mut String, depth: u8) {
+                                exts: &[&str], out: &mut String, depth: u8, count: &mut usize) {
                             if depth > 3 { return; }
                             let Ok(entries) = std::fs::read_dir(dir) else { return };
                             for entry in entries.flatten() {
@@ -191,7 +190,7 @@ impl Agent {
                                     let name = p.file_name()
                                         .and_then(|n| n.to_str()).unwrap_or("");
                                     if !matches!(name, "target"|".git"|"node_modules"|"venv") {
-                                        walk(&p, ws, exts, out, depth + 1);
+                                        walk(&p, ws, exts, out, depth + 1, count);
                                     }
                                 } else {
                                     let name = p.file_name()
@@ -212,7 +211,8 @@ impl Agent {
                                 }
                             }
                         }
-                        walk(ws, ws, &extensions, &mut files_ctx, 0);
+                        let mut file_count = 0usize;
+                        walk(ws, ws, &extensions, &mut files_ctx, 0, &mut file_count);
                         if !files_ctx.is_empty() {
                             format!("\n\nCRITICAL — EXISTING FILES (you MUST preserve ALL existing code and APPEND only):{}", files_ctx)
                         } else {
