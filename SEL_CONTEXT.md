@@ -179,3 +179,17 @@ v6.1 → Multi-Agent
 - المشكلة: كانت تأخذ أول test result فقط (غالباً 0 passed)
 - الحل: تجمع كل test result lines وتجمع الأعداد
 - النتيجة: 0+2+0 = 2 passed بدل 0
+
+---
+## إصلاحات v5.0-final (2026-03-19)
+- write_file: Cargo.toml + Cargo.lock + go.mod + go.sum محمية من الكتابة العشوائية
+- Goal Validator: يقبل أهداف المشاريع الحقيقية (fix, implement, refactor, existing...)
+- parse_rust_tests: يجمع كل النتائج (0+2+0 = 2 بدل 0)
+- 0 passed = فشل في Rust + Go + Jest
+- Bench: 28/28 | Mutation 94% | Quality 0.94
+
+## الخطوة التالية: Observatory UI v2.0
+- رسم بياني للـ Quality Index عبر الإصدارات
+- Bench Dashboard في الواجهة
+- مقارنة النماذج بصرياً
+آخر تحديث: v5.0-final — 2026-03-19
