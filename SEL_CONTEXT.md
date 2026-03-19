@@ -314,3 +314,20 @@ sel-agent run \
 **النتيجة:** ✅ SUCCESS - البناء نجح والاختبارات تعمل
 
 تاريخ الاختبار: 2026-03-19
+
+### اختبار v5.1 على القسطاس ✅
+
+**المشروع:** al-qistas-system/crates/violations
+**المهمة:** إضافة `get_violation_severity()` method
+**الميزات المستخدمة:**
+- `--ref-file src/snapshot.rs`
+- `--focus src/`
+- `--max-repairs 3`
+
+**النتيجة:**
+- ✅ **0 repairs** - نجح من المحاولة الأولى
+- ✅ **6 tests passed** - اختبارات شاملة لكل الحالات
+- ✅ `patch_file` × 2 - src/snapshot.rs + tests/violations_test.rs
+- ✅ منطق شرطي معقد (1-2→low, 3-4→medium, 5-6→high)
+
+تاريخ: 2026-03-19
