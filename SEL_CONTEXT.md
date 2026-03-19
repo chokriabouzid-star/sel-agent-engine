@@ -258,3 +258,17 @@ sel-agent run \
 بعد اختبار v5.1 على مشروع al-qistas الحقيقي
 
 تاريخ الإصدار: 2026-03-19
+
+### اختبار v5.1 الحقيقي ✅
+
+**المشروع:** test-v51-project (Rust multi-file)
+**الخطأ:** User struct missing email field
+**الإصلاح:** 
+- استخدم `--ref-file` لرؤية types_reference.rs
+- استخدم `--focus src/models/,src/auth/` للتركيز
+- أصلح في **0 repairs** (نجح من المحاولة الأولى)
+- استخدم `patch_file` 3 مرات (لم يعد write_file)
+
+**النتيجة:** ✅ SUCCESS - البناء نجح والاختبارات تعمل
+
+تاريخ الاختبار: 2026-03-19
