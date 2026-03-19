@@ -27,6 +27,8 @@ enum Commands {
         #[arg(long)] goal:        String,
         #[arg(long, default_value = "3")] max_repairs: u8,
         #[arg(long, default_value = "false")] dry_run: bool,
+        #[arg(long)] ref_file: Option<PathBuf>,
+        #[arg(long, value_delimiter = ',')] focus: Vec<String>,
     },
     Health,
     Stress {
@@ -169,6 +171,7 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8) 
             let mut agent = crate::agent::Agent::new(
                 api_key.to_string(), workspace.clone(),
                 goal.to_string(), max_repairs,
+                types::ContextConfig::default(),
             );
             let ok = agent.run().await.is_ok();
             pb.finish_and_clear();
@@ -282,6 +285,7 @@ async fn run_stress(api_key: &str, max_repairs: u8) -> Result<()> {
             workspace.clone(),
             goal.to_string(),
             max_repairs,
+            types::ContextConfig::default(),
         );
         let result = ag.run().await;
         pb.finish_and_clear();
@@ -322,13 +326,19 @@ async fn main() -> Result<()> {
             let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
             run_stress(&api_key, max_repairs).await?;
         }
-        Commands::Run { workspace, goal, max_repairs, dry_run } => {
+        Commands::Run { workspace, goal, max_repairs, dry_run, ref_file, focus } => {
             println!("\n╔══════════════════════════════════════════╗");
             println!("║   SEL Agent v1.5 — State Machine Engine  ║");
             println!("╚══════════════════════════════════════════╝");
             println!("\n📋 Goal: \"{}\"", goal);
             println!("   Workspace:   {}", workspace.display());
             println!("   Max repairs: {}", max_repairs);
+            if let Some(ref rf) = ref_file {
+                println!("   Ref file:    {}", rf.display());
+            }
+            if !focus.is_empty() {
+                println!("   Focus:       {:?}", focus);
+            }
 
             let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
 
@@ -353,7 +363,12 @@ async fn main() -> Result<()> {
             }
 
             std::fs::create_dir_all(&workspace)?;
-            let mut ag = agent::Agent::new(api_key, workspace, goal, max_repairs);
+            let ctx_config = types::ContextConfig {
+                ref_file: ref_file.clone(),
+                focus_paths: focus.clone(),
+                ..Default::default()
+            };
+            let mut ag = agent::Agent::new(api_key, workspace, goal, max_repairs, ctx_config);
             ag.run().await?;
         }
     }

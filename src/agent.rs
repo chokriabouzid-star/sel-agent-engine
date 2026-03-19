@@ -6,7 +6,7 @@ use crate::{
     executor::SafeExecutor,
     llm::LlmClient,
     protocol::{self, Cmd},
-    types::{AgentState, ExecutionContext, FailedStep, FailureKind, Message},
+    types::{AgentState, ContextConfig, ExecutionContext, FailedStep, FailureKind, Message},
 };
 
 pub struct Agent {
@@ -18,10 +18,11 @@ pub struct Agent {
     plan:      Vec<Cmd>,
     previous_error:      Option<String>,
     repair_fingerprints: Vec<u64>,   // Repair History Guard v1.2
+    context_config:      ContextConfig,
 }
 
 impl Agent {
-    pub fn new(api_key: String, workspace: PathBuf, goal: String, max_repairs: u8) -> Self {
+    pub fn new(api_key: String, workspace: PathBuf, goal: String, max_repairs: u8, context_config: ContextConfig) -> Self {
         Self {
             state:    AgentState::Planning,
             ctx:      ExecutionContext::new(max_repairs),
@@ -31,6 +32,7 @@ impl Agent {
             plan:               Vec::new(),
             previous_error:     None,
             repair_fingerprints: Vec::new(),
+            context_config,
         }
     }
     pub fn repair_count(&self) -> usize {
@@ -496,6 +498,7 @@ impl Agent {
                         culprit_files: self.ctx.failed_steps.iter()
                             .filter_map(|s| s.culprit_file.clone())
                             .collect(),
+                            context_config: Some(self.context_config.clone()),
                     };
                     if std::env::var("SEL_DEBUG").is_ok() {
                         let culprits: Vec<_> = self.ctx.failed_steps.iter()
@@ -606,10 +609,18 @@ impl Agent {
                     let patch_note = if !files_context.starts_with("FILES IN PROJECT:") {
                         "\n\n⚠ REPAIR RULES — MANDATORY:\n1. DO NOT use write_file on files that already exist — this resets them to broken state.\n2. Use patch_file to fix existing files. Copy search text EXACTLY from CURRENT FILES above.\n3. write_file is FORBIDDEN for existing files during repair.\nWRONG: {\"type\":\"write_file\",\"path\":\"calc.py\",...}  ← overwrites with wrong code\nRIGHT: {\"type\":\"patch_file\",\"path\":\"calc.py\",\"search\":\"return a - b\",\"replace\":\"return a + b\"}"
                     } else { "" };
+                    
+                    // v5.1: Reference File Support
+                    let ref_file_context = if let Some(ref ref_path) = self.context_config.ref_file {
+                        crate::context::read_ref_file(&ref_path)
+                            .map(|content| format!("\n\nREFERENCE FILE ({}):\n```\n{}\n```", ref_path.display(), content))
+                            .unwrap_or_default()
+                    } else { String::new() };
+                    
                     let prompt = format!(
-                        "Goal: {}{}{}{}\n\nHINT: {}\n\n{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}\n\
+                        "Goal: {}{}{}{}{}\n\nHINT: {}\n\n{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}\n\
                          Fix ALL issues. Provide complete corrected plan.",
-                        self.goal, network_note, mutation_note, patch_note, repair_hint, attempt_note, errors, files_context
+                        self.goal, network_note, mutation_note, patch_note, ref_file_context, repair_hint, attempt_note, errors, files_context
                     );
 
                     // Protocol Resilience v1.3

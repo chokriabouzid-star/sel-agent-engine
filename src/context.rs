@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 // ─── الثوابت ───────────────────────────────────
 
 pub const MAX_REPAIR_TOKENS: usize = 8_000;
+pub const MAX_CONTEXT_FILES: usize = 50;  // v5.1: رفع من 20 إلى 50
 const CHARS_PER_TOKEN:       usize = 4;
 const MIN_SCORE:             u8    = 2;
 const SMALL_FILE_LINES:      usize = 200;
@@ -29,6 +30,7 @@ pub struct RepairContext {
     pub max_tokens:    usize,
     pub force_include: Vec<PathBuf>,
     pub culprit_files: Vec<String>,   // الملفات المسبّبة للخطأ — أعلى أولوية
+    pub context_config: Option<crate::types::ContextConfig>,
 }
 
 impl Default for RepairContext {
@@ -39,6 +41,7 @@ impl Default for RepairContext {
             max_tokens:    MAX_REPAIR_TOKENS,
             force_include: vec![],
             culprit_files: vec![],
+            context_config: None,
         }
     }
 }
@@ -169,6 +172,14 @@ fn compute_score(
         .and_then(|s| s.to_str())
         .unwrap_or("");
 
+    // +10 ملف في focus_paths (v5.1)
+    if let Some(ref config) = ctx.context_config {
+        if config.focus_paths.iter().any(|fp| path.to_string_lossy().contains(fp)) {
+            score += 10;
+            reasons.push("focus path".to_string());
+        }
+    }
+
     // +8 ملف مسبّب مباشر (multi-file repair memory)
     if ctx.culprit_files.iter().any(|c| c == filename) {
         score += 8;
@@ -283,6 +294,7 @@ mod tests {
             max_tokens:    MAX_REPAIR_TOKENS,
             force_include: vec![],
             culprit_files: vec![],
+            context_config: None,
         };
         let (score, reasons) = compute_score(&path, "x = 1", &ctx);
         assert_eq!(score, 4); // 3 + 1 (small)
@@ -316,5 +328,22 @@ mod tests {
             tokens_after:   1600,
         };
         assert_eq!(report.reduction_pct(), 80);
+    }
+}
+
+// ─── v5.1: Reference File Support ──────────────
+
+pub fn read_ref_file(ref_file: &Path) -> Option<String> {
+    match std::fs::read_to_string(ref_file) {
+        Ok(content) => {
+            println!("📄 Loaded ref file: {} ({} lines)", 
+                ref_file.display(), 
+                content.lines().count());
+            Some(content)
+        }
+        Err(e) => {
+            eprintln!("⚠️  Failed to read ref file: {}", e);
+            None
+        }
     }
 }

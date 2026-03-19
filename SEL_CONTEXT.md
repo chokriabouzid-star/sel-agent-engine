@@ -193,3 +193,68 @@ v6.1 → Multi-Agent
 - Bench Dashboard في الواجهة
 - مقارنة النماذج بصرياً
 آخر تحديث: v5.0-final — 2026-03-19
+
+## مشكلة معلقة — click/core.py (ID 538-541)
+- Goal: Fix bug in src/click/core.py line 682
+- فشل بعد 4 repairs
+- السبب: SEL لم يتعرف على السياق الكامل للمشروع
+- الحل المقترح في v5.1: --ref-file + context chunking
+
+---
+## الخطوة التالية: v5.1
+هدف: دعم المشاريع الكبيرة والمعقدة
+
+### المشاكل المستهدفة
+1. SEL لا يرى السياق الكافي للمشاريع الكبيرة (20 ملف محدود)
+2. patch_file يفشل عندما لا يجد search block بدقة
+3. click/core.py فشل بعد 4 repairs بسبب نقص السياق
+
+### الحلول المخططة
+- --ref-file flag: إعطاء SEL ملف مرجعي يحتوي الأنواع والتوقيعات
+- Context Chunking: إرسال الجزء الصحيح من الملف فقط
+- --focus flag: تحديد الملفات المستهدفة يدوياً
+- Recursive Walker: رفع الحد من 20 إلى 50 ملف
+
+### مثال الاستخدام المستهدف
+sel-agent run \
+  --workspace ~/al-qistas \
+  --goal "Fix violations crate — implement all types" \
+  --ref-file ~/al-qistas/archive/violations_original.rs \
+  --focus src/violations/ \
+  --max-repairs 5
+
+آخر تحديث: v5.0-final — 2026-03-19
+
+---
+## v5.1 — تم التنفيذ ✅
+
+### الميزات المضافة
+1. **--ref-file flag** - ملف مرجعي للأنواع والتوقيعات يُضاف للـ repair context
+2. **--focus flag** - مسارات محددة تحصل على +10 score في Context Budget
+3. **MAX_CONTEXT_FILES: 50** - رفع الحد من 20 إلى 50 ملف
+4. **focus_paths scoring** - منطق ذكي يعطي أولوية للملفات المستهدفة
+5. **ref_file في repair prompt** - يتم إضافة محتوى الـ ref file تلقائياً في الـ repair context
+
+### مثال الاستخدام
+```bash
+sel-agent run \
+  --workspace ~/my-project \
+  --goal "Fix the authentication bug" \
+  --ref-file ~/my-project/docs/auth_types.rs \
+  --focus src/auth/,src/middleware/ \
+  --max-repairs 5
+```
+
+### التغييرات التقنية
+- **types.rs**: إضافة `ContextConfig` struct
+- **main.rs**: CLI flags جديدة + تمريرها للـ Agent
+- **agent.rs**: تخزين `context_config` + استخدامه في repair
+- **context.rs**: 
+  - رفع `MAX_CONTEXT_FILES` من 20→50
+  - إضافة `focus_paths` scoring (+10)
+  - دالة `read_ref_file()` لقراءة الملف المرجعي
+
+### Benchmark القادم
+بعد اختبار v5.1 على مشروع al-qistas الحقيقي
+
+تاريخ الإصدار: 2026-03-19

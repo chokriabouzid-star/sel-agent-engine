@@ -348,3 +348,24 @@ impl ExecutionContext {
         let _ = std::fs::write(path, content);
     }
 }
+
+// ══════════════════════════════════════════════════════
+// v5.1: Context Configuration
+// ══════════════════════════════════════════════════════
+
+#[derive(Debug, Clone)]
+pub struct ContextConfig {
+    pub ref_file:          Option<PathBuf>,      // ملف مرجعي للأنواع والتوقيعات
+    pub focus_paths:       Vec<String>,          // مسارات لإعطاء أولوية أعلى
+    pub max_context_files: usize,                // الحد الأقصى للملفات (50 بدل 20)
+}
+
+impl Default for ContextConfig {
+    fn default() -> Self {
+        Self {
+            ref_file:          None,
+            focus_paths:       vec![],
+            max_context_files: 50,  // رفع من 20 إلى 50
+        }
+    }
+}
