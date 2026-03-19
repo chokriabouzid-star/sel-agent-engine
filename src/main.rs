@@ -1,4 +1,4 @@
-// src/main.rs — SEL Agent v1.5
+// src/main.rs — SEL Agent v5.1
 mod context;
 mod types;
 mod protocol;
@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 #[derive(Parser)]
-#[command(name = "sel-agent", version = "1.5.0")]
+#[command(name = "sel-agent", version = "5.1.0")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -43,7 +43,7 @@ enum Commands {
 
 async fn run_health(api_key: &str) -> Result<()> {
     println!("\n╔══════════════════════════════════════════╗");
-    println!("║   SEL Agent v1.5 — Health Check          ║");
+    println!("║   SEL Agent v5.1 — Health Check          ║");
     println!("╚══════════════════════════════════════════╝\n");
 
     let internet = reqwest::Client::new()
@@ -328,7 +328,7 @@ async fn main() -> Result<()> {
         }
         Commands::Run { workspace, goal, max_repairs, dry_run, ref_file, focus } => {
             println!("\n╔══════════════════════════════════════════╗");
-            println!("║   SEL Agent v1.5 — State Machine Engine  ║");
+            println!("║   SEL Agent v5.1 — State Machine Engine  ║");
             println!("╚══════════════════════════════════════════╝");
             println!("\n📋 Goal: \"{}\"", goal);
             println!("   Workspace:   {}", workspace.display());
