@@ -331,3 +331,25 @@ sel-agent run \
 - ✅ منطق شرطي معقد (1-2→low, 3-4→medium, 5-6→high)
 
 تاريخ: 2026-03-19
+
+---
+## v5.1 - الملخص النهائي
+
+### الاختبارات
+| الاختبار | النتيجة | التفاصيل |
+|---------|---------|----------|
+| test-v51-project | ✅ SUCCESS | 0 repairs, 1 test passed |
+| al-qistas severity | ✅ SUCCESS | 0 repairs, 6 tests passed |
+| al-qistas idempotency | ⚠️ PARTIAL | أضاف tests لكن أفسد سطر |
+
+### Bug مكتشف
+- **patch_file validation** يحتاج تحسين
+- السطر المُفسد: `}ype = 7;` بدل `snapshot.violation_type = 7;`
+- للإصلاح في v5.2 أو v5.1.1
+
+### الإحصائيات النهائية
+- **Success Rate**: 66% (2/3 اختبارات كاملة)
+- **Avg Repairs**: 0.0 (للاختبارات الناجحة)
+- **Quality**: v5.1 مستقر مع نقطة تحسين واحدة
+
+تاريخ: 2026-03-19
