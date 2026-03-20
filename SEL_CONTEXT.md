@@ -391,3 +391,62 @@ v5.2: ✅ SUCCESS (9 tests passed, 0 repairs ضائعة)
 - v5.2: ✅ 0 repairs + نجاح
 
 تاريخ: 2026-03-19
+
+---
+## v5.2 — الملخص النهائي ✅
+
+### الإصلاحات المُنفذة:
+1. **patch_file → write_file fallback** (بعد فشلين)
+   - `patch_attempts: RefCell<HashMap<PathBuf, usize>>`
+   - automatic strategy switching
+   
+2. **patch_file validation** 
+   - corruption detection: }ype, {ype
+   - Rust escape detection: #\[, #\]
+   - brace matching: { vs }
+   - line count sanity: reject if >20 lines changed
+
+### الاختبارات المُنفذة:
+
+#### 1. al-qistas idempotency ✅
+```
+v5.1: ❌ أفسد السطر 150 + 3 repairs ضائعة
+v5.2: ✅ 9 tests passed, 0 repairs
+```
+
+#### 2. projects-scanner (status detection) ✅
+```
+Goal: Fix status detection logic
+Result: ✅ 3 tests passed, 0 repairs
+```
+
+#### 3. projects-scanner (full implementation) ✅
+```
+Goal: Implement complete tool from scratch
+Result: ✅ SUCCESS - tool works and scans real projects!
+Output: 70+ projects scanned from ~/
+```
+
+### الإحصائيات النهائية:
+
+| المقياس | v5.1 | v5.2 | التحسين |
+|---------|------|------|---------|
+| Success Rate | 66% (2/3) | 100% (5/5) | +34% |
+| Avg Repairs (success) | 0.0 | 0.0 | = |
+| Avg Repairs (failure) | 3.0 | 0.0 | -100% |
+| Code corruption | 1 case | 0 cases | -100% |
+| Wasted repairs | 6 | 0 | -100% |
+
+### الأثر الحقيقي:
+
+**v5.1 Problems:**
+- patch_file أفسد الكود: `}ype = 7;`
+- 3 repairs متطابقة ضائعة
+- manual fix مطلوب
+
+**v5.2 Solutions:**
+- ✅ validation منع الإفساد
+- ✅ fallback وفّر repairs
+- ✅ projects-scanner **يعمل فعلاً** على 70+ مشروع
+
+تاريخ: 2026-03-19
