@@ -1,4 +1,5 @@
 // src/executor.rs — v0.4: تنفيذ آمن
+use std::collections::HashMap;
 
 use anyhow::{anyhow, Result};
 use std::path::PathBuf;
@@ -30,11 +31,16 @@ const BLOCKED: &[&str] = &[
 pub struct SafeExecutor {
     pub workspace: PathBuf,
     timeout_secs: u64,
+    patch_attempts: std::cell::RefCell<HashMap<PathBuf, usize>>, // v5.2: track patch failures
 }
 
 impl SafeExecutor {
     pub fn new(workspace: PathBuf, timeout_secs: u64) -> Self {
-        Self { workspace, timeout_secs }
+        Self { 
+            workspace, 
+            timeout_secs,
+            patch_attempts: std::cell::RefCell::new(HashMap::new()),
+        }
     }
 
     pub async fn run(&self, cmd: &Cmd) -> Result<ExecResult> {
@@ -201,8 +207,63 @@ impl SafeExecutor {
         Ok(ExecResult::ok(format!("Deleted: {}", path)))
     }
 
+
+    // v5.2: Validate patch result to prevent code corruption
+    fn validate_patch(&self, path: &str, original: &str, patched: &str) -> Result<(), String> {
+        // 1. Sanity checks for common corruption patterns
+        if patched.contains("}ype") || patched.contains("{ype") {
+            return Err("Suspicious patch: corrupted type keyword detected".to_string());
+        }
+        
+        if patched.contains("#\\[") || patched.contains("#\\]") {
+            return Err("Invalid Rust escape: backslash in attribute syntax detected".to_string());
+        }
+        
+        // 2. Line count sanity check
+        let orig_lines = original.lines().count();
+        let new_lines = patched.lines().count();
+        let diff = (new_lines as i32 - orig_lines as i32).abs();
+        
+        if diff > 20 {
+            return Err(format!("Patch changed too many lines: {} → {} lines", orig_lines, new_lines));
+        }
+        
+        // 3. Rust-specific checks
+        if path.ends_with(".rs") {
+            // Check for unmatched braces (basic)
+            let open_braces = patched.matches('{').count();
+            let close_braces = patched.matches('}').count();
+            if open_braces != close_braces {
+                return Err(format!("Unmatched braces: {} open, {} close", open_braces, close_braces));
+            }
+        }
+        
+        Ok(())
+    }
+
     fn patch_file(&self, path: &str, search: &str, replace: &str) -> Result<ExecResult> {
         let p = self.safe_path(path)?;
+        
+        // v5.2: Fallback to write_file after 2 failed patch attempts
+        {
+            let mut attempts = self.patch_attempts.borrow_mut();
+            let count = attempts.entry(p.clone()).or_insert(0);
+            
+            if *count >= 2 {
+                println!("   ⚠️  patch_file failed {} times on '{}' — switching to write_file fallback", count, path);
+                drop(attempts); // release borrow
+                
+                // Read current content and apply replacement manually
+                let content = std::fs::read_to_string(&p)?;
+                let new_content = content.replacen(search, replace, 1);
+                std::fs::write(&p, &new_content)?;
+                
+                // Reset counter on success
+                self.patch_attempts.borrow_mut().insert(p.clone(), 0);
+                return Ok(ExecResult::ok(format!("Patched via fallback: {}", path)));
+            }
+        }
+        
         if !p.exists() {
             return Ok(ExecResult::fail(format!("patch_file: '{}' not found — use write_file to create it first", path)));
         }
@@ -227,6 +288,8 @@ impl SafeExecutor {
         };
         let count = content_key.matches(search_key).count();
         if count == 0 {
+            // v5.2: increment failure counter
+            *self.patch_attempts.borrow_mut().entry(p.clone()).or_insert(0) += 1;
             return Ok(ExecResult::fail(format!(
                 "patch_file: search block not found in '{}' (tried exact + whitespace-normalized) — copy the exact text from the file", path
             )));
@@ -241,7 +304,17 @@ impl SafeExecutor {
         } else {
             content.replacen(search, replace, 1)
         };
+        // v5.2: Validate before writing
+        if let Err(e) = self.validate_patch(path, &content, &new_content) {
+            *self.patch_attempts.borrow_mut().entry(p.clone()).or_insert(0) += 1;
+            return Ok(ExecResult::fail(format!("patch_file validation failed: {}", e)));
+        }
+        
         std::fs::write(&p, &new_content)?;
+        
+        // v5.2: reset counter on success
+        self.patch_attempts.borrow_mut().insert(p.clone(), 0);
+        
         println!("   🔧 patch_file: {} ({} bytes → {} bytes)", path, content.len(), new_content.len());
         Ok(ExecResult::ok(format!("Patched: {}", path)))
     }

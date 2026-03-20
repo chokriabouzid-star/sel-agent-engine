@@ -1,4 +1,4 @@
-// src/main.rs — SEL Agent v5.1
+// src/main.rs — SEL Agent v5.2
 mod context;
 mod types;
 mod protocol;
@@ -43,7 +43,7 @@ enum Commands {
 
 async fn run_health(api_key: &str) -> Result<()> {
     println!("\n╔══════════════════════════════════════════╗");
-    println!("║   SEL Agent v5.1 — Health Check          ║");
+    println!("║   SEL Agent v5.2 — Health Check          ║");
     println!("╚══════════════════════════════════════════╝\n");
 
     let internet = reqwest::Client::new()
@@ -328,7 +328,7 @@ async fn main() -> Result<()> {
         }
         Commands::Run { workspace, goal, max_repairs, dry_run, ref_file, focus } => {
             println!("\n╔══════════════════════════════════════════╗");
-            println!("║   SEL Agent v5.1 — State Machine Engine  ║");
+            println!("║   SEL Agent v5.2 — State Machine Engine  ║");
             println!("╚══════════════════════════════════════════╝");
             println!("\n📋 Goal: \"{}\"", goal);
             println!("   Workspace:   {}", workspace.display());
