@@ -55,6 +55,10 @@ PYTHON FILE NAMING:
 - Use descriptive names: math_utils.py, string_ops.py, file_io.py, numbers_utils.py
 
 RUST PROJECTS:
+- RUST STRINGS — CRITICAL: ALWAYS use double quotes for string literals: assert_eq!(x, "INFO") NOT 'INFO'
+  Single quotes in Rust = char only (one character). Multi-character strings MUST use double quotes.
+  WRONG: assert_eq!(result, 'CRITICAL')  — this is a char literal and will not compile
+  CORRECT: assert_eq!(result, "CRITICAL")  — this is a string literal
 - NEVER use "cargo new" — create files directly with write_file
 - ALWAYS create Cargo.toml in workspace root (not in subdirectory)
 - ALWAYS create src/lib.rs or src/main.rs directly
