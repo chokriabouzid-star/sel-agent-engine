@@ -178,49 +178,7 @@ impl Agent {
                         "\nCRITICAL: This is a Go project (go.mod exists). Write ONLY Go code."
                     } else { "" };
                     // قراءة الملفات الموجودة بشكل recursive وإضافتها للـ prompt
-                    let existing_files = {
-                        let mut files_ctx = String::new();
-                        let extensions = [".rs", ".py", ".js", ".ts", ".go"];
-                        // walk recursive حتى عمق 3
-                        fn walk(dir: &std::path::Path, ws: &std::path::Path,
-                                exts: &[&str], out: &mut String, depth: u8, count: &mut usize) {
-                            if depth > 3 { return; }
-                            let Ok(entries) = std::fs::read_dir(dir) else { return };
-                            for entry in entries.flatten() {
-                                let p = entry.path();
-                                if p.is_dir() {
-                                    let name = p.file_name()
-                                        .and_then(|n| n.to_str()).unwrap_or("");
-                                    if !matches!(name, "target"|".git"|"node_modules"|"venv") {
-                                        walk(&p, ws, exts, out, depth + 1, count);
-                                    }
-                                } else {
-                                    let name = p.file_name()
-                                        .and_then(|n| n.to_str()).unwrap_or("");
-                                    let is_code = exts.iter().any(|e| name.ends_with(e));
-                                    if is_code {
-                                        if let Ok(content) = std::fs::read_to_string(&p) {
-                                            if content.len() > 50 {
-                                                let rel = p.strip_prefix(ws).unwrap_or(&p);
-                                                out.push_str(&format!(
-                                                    "\n\nEXISTING FILE: {}\n```\n{}\n```",
-                                                    rel.display(),
-                                                    &content[..content.len().min(2500)]
-                                                ));
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        let mut file_count = 0usize;
-                        walk(ws, ws, &extensions, &mut files_ctx, 0, &mut file_count);
-                        if !files_ctx.is_empty() {
-                            format!("\n\nCRITICAL — EXISTING FILES (you MUST preserve ALL existing code and APPEND only):{}", files_ctx)
-                        } else {
-                            String::new()
-                        }
-                    };
+                    let existing_files = String::new(); // v5.3: Planning is blind to code
                     let prompt = format!(
                         "Goal: {}{}{}\n\nProvide the complete execution plan.",
                         self.goal, lang_hint, existing_files

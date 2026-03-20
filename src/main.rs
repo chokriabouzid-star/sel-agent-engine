@@ -1,5 +1,6 @@
-// src/main.rs — SEL Agent v5.2
+// src/main.rs — SEL Agent v5.3
 mod context;
+mod chunker;
 mod types;
 mod protocol;
 mod executor;

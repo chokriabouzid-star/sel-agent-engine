@@ -3,6 +3,7 @@
 // Context Budget Engine
 // ─────────────────────────────────────────────
 
+use crate::chunker::{extract_error_locations, get_file_content_smart, SmartContent, MAX_FILE_LINES};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -148,15 +149,25 @@ pub fn select_repair_files(
 // ─── Scoring ───────────────────────────────────
 
 fn read_and_score(path: &Path, ctx: &RepairContext) -> Option<ScoredFile> {
-    let content = fs::read_to_string(path).ok()?;
+    let raw = fs::read_to_string(path).ok()?;
+    let line_count = raw.lines().count();
+    let content = if line_count > MAX_FILE_LINES && !ctx.stderr.is_empty() {
+        let locs = extract_error_locations(&ctx.stderr);
+        if !locs.is_empty() {
+            match get_file_content_smart(path, &locs) {
+                Ok(SmartContent::Chunk(chunk)) => format!(
+                    "// ⚠️ CHUNKED: {} ({} lines, showing {}-{})\n{}",
+                    path.display(), line_count,
+                    chunk.start_line, chunk.end_line,
+                    chunk.content
+                ),
+                Ok(SmartContent::FullFile(c)) => c,
+                Err(_) => raw,
+            }
+        } else { raw }
+    } else { raw };
     let (score, reasons) = compute_score(path, &content, ctx);
-
-    Some(ScoredFile {
-        path: path.to_path_buf(),
-        content,
-        score,
-        reasons,
-    })
+    Some(ScoredFile { path: path.to_path_buf(), content, score, reasons })
 }
 
 fn compute_score(
