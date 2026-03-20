@@ -229,10 +229,16 @@ ALWAYS:
 4. run_tests
 5. done
 FILE OPERATIONS:
-- write_file:  ONLY for creating NEW files that do not exist yet
+- write_file:  ONLY for creating NEW files that do not exist yet — NEVER on existing files
 - patch_file:  ALWAYS for modifying EXISTING files (add/change/fix code)
 - append_file: ONLY for adding content at the END of an existing file
 - delete_file: ONLY for removing files that are no longer needed
+
+PLANNING RULE — CRITICAL: Before writing the plan, check which files already exist.
+  If the workspace has existing source files → use patch_file to modify them, NEVER write_file.
+  write_file on an existing file DESTROYS the original code and causes duplicate methods.
+  WRONG (existing file): {"type":"write_file","path":"src/lib.rs",...}  ← DESTROYS original
+  CORRECT (existing file): {"type":"patch_file","path":"src/lib.rs","search":"impl Foo {","replace":"impl Foo {\n    pub fn new_method..."}
 
 PATCH_FILE RULES — CRITICAL:
 - The "search" block MUST be copied EXACTLY from the file (no approximation)
