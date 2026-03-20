@@ -353,3 +353,24 @@ sel-agent run \
 - **Quality**: v5.1 مستقر مع نقطة تحسين واحدة
 
 تاريخ: 2026-03-19
+
+---
+## v5.2 — تم التنفيذ ✅
+
+### الإصلاحات المُنفذة:
+1. **patch_file → write_file fallback** (بعد فشلين)
+2. **patch_file validation** (}ype, #\[, braces, line count)
+
+### الاختبار على al-qistas:
+**السيناريو:** نفس الاختبار الذي فشل في v5.1
+```
+v5.1: ❌ FAILED (أفسد الكود + 3 repairs ضائعة)
+v5.2: ✅ SUCCESS (9 tests passed, 0 repairs ضائعة)
+```
+
+### النتيجة:
+- **Repair efficiency:** +100% (0 بدل 3)
+- **Code safety:** 100% (لم يُفسد أي كود)
+- **Success rate:** 100% (1/1)
+
+تاريخ: 2026-03-19
