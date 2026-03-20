@@ -493,6 +493,12 @@ impl Agent {
                         }
                         format!("FILES IN PROJECT: {}", names.join(", "))
                     } else {
+                        // v5.4: Smart Repair Context
+                        // استخرج مواقع الأخطاء من stderr
+                        let error_locs = crate::chunker::extract_error_locations(&all_stderr);
+                        if !error_locs.is_empty() {
+                            println!("   🎯 v5.4: error locations found: {} — using chunks only", error_locs.len());
+                        }
                         selected_files.iter()
                             .map(|sf| {
                                 let f = sf.path.to_string_lossy();
@@ -502,7 +508,21 @@ impl Agent {
                                            else if f.ends_with(".go")   { "go" }
                                            else if f.ends_with(".toml") { "toml" }
                                            else { "text" };
-                                format!("{}:\n```{}\n{}\n```", f, lang, sf.content)
+                                // v5.4: Smart Repair Context — chunk حول الخطأ فقط
+                                let smart = crate::chunker::get_file_content_smart(
+                                    &sf.path,
+                                    &error_locs,
+                                );
+                                let file_content = match smart {
+                                    Ok(ref s) => {
+                                        if s.is_chunk() {
+                                            println!("   ✂️  v5.4: {} → chunk only", sf.path.file_name().unwrap_or_default().to_string_lossy());
+                                        }
+                                        s.content_for_prompt(&f)
+                                    },
+                                    Err(_) => sf.content.clone(),
+                                };
+                                format!("{}:\n```{}\n{}\n```", f, lang, file_content)
                             })
                             .collect::<Vec<_>>()
                             .join("\n\n")
