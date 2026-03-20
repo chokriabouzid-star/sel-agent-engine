@@ -374,3 +374,20 @@ v5.2: ✅ SUCCESS (9 tests passed, 0 repairs ضائعة)
 - **Success rate:** 100% (1/1)
 
 تاريخ: 2026-03-19
+
+### اختبار v5.2 على projects-scanner ✅
+
+**المشروع:** projects-scanner (فشل في v5.1)
+**المهمة:** إصلاح status detection (Cargo.toml بدل .git فقط)
+
+**النتيجة:**
+- ✅ **0 repairs** - نجح من المحاولة الأولى
+- ✅ **3 tests passed**
+- ⚠️ validation رفض patch على tests (32 lines > 20 limit)
+- ✅ checker.rs وحده كان كافياً
+
+**المقارنة:**
+- v5.1: ❌ 3 repairs ضائعة + فشل
+- v5.2: ✅ 0 repairs + نجاح
+
+تاريخ: 2026-03-19
