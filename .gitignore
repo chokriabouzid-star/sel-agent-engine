@@ -1,3 +1,7 @@
 /target
 sel-deploy/
 sel-deploy/
+flask_repo/
+sel_run.log
+*/venv/
+**/venv/
