@@ -364,8 +364,18 @@ async fn main() -> Result<()> {
             }
 
             std::fs::create_dir_all(&workspace)?;
+            // v5.4: توسيع ~ في مسار ref-file
+            let ref_file_expanded = ref_file.as_ref().map(|p| {
+                let s = p.to_string_lossy();
+                if s.starts_with("~/") {
+                    if let Ok(home) = std::env::var("HOME") {
+                        return std::path::PathBuf::from(format!("{}/{}", home, &s[2..]));
+                    }
+                }
+                p.clone()
+            });
             let ctx_config = types::ContextConfig {
-                ref_file: ref_file.clone(),
+                ref_file: ref_file_expanded,
                 focus_paths: focus.clone(),
                 ..Default::default()
             };
