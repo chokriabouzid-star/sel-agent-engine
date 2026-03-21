@@ -345,7 +345,16 @@ mod tests {
 // ─── v5.1: Reference File Support ──────────────
 
 pub fn read_ref_file(ref_file: &Path) -> Option<String> {
-    match std::fs::read_to_string(ref_file) {
+    // v5.4: توسيع ~ في المسار
+    let expanded = {
+        let s = ref_file.to_string_lossy();
+        if s.starts_with("~/") {
+            if let Ok(home) = std::env::var("HOME") {
+                std::path::PathBuf::from(format!("{}/{}", home, &s[2..]))
+            } else { ref_file.to_path_buf() }
+        } else { ref_file.to_path_buf() }
+    };
+    match std::fs::read_to_string(&expanded) {
         Ok(content) => {
             println!("📄 Loaded ref file: {} ({} lines)", 
                 ref_file.display(), 
