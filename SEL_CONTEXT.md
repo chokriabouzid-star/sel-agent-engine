@@ -490,3 +490,10 @@ Output: 70+ projects scanned from ~/
 - إذا search block موجود أكثر من مرة → يطلب من LLM سياقاً أكثر تلقائياً
 - إذا search block غير موجود أصلاً → يرفض الـ plan قبل التنفيذ
 - الأثر: يلغي repairs من نوع (1049→1049) وهدر المحاولات
+
+---
+## تحديث v5.5.1 — auto-create venv
+- ✅ auto-create venv قبل pytest — أزال repair من كل مشروع Python
+- Repairs: 0.8 → 0.2 (أفضل نتيجة في تاريخ SEL)
+- Mutation: 100% | Quality: 1.00 | Passed: 28/28
+تاريخ: 2026-03-21
