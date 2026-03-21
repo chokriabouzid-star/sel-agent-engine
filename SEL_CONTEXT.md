@@ -450,3 +450,18 @@ Output: 70+ projects scanned from ~/
 - ✅ projects-scanner **يعمل فعلاً** على 70+ مشروع
 
 تاريخ: 2026-03-19
+
+---
+## v5.4 — Smart Repair Context
+
+### ما تم:
+- ✅ ref-file tilde expansion (Planning + Repair)
+- ✅ Rust string quote rule في SYSTEM_PROMPT
+- ✅ write_file prohibition مُقوّى
+- ✅ chunk في Repair يعمل
+
+### Bug مكتشف لـ v5.5:
+- مشاريع multi-file: SEL يكتب src/lib.rs ويتجاهل البنية الأصلية
+- الحل: SEL يقرأ lib.rs أولاً ويفهم re-exports قبل Planning
+
+تاريخ: 2026-03-21
