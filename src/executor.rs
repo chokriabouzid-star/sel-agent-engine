@@ -34,6 +34,36 @@ pub struct SafeExecutor {
     patch_attempts: std::cell::RefCell<HashMap<PathBuf, usize>>, // v5.2: track patch failures
 }
 
+fn fix_rust_string_literals(src: &str) -> String {
+    let mut result = String::with_capacity(src.len());
+    let bytes = src.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\'' {
+            let start = i + 1;
+            let mut end = start;
+            while end < bytes.len() && bytes[end] != b'\'' && bytes[end] != b'\n' {
+                end += 1;
+            }
+            if end < bytes.len() && bytes[end] == b'\'' && end > start + 1 {
+                let word = &src[start..end];
+                if word.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
+                    result.push('"');
+                    result.push_str(word);
+                    result.push('"');
+                    i = end + 1;
+                    continue;
+                }
+            }
+        }
+        let ch = src[i..].chars().next().unwrap();
+        result.push(ch);
+        i += ch.len_utf8();
+    }
+    result
+}
+
+
 impl SafeExecutor {
     pub fn new(workspace: PathBuf, timeout_secs: u64) -> Self {
         Self { 
@@ -147,6 +177,12 @@ impl SafeExecutor {
         } else {
             std::borrow::Cow::Borrowed(content)
         };
+        // v5.5: auto-fix single-quote string literals in Rust files
+        let content = if p.extension().map(|x| x == "rs").unwrap_or(false) {
+            std::borrow::Cow::Owned(fix_rust_string_literals(content.as_ref()))
+        } else {
+            content
+        };
         std::fs::write(&p, content.as_ref())?;
         // Auto-fix: إذا كُتب jest.config.js → احذف "jest" field من package.json
         if path.ends_with("jest.config.js") {
@@ -241,6 +277,8 @@ impl SafeExecutor {
         Ok(())
     }
 
+
+
     fn patch_file(&self, path: &str, search: &str, replace: &str) -> Result<ExecResult> {
         let p = self.safe_path(path)?;
         
@@ -310,8 +348,14 @@ impl SafeExecutor {
             return Ok(ExecResult::fail(format!("patch_file validation failed: {}", e)));
         }
         
+        // v5.5: auto-fix single-quote string literals in Rust files
+        let new_content = if p.extension().map(|x| x == "rs").unwrap_or(false) {
+            fix_rust_string_literals(&new_content)
+        } else {
+            new_content
+        };
         std::fs::write(&p, &new_content)?;
-        
+
         // v5.2: reset counter on success
         self.patch_attempts.borrow_mut().insert(p.clone(), 0);
         

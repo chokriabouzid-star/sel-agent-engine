@@ -178,44 +178,90 @@ impl Agent {
                         "\nCRITICAL: This is a Go project (go.mod exists). Write ONLY Go code."
                     } else { "" };
                     // قراءة الملفات الموجودة بشكل recursive وإضافتها للـ prompt
-                    // v5.5: Module Graph Injection — يحقن بنية المشروع في Planning
+                    // v5.5: Project Skeleton Injection — هيكل كامل للمشروع في Planning
                     let existing_files = {
                         let ws = &self.executor.workspace;
                         let mut map = String::new();
 
-                        // Rust: اقرأ lib.rs أو main.rs واستخرج mod + pub use
-                        for root in &["src/lib.rs", "src/main.rs"] {
-                            let root_path = ws.join(root);
-                            if root_path.exists() {
-                                if let Ok(src) = std::fs::read_to_string(&root_path) {
-                                    let modules: Vec<&str> = src.lines()
-                                        .filter(|l| {
-                                            let t = l.trim();
-                                            t.starts_with("mod ") ||
-                                            t.starts_with("pub mod ") ||
-                                            t.starts_with("pub use ") ||
-                                            t.starts_with("use ")
-                                        })
-                                        .take(30)
-                                        .collect();
-                                    if !modules.is_empty() {
-                                        map.push_str(&format!(
-                                            "\nPROJECT STRUCTURE ({}):\n{}\nRULE: NEVER overwrite this file with write_file.\nRULE: Use patch_file to add to EXISTING files.\nRULE: The module names above are the correct file paths.",
-                                            root,
-                                            modules.join("\n")
-                                        ));
-                                    }
-                                }
-                                break;
+                        // 1. اسم الـ crate من Cargo.toml
+                        if let Ok(toml) = std::fs::read_to_string(ws.join("Cargo.toml")) {
+                            if let Some(name) = toml.lines()
+                                .find(|l| l.trim().starts_with("name"))
+                                .and_then(|l| l.split('"').nth(1))
+                            {
+                                map.push_str(&format!("CRATE NAME: {}\n", name));
+                                map.push_str(&format!("TEST IMPORT: use {}::...\n\n", name));
                             }
                         }
+
+                        // 2. skeleton من كل ملف .rs في src/
+                        let src_dir = ws.join("src");
+                        if src_dir.exists() {
+                            let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&src_dir)
+                                .into_iter().flatten()
+                                .filter_map(|e| e.ok())
+                                .map(|e| e.path())
+                                .filter(|p| p.extension().map(|x| x == "rs").unwrap_or(false))
+                                .collect();
+                            files.sort();
+
+                            for path in files {
+                                let rel = path.strip_prefix(ws).unwrap_or(&path).to_string_lossy().to_string();
+                                if let Ok(src) = std::fs::read_to_string(&path) {
+                                    let skeleton: Vec<String> = src.lines()
+                                        .filter(|l| {
+                                            let t = l.trim();
+                                            t.starts_with("pub struct ") ||
+                                            t.starts_with("pub enum ") ||
+                                            t.starts_with("pub fn ") ||
+                                            t.starts_with("fn ") ||
+                                            t.starts_with("pub mod ") ||
+                                            t.starts_with("mod ") ||
+                                            t.starts_with("pub use ") ||
+                                            t.starts_with("impl ")
+                                        })
+                                        .map(|l| {
+                                            let t = l.trim();
+                                            let sig = if t.contains('{') {
+                                                t.splitn(2, '{').next().unwrap_or(t).trim().to_string() + " { ... }"
+                                            } else { t.to_string() };
+                                            format!("  {}", sig)
+                                        })
+                                        .collect();
+                                    if !skeleton.is_empty() {
+                                        map.push_str(&format!("FILE: {}\n{}\n\n", rel, skeleton.join("\n")));
+                                    }
+                                }
+                            }
+                        }
+
+                        // 3. قواعد صارمة
+                        if !map.is_empty() {
+                            map.push_str("CRITICAL RULES (violations = build failure):\n");
+                            map.push_str("- TEST IMPORTS: copy the exact 'use CRATE_NAME::' shown above — wrong name = compile error\n");
+                            map.push_str("- NEVER use write_file on existing files — use patch_file only\n");
+                            map.push_str("- NEVER redefine functions already listed above\n");
+                            map.push_str("- NEVER guess the crate name — use exactly what CRATE NAME shows above\n");
+                        }
+
                         map
                     };
-                    let prompt = format!(
-                        "Goal: {}{}{}
+                    // v5.5: inject only when --ref-file provided
+                    let existing_files = if self.context_config.ref_file.is_none() {
+                        String::new()
+                    } else {
+                        existing_files
+                    };
+                    // v5.5: ref_file في Planning أيضاً
+                    let ref_context = if let Some(ref ref_path) = self.context_config.ref_file {
+                        crate::context::read_ref_file(ref_path)
+                            .map(|s| format!("\nREFERENCE FILE (use exact signatures):\n{}\n", s))
+                            .unwrap_or_default()
+                    } else { String::new() };
 
-Provide the complete execution plan.",
-                        self.goal, lang_hint, existing_files
+                    let prompt = format!(
+                        "{}{}{}\nGoal: {}\nProvide the complete execution plan.",
+                        existing_files, ref_context, lang_hint, self.goal
                     );
                     // Protocol Resilience v1.3
                     match self.plan_with_resilience(prompt).await {
