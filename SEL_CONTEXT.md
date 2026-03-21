@@ -465,3 +465,21 @@ Output: 70+ projects scanned from ~/
 - الحل: SEL يقرأ lib.rs أولاً ويفهم re-exports قبل Planning
 
 تاريخ: 2026-03-21
+
+---
+## v5.5.1-final — Project Skeleton Injection
+
+### ما تم:
+- ✅ Project Skeleton في Planning (crate name + fn signatures)
+- ✅ fix_rust_string_literals في write_file + patch_file
+- ✅ ref-file tilde expansion في Planning و Repair
+- ✅ Repairs: 0.8 → 0.6
+
+### مشكلة معروفة:
+- bench Python: بعض الاختبارات تفشل بـ "No such file" — قديمة وليست من v5.5
+
+### التالي: v5.6
+- Planning يرى أول 5 أسطر من كل دالة (بدل signature فقط)
+- يحل مشكلة search block not found نهائياً
+
+تاريخ: 2026-03-21
