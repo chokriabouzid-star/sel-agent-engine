@@ -178,9 +178,50 @@ impl Agent {
                         "\nCRITICAL: This is a Go project (go.mod exists). Write ONLY Go code."
                     } else { "" };
                     // قراءة الملفات الموجودة بشكل recursive وإضافتها للـ prompt
-                    let existing_files = String::new(); // v5.3: Planning is blind to code
+                    // v5.5: Module Graph Injection — يحقن بنية المشروع في Planning
+                    let existing_files = {
+                        let ws = &self.executor.workspace;
+                        let mut map = String::new();
+
+                        // Rust: اقرأ lib.rs أو main.rs واستخرج mod + pub use
+                        for root in &["src/lib.rs", "src/main.rs"] {
+                            let root_path = ws.join(root);
+                            if root_path.exists() {
+                                if let Ok(src) = std::fs::read_to_string(&root_path) {
+                                    let modules: Vec<&str> = src.lines()
+                                        .filter(|l| {
+                                            let t = l.trim();
+                                            t.starts_with("mod ") ||
+                                            t.starts_with("pub mod ") ||
+                                            t.starts_with("pub use ") ||
+                                            t.starts_with("use ")
+                                        })
+                                        .take(30)
+                                        .collect();
+                                    if !modules.is_empty() {
+                                        map.push_str(&format!(
+                                            "
+
+PROJECT STRUCTURE ({}):
+{}
+                                             RULE: NEVER overwrite this file with write_file.
+                                             RULE: Use patch_file to add to EXISTING files.
+                                             RULE: The module names above are the correct file paths.",
+                                            root,
+                                            modules.join("
+")
+                                        ));
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                        map
+                    };
                     let prompt = format!(
-                        "Goal: {}{}{}\n\nProvide the complete execution plan.",
+                        "Goal: {}{}{}
+
+Provide the complete execution plan.",
                         self.goal, lang_hint, existing_files
                     );
                     // Protocol Resilience v1.3
