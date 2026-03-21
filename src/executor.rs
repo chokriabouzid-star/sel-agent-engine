@@ -530,6 +530,20 @@ impl SafeExecutor {
             });
         }
 
+        // v5.6: Auto-create venv إذا لم يكن موجوداً
+        if !self.workspace.join("venv").exists() {
+            println!("   🔧 AutoFix: creating venv...");
+            let _ = tokio::process::Command::new("python3")
+                .args(["-m", "venv", "venv"])
+                .current_dir(&self.workspace)
+                .output().await;
+            if self.workspace.join("venv").exists() {
+                let _ = tokio::process::Command::new("venv/bin/pip")
+                    .args(["install", "pytest", "-q"])
+                    .current_dir(&self.workspace)
+                    .output().await;
+            }
+        }
         // Auto-install pytest في venv إذا لم يكن موجوداً
         if self.workspace.join("venv").exists()
             && !self.workspace.join("venv/bin/pytest").exists() {
