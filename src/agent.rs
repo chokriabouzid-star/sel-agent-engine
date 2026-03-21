@@ -200,16 +200,9 @@ impl Agent {
                                         .collect();
                                     if !modules.is_empty() {
                                         map.push_str(&format!(
-                                            "
-
-PROJECT STRUCTURE ({}):
-{}
-                                             RULE: NEVER overwrite this file with write_file.
-                                             RULE: Use patch_file to add to EXISTING files.
-                                             RULE: The module names above are the correct file paths.",
+                                            "\nPROJECT STRUCTURE ({}):\n{}\nRULE: NEVER overwrite this file with write_file.\nRULE: Use patch_file to add to EXISTING files.\nRULE: The module names above are the correct file paths.",
                                             root,
-                                            modules.join("
-")
+                                            modules.join("\n")
                                         ));
                                     }
                                 }
