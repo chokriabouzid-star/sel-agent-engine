@@ -483,3 +483,10 @@ Output: 70+ projects scanned from ~/
 - يحل مشكلة search block not found نهائياً
 
 تاريخ: 2026-03-21
+
+### تصحيح خطة v5.6:
+الوصف الدقيق: Unique Patch Enforcer
+- SEL يتحقق من أن الـ search block فريد في الملف قبل إرسال الـ plan
+- إذا search block موجود أكثر من مرة → يطلب من LLM سياقاً أكثر تلقائياً
+- إذا search block غير موجود أصلاً → يرفض الـ plan قبل التنفيذ
+- الأثر: يلغي repairs من نوع (1049→1049) وهدر المحاولات
