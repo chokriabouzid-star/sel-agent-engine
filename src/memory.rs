@@ -85,7 +85,7 @@ impl FailureMemory {
         let relevant: Vec<&MemoryEntry> = self.entries.iter()
             .filter(|e| {
                 e.failure_kind == failure_kind ||
-                e.error_signature.contains(&sig_short[..sig_short.len().min(40)])
+                e.error_signature.contains(sig_short.chars().take(40).collect::<String>().as_str())
             })
             .collect();
 

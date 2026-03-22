@@ -511,3 +511,11 @@ Output: 70+ projects scanned from ~/
 - Avg Repairs: 0.2 | suite: integration
 - يختبر: patch_file, ref_file, string_literals, duplicate, skeleton multi-file
 - التالي: v5.8 Failure Memory
+
+## 2026-03-22 — v5.8 مكتمل (مُصحَّح)
+- memory.rs: FailureMemory — load/save/record_success/get_hints
+- يحفظ في ~/.sel_memory.json عند كل repair ناجح
+- last_failed_steps: نسخة احتياطية من failed_steps قبل المسح
+- fix_summary يشمل: patch_file + write_file + run commands
+- تم التحقق: ImportError → pyfiglet → حُفظ بنجاح ✅
+- التالي: v6.0 Model Comparison Engine
