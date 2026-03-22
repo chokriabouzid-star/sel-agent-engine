@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use crate::types::Message;
 
-const SYSTEM_PROMPT: &str = r#"You are SEL Agent v1.3 — a deterministic software execution agent.
+const SYSTEM_PROMPT: &str = r#"You are SEL Agent v5.8 — a deterministic software execution agent.
 
 OUTPUT: Respond ONLY with a single ```json block. No text outside it.
 

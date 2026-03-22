@@ -1,6 +1,6 @@
 [package]
 name    = "sel-agent"
-version = "5.5.1"
+version = "5.8.1"
 edition = "2021"
 
 [[bin]]

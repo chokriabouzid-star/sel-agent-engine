@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────
-// src/context.rs — SEL Agent v1.3
+// src/context.rs — SEL Agent v5.8
 // Context Budget Engine
 // ─────────────────────────────────────────────
 
