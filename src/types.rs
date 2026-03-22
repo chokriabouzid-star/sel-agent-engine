@@ -32,6 +32,9 @@ pub struct ExecutionContext {
     pub mutations_total:    u32,
     pub mutations_killed:   u32,
     pub replan_attempts:    u8,   // v5.6: Unique Patch Enforcer
+    pub last_failed_steps:  Vec<FailedStep>, // v5.8: نسخة احتياطية قبل المسح
+    pub last_failure_kind:  String,  // v5.8: للـ memory
+    pub last_error_sig:     String,  // v5.8: للـ memory
 }
 
 impl ExecutionContext {
@@ -41,6 +44,9 @@ impl ExecutionContext {
     pub fn reset_for_repair(&mut self) {
         self.tests_passed   = false;
         self.last_exit_code = None;
+        if !self.failed_steps.is_empty() {
+            self.last_failed_steps = self.failed_steps.clone(); // v5.8
+        }
         self.failed_steps.clear();
     }
     pub fn has_failures(&self) -> bool {

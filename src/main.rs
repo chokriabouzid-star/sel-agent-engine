@@ -6,6 +6,7 @@ mod protocol;
 mod executor;
 mod llm;
 mod agent;
+mod memory;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};

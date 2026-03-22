@@ -19,6 +19,7 @@ pub struct Agent {
     previous_error:      Option<String>,
     repair_fingerprints: Vec<u64>,   // Repair History Guard v1.2
     context_config:      ContextConfig,
+    failure_memory:       crate::memory::FailureMemory,  // v5.8
 }
 
 impl Agent {
@@ -33,6 +34,7 @@ impl Agent {
             previous_error:     None,
             repair_fingerprints: Vec::new(),
             context_config,
+            failure_memory: crate::memory::FailureMemory::load(),
         }
     }
     pub fn repair_count(&self) -> usize {
@@ -751,6 +753,12 @@ impl Agent {
                     } else {
                         self.repair_fingerprints.push(fingerprint);
                     }
+                    // v5.8: Failure Memory hints
+                    let memory_hint = self.failure_memory.get_hints(
+                        &format!("{:?}", failure_kind),
+                        &all_stderr.chars().take(80).collect::<String>(),
+                    );
+
                     let patch_note = if !files_context.starts_with("FILES IN PROJECT:") {
                         "\n\n⚠ REPAIR RULES — MANDATORY:\n1. DO NOT use write_file on files that already exist — this resets them to broken state.\n2. Use patch_file to fix existing files. Copy search text EXACTLY from CURRENT FILES above.\n3. write_file is FORBIDDEN for existing files during repair.\nWRONG: {\"type\":\"write_file\",\"path\":\"calc.py\",...}  ← overwrites with wrong code\nRIGHT: {\"type\":\"patch_file\",\"path\":\"calc.py\",\"search\":\"return a - b\",\"replace\":\"return a + b\"}"
                     } else { "" };
@@ -763,9 +771,9 @@ impl Agent {
                     } else { String::new() };
                     
                     let prompt = format!(
-                        "Goal: {}{}{}{}{}\n\nHINT: {}\n\n{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}\n\
+                        "Goal: {}{}{}{}{}{}\n\nHINT: {}\n\n{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}\n\
                          Fix ALL issues. Provide complete corrected plan.",
-                        self.goal, network_note, mutation_note, patch_note, ref_file_context, repair_hint, attempt_note, errors, files_context
+                        self.goal, network_note, mutation_note, patch_note, ref_file_context, memory_hint, repair_hint, attempt_note, errors, files_context
                     );
 
                     // Protocol Resilience v1.3
@@ -791,6 +799,46 @@ impl Agent {
                 // ─── Terminal States ───────────────────────────
                 AgentState::Done => {
                     let repairs = self.ctx.repair_attempts.saturating_sub(1);
+                    // v5.8: حفظ الـ memory إذا كان هناك repair ناجح
+                    if self.ctx.repair_attempts > 0 {
+                        // v5.8: نستخدم last_failed_steps لأن failed_steps تُمسح في reset_for_repair
+                        let repair_steps = if !self.ctx.last_failed_steps.is_empty() {
+                            &self.ctx.last_failed_steps
+                        } else {
+                            &self.ctx.failed_steps
+                        };
+                        let failure_kind = crate::types::FailureKind::classify(
+                            &repair_steps.iter()
+                                .map(|f| f.stderr.as_str())
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        );
+                        let error_sig = repair_steps.first()
+                            .map(|f| f.stderr.chars().take(120).collect::<String>())
+                            .unwrap_or_default();
+                        let fix_summary = self.plan.iter()
+                            .filter_map(|c| match c {
+                                crate::protocol::Cmd::PatchFile { path, .. } =>
+                                    Some(format!("patch_file {}", path)),
+                                crate::protocol::Cmd::WriteFile { path, .. } =>
+                                    Some(format!("write_file {}", path)),
+                                crate::protocol::Cmd::Run { command } => {
+                                    let short: String = command.chars().take(40).collect();
+                                    Some(format!("run {}", short))
+                                },
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        if !error_sig.is_empty() && !fix_summary.is_empty() {
+                            self.failure_memory.record_success(
+                                &format!("{:?}", failure_kind),
+                                &error_sig,
+                                &fix_summary,
+                            );
+                            println!("   💾 v5.8: memory saved ({:?})", failure_kind);
+                        }
+                    }
                     let elapsed = self.ctx.start_time.map(|s: std::time::Instant| s.elapsed().as_secs()).unwrap_or(0);
                     let ms = if self.ctx.mutations_total > 0 { self.ctx.mutations_killed as f64 / self.ctx.mutations_total as f64 } else { -1.0 };
                     let _ = report_run(&self.goal, true, repairs as i64, elapsed, ms).await;

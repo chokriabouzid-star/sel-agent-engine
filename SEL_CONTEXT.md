@@ -504,3 +504,10 @@ Output: 70+ projects scanned from ~/
 - Benchmark: 28/28 | Avg Repairs: 0.1 | Mutation: 100%
 - حد: replan_attempts > 2 → يكمل بالخطة الأصلية (flask_repo case)
 - التالي: v5.7 Integration Benchmark
+
+## 2026-03-22 — v5.7 مكتمل
+- Integration Benchmark: 4/4 cases x 2 phases
+- Phase1 (build): 4/4 | Phase2 (patch): 4/4
+- Avg Repairs: 0.2 | suite: integration
+- يختبر: patch_file, ref_file, string_literals, duplicate, skeleton multi-file
+- التالي: v5.8 Failure Memory
