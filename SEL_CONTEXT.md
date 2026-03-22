@@ -497,3 +497,10 @@ Output: 70+ projects scanned from ~/
 - Repairs: 0.8 → 0.2 (أفضل نتيجة في تاريخ SEL)
 - Mutation: 100% | Quality: 1.00 | Passed: 28/28
 تاريخ: 2026-03-21
+
+## 2026-03-22 — v5.6 مكتمل
+- validate_patch_uniqueness: تتحقق من كل PatchFile قبل التنفيذ
+- replan_with_feedback: تطلب replan مع feedback عند فشل uniqueness
+- Benchmark: 28/28 | Avg Repairs: 0.1 | Mutation: 100%
+- حد: replan_attempts > 2 → يكمل بالخطة الأصلية (flask_repo case)
+- التالي: v5.7 Integration Benchmark

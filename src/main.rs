@@ -140,8 +140,13 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8) 
         suite == "all" || *lang == suite
     }).collect();
 
+    // v5.7: integration suite له دالة منفصلة
+    if suite == "integration" {
+        return run_integration_bench(api_key, max_repairs).await;
+    }
+
     if cases.is_empty() {
-        println!("❌ Unknown suite '{}'. Use: python, go, node, rust, typescript, all", suite);
+        println!("❌ Unknown suite '{}'. Use: python, go, node, rust, typescript, integration, all", suite);
         return Ok(());
     }
 
@@ -308,6 +313,127 @@ async fn run_stress(api_key: &str, max_repairs: u8) -> Result<()> {
 
     let avg = if passed > 0 { total_repairs as f64 / passed as f64 } else { 0.0 };
     println!("\n=== Stress Results: {}/{} passed | avg repairs: {:.1} ===\n", passed, total, avg);
+    Ok(())
+}
+
+
+async fn run_integration_bench(api_key: &str, max_repairs: u8) -> Result<()> {
+    println!("\n╔══════════════════════════════════════════╗");
+    println!("║   SEL Integration Bench v5.7             ║");
+    println!("║   Phase1: Build → Phase2: Patch          ║");
+    println!("╚══════════════════════════════════════════╝\n");
+
+    let cases: &[(&str, &str, &str, &str)] = &[
+        (
+            "patch + ref_file",
+            "Create Rust library crate. Write Cargo.toml with name=rustcalc edition=2021. Write src/lib.rs with pub fn add(a:i32,b:i32)->i32 returning a+b. Write tests module inside lib.rs testing add(2,3)==5. Run cargo test.",
+            "The crate rustcalc already exists in src/lib.rs. Use patch_file to add pub fn multiply(a:i32,b:i32)->i32 returning a*b to src/lib.rs. Do NOT use write_file. Add 2 tests for multiply inside the tests module. Run cargo test.",
+            "src/lib.rs"
+        ),
+        (
+            "fix_rust_string_literals",
+            "Create Rust library crate. Write Cargo.toml with name=rustgreet edition=2021. Write src/lib.rs with pub fn greet(name:&str)->String returning format!(\"Hello {}\", name). Write tests module testing greet(\"World\")==\"Hello World\". Run cargo test.",
+            "The crate rustgreet already exists. Use patch_file to add pub fn farewell()->&'static str to src/lib.rs. The function must return \"BYE\". Add 1 test asserting farewell()==\"BYE\". Run cargo test.",
+            "src/lib.rs"
+        ),
+        (
+            "duplicate detection",
+            "Create Rust library crate. Write Cargo.toml with name=rustdup edition=2021. Write src/lib.rs with pub fn add(a:i32,b:i32)->i32 returning a+b. Write tests module testing add(2,3)==5. Run cargo test.",
+            "The crate rustdup already exists with add() already defined. Use patch_file to add pub fn subtract(a:i32,b:i32)->i32 returning a-b to src/lib.rs. Do NOT redefine add(). Add 2 tests for subtract only. Run cargo test.",
+            "src/lib.rs"
+        ),
+        (
+            "skeleton multi-file",
+            "Create Rust library crate with 2 source files. Write Cargo.toml name=rustmulti edition=2021. Write src/lib.rs with: pub mod math; pub use math::add;. Write src/math.rs with pub fn add(a:i32,b:i32)->i32 returning a+b. Write tests/math_test.rs testing add(2,3)==5. Run cargo test.",
+            "The crate rustmulti already exists with src/lib.rs and src/math.rs. Use patch_file to add pub fn multiply(a:i32,b:i32)->i32 to src/math.rs ONLY. Do NOT touch src/lib.rs. Add 2 tests in tests/math_test.rs. Run cargo test.",
+            "src/math.rs"
+        ),
+    ];
+
+    let total = cases.len();
+    let mut passed = 0usize;
+    let mut total_repairs = 0usize;
+    let mut phase1_passed = 0usize;
+    let mut phase2_passed = 0usize;
+    let tmpdir = std::env::temp_dir();
+
+    for (i, (name, goal1, goal2, ref_hint)) in cases.iter().enumerate() {
+        println!("\n── Test {}/{}: {} ──────────────────────", i+1, total, name);
+
+        // Phase 1: Build
+        let workspace = tmpdir.join(format!("sel-integration-{}", i));
+        let _ = std::fs::remove_dir_all(&workspace);
+        std::fs::create_dir_all(&workspace).ok();
+
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(ProgressStyle::default_spinner()
+            .template(&format!("{{spinner:.cyan}} Phase1 [{}]...", name)).unwrap());
+        pb.enable_steady_tick(Duration::from_millis(80));
+
+        let mut agent1 = crate::agent::Agent::new(
+            api_key.to_string(), workspace.clone(),
+            goal1.to_string(), max_repairs,
+            types::ContextConfig::default(),
+        );
+        let ok1 = agent1.run().await.is_ok();
+        pb.finish_and_clear();
+
+        let repairs1 = agent1.repair_count();
+        if ok1 {
+            phase1_passed += 1;
+            println!("   ✅ Phase1 passed (repairs: {})", repairs1);
+        } else {
+            println!("   ❌ Phase1 FAILED (repairs: {}) — skipping Phase2", repairs1);
+            total_repairs += repairs1;
+            continue;
+        }
+
+        // Phase 2: Patch
+        let ref_file_path = workspace.join(ref_hint);
+        let ctx_config = types::ContextConfig {
+            ref_file: if ref_file_path.exists() { Some(ref_file_path) } else { None },
+            focus_paths: vec!["src/".to_string()],
+            ..Default::default()
+        };
+
+        let pb2 = ProgressBar::new_spinner();
+        pb2.set_style(ProgressStyle::default_spinner()
+            .template(&format!("{{spinner:.green}} Phase2 [{}]...", name)).unwrap());
+        pb2.enable_steady_tick(Duration::from_millis(80));
+
+        let mut agent2 = crate::agent::Agent::new(
+            api_key.to_string(), workspace.clone(),
+            goal2.to_string(), max_repairs,
+            ctx_config,
+        );
+        let ok2 = agent2.run().await.is_ok();
+        pb2.finish_and_clear();
+
+        let repairs2 = agent2.repair_count();
+        total_repairs += repairs1 + repairs2;
+
+        if ok2 {
+            phase2_passed += 1;
+            passed += 1;
+            println!("   ✅ Phase2 passed (repairs: {})", repairs2);
+        } else {
+            println!("   ❌ Phase2 FAILED (repairs: {})", repairs2);
+        }
+
+        let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    let avg_repairs = if total > 0 { total_repairs as f64 / total as f64 } else { 0.0 };
+    println!("\n╔══════════════════════════════════════════╗");
+    println!("║   Integration Bench Results               ║");
+    println!("╠══════════════════════════════════════════╣");
+    println!("║  Tests:          {:<23}║", format!("{} cases x 2 phases", total));
+    println!("║  Phase1 passed:  {:<23}║", format!("{}/{}", phase1_passed, total));
+    println!("║  Phase2 passed:  {:<23}║", format!("{}/{}", phase2_passed, total));
+    println!("║  Full passed:    {:<23}║", format!("{}/{}", passed, total));
+    println!("║  Avg Repairs:    {:<23}║", format!("{:.1}", avg_repairs));
+    println!("╚══════════════════════════════════════════╝\n");
+
     Ok(())
 }
 
