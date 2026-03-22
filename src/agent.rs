@@ -161,6 +161,10 @@ impl Agent {
     fn build_skeleton_context(&self) -> String {
         let ws = &self.executor.workspace;
         let mut map = String::new();
+        // v5.8.1: أضف محتوى Cargo.toml دائماً في Planning
+        if let Ok(toml) = std::fs::read_to_string(ws.join("Cargo.toml")) {
+            map.push_str(&format!("CURRENT Cargo.toml CONTENT (use patch_file with EXACT text):\n```\n{}\n```\n\n", toml.trim()));
+        }
         if let Ok(toml) = std::fs::read_to_string(ws.join("Cargo.toml")) {
             if let Some(name) = toml.lines()
                 .find(|l| l.trim().starts_with("name"))
