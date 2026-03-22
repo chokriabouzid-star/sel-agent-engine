@@ -570,8 +570,11 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
     println!("╚══════════════════════════════════════════════════════════════════════╝\n");
 
     // ── أفضل نموذج ──
-    if let Some(best) = results.iter().max_by(|a, b| a.quality.partial_cmp(&b.quality).unwrap()) {
-        println!("🏆 أفضل نموذج: {} (Quality: {:.2})\n", best.model, best.quality);
+    if let Some(best) = results.iter().max_by(|a, b| {
+        a.quality.partial_cmp(&b.quality).unwrap()
+            .then_with(|| b.elapsed_secs.cmp(&a.elapsed_secs))
+    }) {
+        println!("🏆 أفضل نموذج: {} (Quality: {:.2} | وقت: {}s)\n", best.model, best.quality, best.elapsed_secs);
     }
 
     Ok(())
