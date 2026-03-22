@@ -37,6 +37,21 @@ impl Agent {
             failure_memory: crate::memory::FailureMemory::load(),
         }
     }
+    pub fn new_with_model(api_key: String, model_alias: String, workspace: PathBuf, goal: String, max_repairs: u8, context_config: ContextConfig) -> Self {
+        Self {
+            state:    AgentState::Planning,
+            ctx:      ExecutionContext::new(max_repairs),
+            executor: SafeExecutor::new(workspace, 120),
+            llm:      LlmClient::with_model(&model_alias),
+            goal,
+            plan:               Vec::new(),
+            previous_error:     None,
+            repair_fingerprints: Vec::new(),
+            context_config,
+            failure_memory: crate::memory::FailureMemory::load(),
+        }
+    }
+
     pub fn repair_count(&self) -> usize {
         self.ctx.repair_attempts as usize
     }

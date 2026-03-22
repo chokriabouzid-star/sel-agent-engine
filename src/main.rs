@@ -41,6 +41,11 @@ enum Commands {
         #[arg(long, default_value = "3")]   max_repairs: u8,
         #[arg(long, default_value = "1")]   iterations: u8,
     },
+    Compare {
+        #[arg(long, value_delimiter = ',')] models: Vec<String>,
+        #[arg(long, default_value = "python")] suite: String,
+        #[arg(long, default_value = "3")]   max_repairs: u8,
+    },
 }
 
 async fn run_health(api_key: &str) -> Result<()> {
@@ -438,6 +443,140 @@ async fn run_integration_bench(api_key: &str, max_repairs: u8) -> Result<()> {
     Ok(())
 }
 
+async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<()> {
+    println!("\n╔══════════════════════════════════════════╗");
+    println!("║   SEL Agent v6.0 — Model Comparison      ║");
+    println!("╚══════════════════════════════════════════╝\n");
+    println!("   Models:  {:?}", models);
+    println!("   Suite:   {}", suite);
+    println!();
+
+    #[derive(Debug)]
+    struct ModelResult {
+        model:        String,
+        passed:       usize,
+        total:        usize,
+        avg_repairs:  f64,
+        mut_score:    f64,
+        quality:      f64,
+        elapsed_secs: u64,
+    }
+
+    let all_cases: &[(&str, &str, &str)] = &[
+        ("python", "broken import",   "Create Python file importing from math_utils import add. Create math_utils.py with add(a,b) function. Write pytest test. Run tests."),
+        ("python", "wrong logic",     "Create Python function is_even(n) returning n%2==0. Write pytest test for is_even(4)==True and is_even(3)==False. Run tests."),
+        ("python", "wrong return",    "Create Python function reverse_string(s) returning s[::-1]. Write pytest test expecting reverse_string('hello')=='olleh'. Run tests."),
+        ("rust",   "rust add",        "Create Rust library crate. Write Cargo.toml with name=rustadd edition=2021. Write src/lib.rs with pub fn add(a:i32,b:i32)->i32. Write tests module inside lib.rs testing add(2,3)==5 and add(-1,1)==0. Run cargo test."),
+        ("go",     "go add",          "Create Go package main with Add(a,b int) int. Create go.mod with module gotest and go 1.21. Write _test.go testing Add(2,3)==5 and Add(-1,1)==0. Run go test."),
+        ("node",   "node add",        "Create Node.js CommonJS module math.js exporting add(a,b). Create package.json with jest. Write math.test.js testing add(2,3)===5 and add(-1,1)===0. Run npm test."),
+    ];
+
+    let cases: Vec<_> = all_cases.iter().filter(|(lang, _, _)| {
+        suite == "all" || *lang == suite
+    }).collect();
+
+    if cases.is_empty() {
+        println!("❌ Unknown suite '{}'. Use: python, go, node, rust, typescript, all", suite);
+        return Ok(());
+    }
+
+    let tmpdir = std::env::temp_dir();
+    let mut results: Vec<ModelResult> = Vec::new();
+
+    for model_alias in models {
+        println!("\n🤖 Testing model: {} ──────────────────────────", model_alias);
+
+        let model_cfg = llm::ModelConfig::from_alias(model_alias);
+        let api_key = std::env::var(&model_cfg.env_key)
+            .unwrap_or_else(|_| {
+                println!("   ⚠ {} غير موجود — تخطي النموذج {}", model_cfg.env_key, model_alias);
+                String::new()
+            });
+
+        if api_key.is_empty() { continue; }
+
+        let mut passed = 0usize;
+        let mut total_repairs = 0usize;
+        let mut mutation_killed = 0u32;
+        let mut mutation_total  = 0u32;
+        let total = cases.len();
+        let start = std::time::Instant::now();
+
+        for (i, (_lang, name, goal)) in cases.iter().enumerate() {
+            let workspace = tmpdir.join(format!("sel-cmp-{}-{}", model_alias, i));
+            let _ = std::fs::remove_dir_all(&workspace);
+
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(ProgressStyle::default_spinner()
+                .template(&format!("{{spinner:.cyan}} [{}/{}] {}...", i+1, total, name)).unwrap());
+            pb.enable_steady_tick(Duration::from_millis(80));
+
+            let mut agent = crate::agent::Agent::new_with_model(
+                api_key.clone(),
+                model_alias.clone(),
+                workspace.clone(),
+                goal.to_string(),
+                max_repairs,
+                types::ContextConfig::default(),
+            );
+            let run_result = agent.run().await;
+            let ok = run_result.is_ok();
+            pb.finish_and_clear();
+
+            if let Err(ref e) = run_result {
+                println!("   ❌ {:20} FAILED: {}", name, &e.to_string()[..e.to_string().len().min(80)]);
+                let _ = std::fs::remove_dir_all(&workspace);
+                continue;
+            }
+
+            let repairs = agent.repair_count();
+            total_repairs += repairs;
+            let ms = agent.mutation_score();
+            if ms >= 0.0 { mutation_total += 1; if ms >= 1.0 { mutation_killed += 1; } }
+
+            let status = if ok { "✅" } else { "❌" };
+            let ms_str = if ms >= 0.0 { format!("{:.0}%", ms * 100.0) } else { "—".to_string() };
+            println!("   {} {:20} repairs:{} mutation:{}", status, name, repairs, ms_str);
+            if ok { passed += 1; }
+            let _ = std::fs::remove_dir_all(&workspace);
+        }
+
+        let elapsed = start.elapsed().as_secs();
+        let success_rate = passed as f64 / total as f64;
+        let avg_repairs  = total_repairs as f64 / total as f64;
+        let mut_score    = if mutation_total > 0 { mutation_killed as f64 / mutation_total as f64 } else { -1.0 };
+        let quality      = if mut_score >= 0.0 { success_rate * mut_score } else { success_rate };
+
+        results.push(ModelResult {
+            model: model_cfg.model_id.clone(),
+            passed, total, avg_repairs, mut_score, quality,
+            elapsed_secs: elapsed,
+        });
+    }
+
+    // ── طباعة جدول المقارنة ──
+    println!("\n╔══════════════════════════════════════════════════════════════════════╗");
+    println!("║   Model Comparison Results — suite: {:<33}║", suite);
+    println!("╠══════════════════════════════════════════════════════════════════════╣");
+    println!("║  {:<35} {:>6} {:>8} {:>8} {:>8} ║", "Model", "Score", "Repairs", "Mut%", "Time");
+    println!("╠══════════════════════════════════════════════════════════════════════╣");
+    for r in &results {
+        let score_str   = format!("{}/{}", r.passed, r.total);
+        let repairs_str = format!("{:.1}", r.avg_repairs);
+        let mut_str     = if r.mut_score >= 0.0 { format!("{:.0}%", r.mut_score * 100.0) } else { "N/A".to_string() };
+        let time_str    = format!("{}s", r.elapsed_secs);
+        println!("║  {:<35} {:>6} {:>8} {:>8} {:>8} ║", r.model, score_str, repairs_str, mut_str, time_str);
+    }
+    println!("╚══════════════════════════════════════════════════════════════════════╝\n");
+
+    // ── أفضل نموذج ──
+    if let Some(best) = results.iter().max_by(|a, b| a.quality.partial_cmp(&b.quality).unwrap()) {
+        println!("🏆 أفضل نموذج: {} (Quality: {:.2})\n", best.model, best.quality);
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -453,6 +592,9 @@ async fn main() -> Result<()> {
         Commands::Stress { max_repairs } => {
             let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
             run_stress(&api_key, max_repairs).await?;
+        }
+        Commands::Compare { models, suite, max_repairs } => {
+            run_compare(&models, &suite, max_repairs).await?;
         }
         Commands::Run { workspace, goal, max_repairs, dry_run, ref_file, focus } => {
             println!("\n╔══════════════════════════════════════════╗");

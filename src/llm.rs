@@ -265,7 +265,58 @@ PYTHON TESTING (MANDATORY):
 8. NEVER write tests that only check the happy path — mutations survive when you only test the expected output.
 "#;
 
-pub struct LlmClient { pub api_key: String, pub model: String, pub endpoint: String }
+#[derive(Debug, Clone, PartialEq)]
+pub enum Provider {
+    Groq,
+    Moonshot,
+}
+
+#[derive(Debug, Clone)]
+pub struct ModelConfig {
+    pub provider: Provider,
+    pub model_id: String,
+    pub base_url: String,
+    pub env_key: String,
+}
+
+impl ModelConfig {
+    pub fn from_alias(alias: &str) -> Self {
+        match alias {
+            "kimi" | "kimi-k2" | "kimi-k2-instruct" => ModelConfig {
+                provider: Provider::Groq,
+                model_id: "moonshotai/kimi-k2-instruct-0905".to_string(),
+                base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
+                env_key: "GROQ_API_KEY".to_string(),
+            },
+            "llama" | "llama-70b" => ModelConfig {
+                provider: Provider::Groq,
+                model_id: "llama-3.3-70b-versatile".to_string(),
+                base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
+                env_key: "GROQ_API_KEY".to_string(),
+            },
+            "kimi-k2.5" | "kimi25" | "kimi-latest" => ModelConfig {
+                provider: Provider::Moonshot,
+                model_id: "kimi-k2.5".to_string(),
+                base_url: "https://api.moonshot.ai/v1/chat/completions".to_string(),
+                env_key: "MOONSHOT_API_KEY".to_string(),
+            },
+            "silicon" | "kimi-silicon" => ModelConfig {
+                provider: Provider::Moonshot,
+                model_id: "moonshotai/Kimi-K2.5".to_string(),
+                base_url: "https://api.siliconflow.cn/v1/chat/completions".to_string(),
+                env_key: "SILICONFLOW_API_KEY".to_string(),
+            },
+            _ => ModelConfig {
+                provider: Provider::Groq,
+                model_id: alias.to_string(),
+                base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
+                env_key: "GROQ_API_KEY".to_string(),
+            },
+        }
+    }
+}
+
+pub struct LlmClient { pub api_key: String, pub model: String, pub endpoint: String, pub config: ModelConfig }
 
 #[derive(Serialize)]
 struct Request { model: String, messages: Vec<ApiMsg>, temperature: f32, max_tokens: u32 }
@@ -281,10 +332,24 @@ struct Choice { message: ApiMsg }
 
 impl LlmClient {
     pub fn new(api_key: String) -> Self {
+        let config = ModelConfig::from_alias("kimi");
         Self {
             api_key,
-            model:    "moonshotai/kimi-k2-instruct-0905".into(),
-            endpoint: "https://api.groq.com/openai/v1/chat/completions".into(),
+            model:    config.model_id.clone(),
+            endpoint: config.base_url.clone(),
+            config,
+        }
+    }
+
+    pub fn with_model(alias: &str) -> Self {
+        let config = ModelConfig::from_alias(alias);
+        let api_key = std::env::var(&config.env_key)
+            .unwrap_or_else(|_| panic!("❌ متغير البيئة {} غير موجود", config.env_key));
+        Self {
+            model:    config.model_id.clone(),
+            endpoint: config.base_url.clone(),
+            api_key,
+            config,
         }
     }
 
