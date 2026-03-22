@@ -384,8 +384,12 @@ impl Agent {
                         let is_pip = cmd.label().contains("pip");
                         let venv_ok = self.executor.workspace.join("venv/bin/pip3").exists()
                                    || self.executor.workspace.join("venv/bin/pip").exists();
+                        // منع cargo test/check من الـ cache — يجب إعادة تنفيذها دائماً
+                        let is_cargo_test = cmd.label().contains("cargo test")
+                                         || cmd.label().contains("cargo check");
                         let skip_allowed = !cmd.is_run_tests() && !cmd.is_write_file()
                                         && !cmd.is_patch_file()
+                                        && !is_cargo_test
                                         && !(is_pip && !venv_ok);
                         if self.ctx.successful_hashes.contains(&cmd_hash) && skip_allowed {
                             println!("   ⏭ Skipping: {} (already passed)", cmd.label());
@@ -478,6 +482,16 @@ impl Agent {
                                 }
                                 // تسجيل نجاح الاختبارات
                                 if cmd.is_run_tests() { self.ctx.tests_passed = true; }
+                                // v5.8.1: run: cargo test أيضاً يُعتبر نجاح اختبارات
+                                if let crate::protocol::Cmd::Run { command } = cmd {
+                                    let lc = command.to_lowercase();
+                                    if (lc.contains("cargo test") || lc.contains("go test")
+                                        || lc.contains("pytest") || lc.contains("npm test"))
+                                        && r.stdout.contains("passed") || r.stdout.contains("ok")
+                                    {
+                                        self.ctx.tests_passed = true;
+                                    }
+                                }
                                 self.ctx.successful_hashes.insert(cmd_hash.clone());
                             }
                             Ok(r) => {
