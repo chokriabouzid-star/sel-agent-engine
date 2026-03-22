@@ -165,6 +165,10 @@ impl Agent {
         if let Ok(toml) = std::fs::read_to_string(ws.join("Cargo.toml")) {
             map.push_str(&format!("CURRENT Cargo.toml CONTENT (use patch_file with EXACT text):\n```\n{}\n```\n\n", toml.trim()));
         }
+        // v5.8.2: أضف محتوى src/lib.rs دائماً في Planning
+        if let Ok(lib) = std::fs::read_to_string(ws.join("src/lib.rs")) {
+            map.push_str(&format!("CURRENT src/lib.rs CONTENT (use patch_file with EXACT text):\n```\n{}\n```\n\n", lib.trim()));
+        }
         if let Ok(toml) = std::fs::read_to_string(ws.join("Cargo.toml")) {
             if let Some(name) = toml.lines()
                 .find(|l| l.trim().starts_with("name"))
@@ -304,12 +308,12 @@ impl Agent {
         pub async fn run(&mut self) -> Result<()> {
         self.ctx.start_time = Some(std::time::Instant::now());
         self.send_event("start", None, None, None, None);
-        // تحميل الـ hashes من الجلسة السابقة
+        // v5.8.1: امسح الـ cache في بداية كل run — كل جلسة تبدأ نظيفة
         let ws = self.executor.workspace.clone();
-        self.ctx.load_hashes(&ws);
-        let loaded = self.ctx.successful_hashes.len();
-        if loaded > 0 {
-            println!("   💾 Loaded {} cached steps from previous session", loaded);
+        let cache_path = ws.join(".sel_hashes");
+        if cache_path.exists() {
+            let _ = std::fs::remove_file(&cache_path);
+            println!("   🗑  Cache cleared — fresh start");
         }
         loop {
             match self.state.clone() {
@@ -667,6 +671,129 @@ impl Agent {
                     let dep_only = matches!(failure_kind,
                         FailureKind::ImportError | FailureKind::NodeTestError
                     );
+                    // v5.9: Patch Error Full Context
+                    // إذا كان الخطأ search block → أرسل الملف كاملاً
+                    let patch_error_context: String = if all_stderr.contains("search block not found")
+                        || all_stderr.contains("search block found")
+                    {
+                        // استخرج اسم الملف من رسالة الخطأ — بدون تكرار
+                        let mut patch_ctx = String::new();
+                        let mut seen_files: std::collections::HashSet<String> = std::collections::HashSet::new();
+                        for line in all_stderr.lines() {
+                            if line.contains("search block not found in '")
+                                || line.contains("search block found") && line.contains("times in '")
+                            {
+                                // استخرج المسار من بين علامتي '
+                                if let Some(start) = line.find("in '") {
+                                    let rest = &line[start+4..];
+                                    if let Some(end) = rest.find('\'') {
+                                        let file_path = &rest[..end];
+                                        let full_path = self.executor.workspace.join(file_path);
+                                        if seen_files.contains(file_path) { continue; }
+                                        seen_files.insert(file_path.to_string());
+                                        if let Ok(content) = std::fs::read_to_string(&full_path) {
+                                            patch_ctx.push_str(&format!(
+                                                "
+
+⚠️ v5.9 PATCH FIX — FULL FILE CONTENT of '{}':
+                                                 Copy search text EXACTLY from this content:
+```rust
+{}
+```
+                                                 RULES: search block must appear EXACTLY ONCE.",
+                                                file_path, content
+                                            ));
+                                            println!("   📖 v5.9: injecting full content of '{}' for patch fix", file_path);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        patch_ctx
+                    } else {
+                        String::new()
+                    };
+
+                    // v5.9: Patch Error Full Context
+                    // إذا كان الخطأ search block → أرسل الملف كاملاً
+                    let patch_error_context: String = if all_stderr.contains("search block not found")
+                        || all_stderr.contains("search block found")
+                    {
+                        // استخرج اسم الملف من رسالة الخطأ
+                        let mut patch_ctx = String::new();
+                        for line in all_stderr.lines() {
+                            if line.contains("search block not found in '")
+                                || line.contains("search block found") && line.contains("times in '")
+                            {
+                                // استخرج المسار من بين علامتي '
+                                if let Some(start) = line.find("in '") {
+                                    let rest = &line[start+4..];
+                                    if let Some(end) = rest.find('\'') {
+                                        let file_path = &rest[..end];
+                                        let full_path = self.executor.workspace.join(file_path);
+                                        if let Ok(content) = std::fs::read_to_string(&full_path) {
+                                            patch_ctx.push_str(&format!(
+                                                "
+
+⚠️ v5.9 PATCH FIX — FULL FILE CONTENT of '{}':
+                                                 Copy search text EXACTLY from this content:
+```rust
+{}
+```
+                                                 RULES: search block must appear EXACTLY ONCE.",
+                                                file_path, content
+                                            ));
+                                            println!("   📖 v5.9: injecting full content of '{}' for patch fix", file_path);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        patch_ctx
+                    } else {
+                        String::new()
+                    };
+
+                    // v5.9: Patch Error Full Context
+                    // إذا كان الخطأ search block → أرسل الملف كاملاً
+                    let patch_error_context: String = if all_stderr.contains("search block not found")
+                        || all_stderr.contains("search block found")
+                    {
+                        // استخرج اسم الملف من رسالة الخطأ
+                        let mut patch_ctx = String::new();
+                        for line in all_stderr.lines() {
+                            if line.contains("search block not found in '")
+                                || line.contains("search block found") && line.contains("times in '")
+                            {
+                                // استخرج المسار من بين علامتي '
+                                if let Some(start) = line.find("in '") {
+                                    let rest = &line[start+4..];
+                                    if let Some(end) = rest.find('\'') {
+                                        let file_path = &rest[..end];
+                                        let full_path = self.executor.workspace.join(file_path);
+                                        if let Ok(content) = std::fs::read_to_string(&full_path) {
+                                            patch_ctx.push_str(&format!(
+                                                "
+
+⚠️ v5.9 PATCH FIX — FULL FILE CONTENT of '{}':
+                                                 Copy search text EXACTLY from this content:
+```rust
+{}
+```
+                                                 RULES: search block must appear EXACTLY ONCE.",
+                                                file_path, content
+                                            ));
+                                            println!("   📖 v5.9: injecting full content of '{}' for patch fix", file_path);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        patch_ctx
+                    } else {
+                        String::new()
+                    };
+
                     let files_context: String = if dep_only {
                         // أرسل أسماء الملفات فقط — توفير tokens
                         let names: Vec<String> = selected_files.iter()
@@ -789,9 +916,9 @@ impl Agent {
                     } else { String::new() };
                     
                     let prompt = format!(
-                        "Goal: {}{}{}{}{}{}\n\nHINT: {}\n\n{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}\n\
+                        "Goal: {}{}{}{}{}{}\n\nHINT: {}\n\n{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}{}\n\
                          Fix ALL issues. Provide complete corrected plan.",
-                        self.goal, network_note, mutation_note, patch_note, ref_file_context, memory_hint, repair_hint, attempt_note, errors, files_context
+                        self.goal, network_note, mutation_note, patch_note, ref_file_context, memory_hint, repair_hint, attempt_note, errors, files_context, patch_error_context
                     );
 
                     // Protocol Resilience v1.3
