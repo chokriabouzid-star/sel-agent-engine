@@ -141,7 +141,161 @@ impl Agent {
     }
     // ══════════════════════════════════════════════════════════
 
-    pub async fn run(&mut self) -> Result<()> {
+    // ══════════════════════════════════════════════════════════
+    // v5.6: Unique Patch Enforcer
+    fn build_lang_hint(&self) -> String {
+        let ws = &self.executor.workspace;
+        if ws.join("Cargo.toml").exists() {
+            "\nCRITICAL: This is a RUST project (Cargo.toml exists). Write ONLY Rust code. Do NOT create Python or JS files.".to_string()
+        } else if ws.join("package.json").exists() {
+            "\nCRITICAL: This is a Node.js project (package.json exists). Write ONLY JS/TS code.".to_string()
+        } else if ws.join("go.mod").exists() {
+            "\nCRITICAL: This is a Go project (go.mod exists). Write ONLY Go code.".to_string()
+        } else {
+            String::new()
+        }
+    }
+
+    fn build_skeleton_context(&self) -> String {
+        let ws = &self.executor.workspace;
+        let mut map = String::new();
+        if let Ok(toml) = std::fs::read_to_string(ws.join("Cargo.toml")) {
+            if let Some(name) = toml.lines()
+                .find(|l| l.trim().starts_with("name"))
+                .and_then(|l| l.split('"').nth(1))
+            {
+                map.push_str(&format!("CRATE NAME: {}\n", name));
+                map.push_str(&format!("TEST IMPORT: use {}::\n\n", name));
+            }
+        }
+        let src_dir = ws.join("src");
+        if src_dir.exists() {
+            let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&src_dir)
+                .into_iter().flatten()
+                .filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .filter(|p| p.extension().map(|x| x == "rs").unwrap_or(false))
+                .collect();
+            files.sort();
+            for path in files {
+                let rel = path.strip_prefix(ws).unwrap_or(&path).to_string_lossy().to_string();
+                if let Ok(src) = std::fs::read_to_string(&path) {
+                    let skeleton: Vec<String> = src.lines()
+                        .filter(|l| {
+                            let t = l.trim();
+                            t.starts_with("pub struct ") || t.starts_with("pub enum ") ||
+                            t.starts_with("pub fn ") || t.starts_with("fn ") ||
+                            t.starts_with("pub mod ") || t.starts_with("mod ") ||
+                            t.starts_with("pub use ") || t.starts_with("impl ")
+                        })
+                        .map(|l| {
+                            let t = l.trim();
+                            let sig = if t.contains('{') {
+                                t.splitn(2, '{').next().unwrap_or(t).trim().to_string() + " { ... }"
+                            } else { t.to_string() };
+                            format!("  {}", sig)
+                        })
+                        .collect();
+                    if !skeleton.is_empty() {
+                        map.push_str(&format!("FILE: {}\n{}\n\n", rel, skeleton.join("\n")));
+                    }
+                }
+            }
+        }
+        if !map.is_empty() {
+            map.push_str("CRITICAL RULES (violations = build failure):\n");
+            map.push_str("- NEVER use write_file on existing files — use patch_file only\n");
+            map.push_str("- NEVER redefine functions already listed above\n");
+            map.push_str("- NEVER guess the crate name — use exactly what CRATE NAME shows above\n");
+        }
+        map
+    }
+
+    fn build_ref_context(&self) -> String {
+        if let Some(ref ref_path) = self.context_config.ref_file {
+            crate::context::read_ref_file(ref_path)
+                .map(|s| format!("\nREFERENCE FILE (use exact signatures):\n{}\n", s))
+                .unwrap_or_default()
+        } else { String::new() }
+    }
+
+    fn validate_patch_uniqueness(&self, plan: &[Cmd]) -> Vec<String> {
+        let mut issues = Vec::new();
+        for cmd in plan {
+            if let Cmd::PatchFile { path, search, .. } = cmd {
+                let full_path = self.executor.workspace.join(path);
+                if !full_path.exists() { continue; }
+                let content = match std::fs::read_to_string(&full_path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        issues.push(format!("Could not read '{}': {}", path, e));
+                        continue;
+                    }
+                };
+                let count = content.matches(search.as_str()).count();
+                if count == 0 {
+                    issues.push(format!(
+                        "search block not found in '{}' — copy text VERBATIM from the file", path
+                    ));
+                } else if count > 1 {
+                    issues.push(format!(
+                        "search block found {} times in '{}' — add more surrounding context lines", count, path
+                    ));
+                }
+            }
+        }
+        issues
+    }
+
+    async fn replan_with_feedback(
+        &mut self,
+        original_plan: Vec<Cmd>,
+        issues: Vec<String>,
+    ) -> Result<Vec<Cmd>, String> {
+        self.ctx.replan_attempts += 1;
+        if self.ctx.replan_attempts > 2 {
+            println!("   ⚠ Max replan attempts (2) reached — proceeding with original plan");
+            return Ok(original_plan);
+        }
+        println!("\n   🔄 v5.6 Replan {}/2 — patch uniqueness issues:", self.ctx.replan_attempts);
+        for issue in &issues {
+            println!("      • {}", issue);
+        }
+        let feedback = format!(
+            "PLAN REJECTED — patch_file uniqueness issues:\n{}\n\n\
+             MANDATORY RULES:\n\
+             1. Each patch_file search block must appear EXACTLY ONCE in the target file.\n\
+             2. If search block not found → file does not exist yet, use write_file instead.\n\
+             3. If found multiple times → add more surrounding context lines to make it unique.\n\
+             4. Copy search text VERBATIM from the file (case-sensitive, exact whitespace).\n\n\
+             Provide corrected execution plan.",
+            issues.join("\n")
+        );
+        let existing_files = if self.context_config.ref_file.is_some() {
+            self.build_skeleton_context()
+        } else { String::new() };
+        let ref_context = self.build_ref_context();
+        let lang_hint   = self.build_lang_hint();
+        let prompt = format!(
+            "{}{}{}\nGoal: {}\n\nFEEDBACK:\n{}",
+            existing_files, ref_context, lang_hint, self.goal, feedback
+        );
+        match self.plan_with_resilience(prompt).await {
+            Ok(new_plan) => {
+                let new_issues = self.validate_patch_uniqueness(&new_plan);
+                if new_issues.is_empty() {
+                    println!("   ✅ v5.6 Replan successful — all patches unique");
+                    Ok(new_plan)
+                } else {
+                    Box::pin(self.replan_with_feedback(new_plan, new_issues)).await
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
+    // ══════════════════════════════════════════════════════════
+
+        pub async fn run(&mut self) -> Result<()> {
         self.ctx.start_time = Some(std::time::Instant::now());
         self.send_event("start", None, None, None, None);
         // تحميل الـ hashes من الجلسة السابقة
@@ -165,99 +319,15 @@ impl Agent {
                     }
                     println!("\n🧠 Planning...");
                     self.send_event("step", Some("Planning"), Some("Generating execution plan"), None, None);
-                    // كشف لغة المشروع من الملفات الموجودة في workspace
-                    let ws = &self.executor.workspace;
-                    let has_cargo = ws.join("Cargo.toml").exists();
-                    let has_package_json = ws.join("package.json").exists();
-                    let has_go_mod = ws.join("go.mod").exists();
-                    let lang_hint = if has_cargo {
-                        "\nCRITICAL: This is a RUST project (Cargo.toml exists). Write ONLY Rust code. Do NOT create Python or JS files."
-                    } else if has_package_json {
-                        "\nCRITICAL: This is a Node.js project (package.json exists). Write ONLY JS/TS code."
-                    } else if has_go_mod {
-                        "\nCRITICAL: This is a Go project (go.mod exists). Write ONLY Go code."
-                    } else { "" };
-                    // قراءة الملفات الموجودة بشكل recursive وإضافتها للـ prompt
-                    // v5.5: Project Skeleton Injection — هيكل كامل للمشروع في Planning
-                    let existing_files = {
-                        let ws = &self.executor.workspace;
-                        let mut map = String::new();
-
-                        // 1. اسم الـ crate من Cargo.toml
-                        if let Ok(toml) = std::fs::read_to_string(ws.join("Cargo.toml")) {
-                            if let Some(name) = toml.lines()
-                                .find(|l| l.trim().starts_with("name"))
-                                .and_then(|l| l.split('"').nth(1))
-                            {
-                                map.push_str(&format!("CRATE NAME: {}\n", name));
-                                map.push_str(&format!("TEST IMPORT: use {}::...\n\n", name));
-                            }
-                        }
-
-                        // 2. skeleton من كل ملف .rs في src/
-                        let src_dir = ws.join("src");
-                        if src_dir.exists() {
-                            let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&src_dir)
-                                .into_iter().flatten()
-                                .filter_map(|e| e.ok())
-                                .map(|e| e.path())
-                                .filter(|p| p.extension().map(|x| x == "rs").unwrap_or(false))
-                                .collect();
-                            files.sort();
-
-                            for path in files {
-                                let rel = path.strip_prefix(ws).unwrap_or(&path).to_string_lossy().to_string();
-                                if let Ok(src) = std::fs::read_to_string(&path) {
-                                    let skeleton: Vec<String> = src.lines()
-                                        .filter(|l| {
-                                            let t = l.trim();
-                                            t.starts_with("pub struct ") ||
-                                            t.starts_with("pub enum ") ||
-                                            t.starts_with("pub fn ") ||
-                                            t.starts_with("fn ") ||
-                                            t.starts_with("pub mod ") ||
-                                            t.starts_with("mod ") ||
-                                            t.starts_with("pub use ") ||
-                                            t.starts_with("impl ")
-                                        })
-                                        .map(|l| {
-                                            let t = l.trim();
-                                            let sig = if t.contains('{') {
-                                                t.splitn(2, '{').next().unwrap_or(t).trim().to_string() + " { ... }"
-                                            } else { t.to_string() };
-                                            format!("  {}", sig)
-                                        })
-                                        .collect();
-                                    if !skeleton.is_empty() {
-                                        map.push_str(&format!("FILE: {}\n{}\n\n", rel, skeleton.join("\n")));
-                                    }
-                                }
-                            }
-                        }
-
-                        // 3. قواعد صارمة
-                        if !map.is_empty() {
-                            map.push_str("CRITICAL RULES (violations = build failure):\n");
-                            map.push_str("- TEST IMPORTS: copy the exact 'use CRATE_NAME::' shown above — wrong name = compile error\n");
-                            map.push_str("- NEVER use write_file on existing files — use patch_file only\n");
-                            map.push_str("- NEVER redefine functions already listed above\n");
-                            map.push_str("- NEVER guess the crate name — use exactly what CRATE NAME shows above\n");
-                        }
-
-                        map
-                    };
-                    // v5.5: inject only when --ref-file provided
-                    let existing_files = if self.context_config.ref_file.is_none() {
-                        String::new()
-                    } else {
-                        existing_files
-                    };
-                    // v5.5: ref_file في Planning أيضاً
-                    let ref_context = if let Some(ref ref_path) = self.context_config.ref_file {
-                        crate::context::read_ref_file(ref_path)
-                            .map(|s| format!("\nREFERENCE FILE (use exact signatures):\n{}\n", s))
-                            .unwrap_or_default()
+                    // v5.6: استخدام helpers المستخرجة
+                    let lang_hint = self.build_lang_hint();
+                    // v5.6: استخدام build_skeleton_context helper
+                    let existing_files = if self.context_config.ref_file.is_some() {
+                        self.build_skeleton_context()
                     } else { String::new() };
+
+                    // v5.6: استخدام build_ref_context helper
+                    let ref_context = self.build_ref_context();
 
                     let prompt = format!(
                         "{}{}{}\nGoal: {}\nProvide the complete execution plan.",
@@ -266,9 +336,26 @@ impl Agent {
                     // Protocol Resilience v1.3
                     match self.plan_with_resilience(prompt).await {
                         Ok(commands) => {
-                            println!("   ✓ {} commands\n", commands.len());
-                            self.plan  = commands;
-                            self.state = AgentState::Executing;
+                            println!("   ✓ {} commands", commands.len());
+                            // v5.6: Unique Patch Enforcer — التحقق قبل التنفيذ
+                            let issues = self.validate_patch_uniqueness(&commands);
+                            if !issues.is_empty() {
+                                match self.replan_with_feedback(commands, issues).await {
+                                    Ok(valid_commands) => {
+                                        println!("   ✓ Final plan: {} commands\n", valid_commands.len());
+                                        self.plan  = valid_commands;
+                                        self.state = AgentState::Executing;
+                                    }
+                                    Err(e) => {
+                                        println!("   ❌ Replan failed: {}", e);
+                                        self.state = AgentState::Failed(e);
+                                    }
+                                }
+                            } else {
+                                println!("   ✓ All patches unique\n");
+                                self.plan  = commands;
+                                self.state = AgentState::Executing;
+                            }
                         }
                         Err(e) => {
                             println!("   ❌ Plan parse failed: {}", e);

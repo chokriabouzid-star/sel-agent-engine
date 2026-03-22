@@ -31,6 +31,7 @@ pub struct ExecutionContext {
     pub start_time:        Option<std::time::Instant>,
     pub mutations_total:    u32,
     pub mutations_killed:   u32,
+    pub replan_attempts:    u8,   // v5.6: Unique Patch Enforcer
 }
 
 impl ExecutionContext {
