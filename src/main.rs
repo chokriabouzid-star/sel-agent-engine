@@ -7,6 +7,7 @@ mod executor;
 mod llm;
 mod agent;
 mod memory;
+mod scanner;
 mod evaluator;
 mod environment;
 
@@ -42,6 +43,14 @@ enum Commands {
         #[arg(long, default_value = "all")] suite: String,
         #[arg(long, default_value = "3")]   max_repairs: u8,
         #[arg(long, default_value = "1")]   iterations: u8,
+    },
+    Scan {
+        /// مسار المشروع
+        #[arg(long, default_value = ".")]
+        workspace: String,
+        /// إخراج JSON
+        #[arg(long, default_value_t = false)]
+        json: bool,
     },
     Compare {
         #[arg(long, value_delimiter = ',')] models: Vec<String>,
@@ -621,6 +630,9 @@ async fn main() -> Result<()> {
             let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
             run_stress(&api_key, max_repairs).await?;
         }
+        Commands::Scan { workspace, json } => {
+            cmd_scan(&workspace, json);
+        }
         Commands::Compare { models, suite, max_repairs } => {
             run_compare(&models, &suite, max_repairs).await?;
         }
@@ -681,4 +693,53 @@ async fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+// ─── scan command (v6.2) ───────────────────────────────────────────────────
+
+fn cmd_scan(workspace: &str, json: bool) {
+    use crate::scanner::scan_project;
+    use std::path::Path;
+
+    let path = Path::new(workspace);
+    if !path.exists() {
+        eprintln!("❌ Workspace not found: {}", workspace);
+        std::process::exit(1);
+    }
+
+    let profile = scan_project(path);
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&profile).unwrap());
+        return;
+    }
+
+    // human-readable output
+    let conf_bar = confidence_bar(profile.confidence);
+    println!();
+    println!("📁 Project  : {}", profile.project_name);
+    println!("🔤 Language : {}", profile.language);
+    println!("📦 Manifest : {}", profile.dependency_file
+        .as_ref().map(|p: &std::path::PathBuf| p.display().to_string())
+        .unwrap_or_else(|| "—".to_string()));
+    println!("📍 Entry    : {}", if profile.entry_points.is_empty() {
+        "—".to_string()
+    } else {
+        profile.entry_points.iter()
+            .map(|p: &std::path::PathBuf| p.display().to_string())
+            .collect::<Vec<_>>().join(", ")
+    });
+    println!("🧪 Tests    : {} {}",
+        if profile.has_tests { "✅" } else { "❌" },
+        profile.test_framework.as_deref().unwrap_or(""));
+    println!("🏗  Build    : {}", profile.build_cmd.as_deref().unwrap_or("—"));
+    println!("✅ Test cmd : {}", profile.test_cmd.as_deref().unwrap_or("—"));
+    println!("🎯 Confid.  : {:.0}%  {}", profile.confidence * 100.0, conf_bar);
+    println!();
+}
+
+fn confidence_bar(c: f32) -> String {
+    let filled = (c * 10.0).round() as usize;
+    let empty  = 10 - filled.min(10);
+    format!("[{}{}]", "█".repeat(filled), "░".repeat(empty))
 }
