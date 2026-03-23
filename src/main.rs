@@ -462,6 +462,10 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
         mut_score:    f64,
         quality:      f64,
         elapsed_secs: u64,
+        retries:           u32,
+        connection_errors: u32,
+        rate_limits:       u32,
+        timeouts:          u32,
     }
 
     let all_cases: &[(&str, &str, &str)] = &[
@@ -501,6 +505,10 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
         let mut total_repairs = 0usize;
         let mut mutation_killed = 0u32;
         let mut mutation_total  = 0u32;
+        let mut total_retries = 0usize;
+        let mut total_connection_errors = 0usize;
+        let mut total_rate_limits = 0usize;
+        let mut total_timeouts = 0usize;
         let total = cases.len();
         let start = std::time::Instant::now();
 
@@ -534,6 +542,12 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
 
             let repairs = agent.repair_count();
             total_repairs += repairs;
+            // v6.1: تراكم إحصائيات الاتصال
+            let cstats = agent.call_stats();
+            total_retries           += cstats.retries as usize;
+            total_connection_errors += cstats.connection_errors as usize;
+            total_rate_limits       += cstats.rate_limits as usize;
+            total_timeouts          += cstats.timeouts as usize;
             let ms = agent.mutation_score();
             if ms >= 0.0 { mutation_total += 1; if ms >= 1.0 { mutation_killed += 1; } }
 
@@ -554,6 +568,10 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
             model: model_cfg.model_id.clone(),
             passed, total, avg_repairs, mut_score, quality,
             elapsed_secs: elapsed,
+            retries:           total_retries as u32,
+            connection_errors: total_connection_errors as u32,
+            rate_limits:       total_rate_limits as u32,
+            timeouts:          total_timeouts as u32,
         });
     }
 
@@ -565,10 +583,10 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
             tests_total:       r.total as u32,
             mutation_score:    if r.mut_score >= 0.0 { r.mut_score } else { 0.0 },
             repairs:           (r.avg_repairs * r.total as f64).round() as u32,
-            retries:           0,
-            connection_errors: 0,
-            rate_limits:       0,
-            timeouts:          0,
+            retries:           r.retries,
+            connection_errors: r.connection_errors,
+            rate_limits:       r.rate_limits,
+            timeouts:          r.timeouts,
             elapsed_secs:      r.elapsed_secs,
         };
         evaluator::ModelScore::from_metrics(&r.model, &format!("run-{}", i), &raw, max_time)

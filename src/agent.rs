@@ -20,6 +20,7 @@ pub struct Agent {
     repair_fingerprints: Vec<u64>,   // Repair History Guard v1.2
     context_config:      ContextConfig,
     failure_memory:       crate::memory::FailureMemory,  // v5.8
+    pub accumulated_stats: crate::llm::LlmCallStats,      // v6.1
 }
 
 impl Agent {
@@ -35,6 +36,7 @@ impl Agent {
             repair_fingerprints: Vec::new(),
             context_config,
             failure_memory: crate::memory::FailureMemory::load(),
+            accumulated_stats: crate::llm::LlmCallStats::default(),
         }
     }
     pub fn new_with_model(api_key: String, model_alias: String, workspace: PathBuf, goal: String, max_repairs: u8, context_config: ContextConfig) -> Self {
@@ -49,7 +51,12 @@ impl Agent {
             repair_fingerprints: Vec::new(),
             context_config,
             failure_memory: crate::memory::FailureMemory::load(),
+            accumulated_stats: crate::llm::LlmCallStats::default(),
         }
+    }
+
+    pub fn call_stats(&self) -> &crate::llm::LlmCallStats {
+        &self.accumulated_stats
     }
 
     pub fn repair_count(&self) -> usize {
@@ -116,7 +123,7 @@ impl Agent {
 
     // ══════════════════════════════════════════════════════════
     // Protocol Resilience v1.3
-    async fn plan_with_resilience(&self, base_prompt: String) -> Result<Vec<Cmd>, String> {
+    async fn plan_with_resilience(&mut self, base_prompt: String) -> Result<Vec<Cmd>, String> {
         const MAX_RETRIES: u8 = 2;
         for attempt in 0..=MAX_RETRIES {
             let prompt = if attempt == 0 {
@@ -129,7 +136,13 @@ impl Agent {
             };
 
             match self.llm.call(&[Message::user(prompt)]).await {
-                Ok((response, _call_stats)) => match crate::protocol::parse(&response) {
+                Ok((response, call_stats)) => {
+                    self.accumulated_stats.retries           += call_stats.retries;
+                    self.accumulated_stats.connection_errors += call_stats.connection_errors;
+                    self.accumulated_stats.rate_limits       += call_stats.rate_limits;
+                    self.accumulated_stats.timeouts          += call_stats.timeouts;
+                    self.accumulated_stats.total_latency_ms  += call_stats.total_latency_ms;
+                    match crate::protocol::parse(&response) {
                     Ok(plan) => {
                         if attempt > 0 {
                             println!("   ✅ Protocol retry {} succeeded.", attempt);
@@ -150,8 +163,20 @@ impl Agent {
                             ));
                         }
                     }
-                },
-                Err(e) => return Err(e.to_string()),
+                }},
+                Err(e) => {
+                    // v6.1: تسجيل أخطاء الاتصال حتى عند فشل call()
+                    let msg = e.to_string();
+                    if msg.contains("Connection error") {
+                        self.accumulated_stats.connection_errors += 1;
+                    } else if msg.contains("Rate limit") || msg.contains("429") {
+                        self.accumulated_stats.rate_limits += 1;
+                    } else if msg.contains("503") || msg.contains("502") || msg.contains("500") {
+                        self.accumulated_stats.connection_errors += 1;
+                    }
+                    self.accumulated_stats.retries += attempt as u32;
+                    return Err(msg);
+                }
             }
         }
         unreachable!()

@@ -65,7 +65,16 @@ fn compute_reliability(m: &RawMetrics) -> f64 {
 
 fn compute_efficiency(elapsed: u64, max_time: u64) -> f64 {
     if max_time == 0 { return 1.0; }
-    1.0 - (elapsed as f64 / max_time as f64)
+    // إذا كان الفرق أقل من 20% → كلاهما متساويان عملياً
+    let ratio = elapsed as f64 / max_time as f64;
+    if ratio >= 0.80 {
+        // الأبطأ يحصل على 0.80 كحد أدنى معقول
+        let penalty = (ratio - 0.80) * 2.0; // penalty بطيء
+        (1.0 - penalty).clamp(0.70, 1.0)
+    } else {
+        // الأسرع يحصل على bonus
+        (1.0 - ratio * 0.5).clamp(0.70, 1.0)
+    }
 }
 
 // DTO — Deterministic Total Ordering (5 مستويات)

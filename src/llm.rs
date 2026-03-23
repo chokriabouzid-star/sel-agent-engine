@@ -423,10 +423,10 @@ impl LlmClient {
 
             let data: Response = resp.json().await?;
             stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
-            return data.choices.into_iter().next()
+            let result = data.choices.into_iter().next()
                 .map(|c| c.message.content)
-                .map(|text| (text, stats.clone()))
                 .ok_or_else(|| anyhow!("Empty response"));
+            return result.map(|text| (text, stats));
         }
         stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
         Err(anyhow!("LLM failed"))
