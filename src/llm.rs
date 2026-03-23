@@ -2,6 +2,15 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use crate::types::Message;
 
+#[derive(Debug, Clone, Default)]
+pub struct LlmCallStats {
+    pub retries: u32,
+    pub connection_errors: u32,
+    pub rate_limits: u32,
+    pub timeouts: u32,
+    pub total_latency_ms: u64,
+}
+
 const SYSTEM_PROMPT: &str = r#"You are SEL Agent v5.8 — a deterministic software execution agent.
 
 OUTPUT: Respond ONLY with a single ```json block. No text outside it.
@@ -353,7 +362,9 @@ impl LlmClient {
         }
     }
 
-    pub async fn call(&self, messages: &[Message]) -> Result<String> {
+    pub async fn call(&self, messages: &[Message]) -> Result<(String, LlmCallStats)> {
+        let mut stats = LlmCallStats::default();
+        let call_start = std::time::Instant::now();
         let mut msgs = vec![ApiMsg { role: "system".into(), content: SYSTEM_PROMPT.into() }];
         for m in messages { msgs.push(ApiMsg { role: m.role.clone(), content: m.content.clone() }); }
 
@@ -365,6 +376,7 @@ impl LlmClient {
 
         for (attempt, &delay) in delays.iter().enumerate() {
             if attempt > 0 {
+                stats.retries += 1;
                 println!("   ⏳ Rate limit — retry in {}s...", delay);
                 tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
             }
@@ -381,7 +393,9 @@ impl LlmClient {
                 .send().await {
                     Ok(r)  => r,
                     Err(e) => {
+                        stats.connection_errors += 1;
                         if attempt + 1 == delays.len() {
+                            stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
                             return Err(anyhow!("Connection error: {}", e));
                         }
                         println!("   ⚠ Connection error: {} — retry in {}s...", e, delay);
@@ -391,12 +405,15 @@ impl LlmClient {
 
             let status = resp.status();
             if status == 429 || status == 503 || status == 502 || status == 500 {
+                if status == 429 { stats.rate_limits += 1; } else { stats.connection_errors += 1; }
                 if attempt + 1 == delays.len() {
                     let body = resp.text().await.unwrap_or_default();
+                    stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
                     return Err(anyhow!("API {} — {}", status, &body[..body.len().min(200)]));
                 }
                 let label = if status == 429 { "Rate limit" } else { "Server error" };
                 println!("   ⚠ {} ({}) — retry in {}s...", label, status, delay);
+                if attempt > 0 { stats.retries += 1; }
                 continue;
             }
             if !status.is_success() {
@@ -405,12 +422,13 @@ impl LlmClient {
             }
 
             let data: Response = resp.json().await?;
-            let raw = data.choices.iter().next().map(|c| &c.message.content).cloned().unwrap_or_default();
-            // debug removed v1.5
+            stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
             return data.choices.into_iter().next()
                 .map(|c| c.message.content)
+                .map(|text| (text, stats.clone()))
                 .ok_or_else(|| anyhow!("Empty response"));
         }
+        stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
         Err(anyhow!("LLM failed"))
     }
 }

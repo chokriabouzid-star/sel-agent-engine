@@ -129,7 +129,7 @@ impl Agent {
             };
 
             match self.llm.call(&[Message::user(prompt)]).await {
-                Ok(response) => match crate::protocol::parse(&response) {
+                Ok((response, _call_stats)) => match crate::protocol::parse(&response) {
                     Ok(plan) => {
                         if attempt > 0 {
                             println!("   ✅ Protocol retry {} succeeded.", attempt);
@@ -344,6 +344,16 @@ impl Agent {
                     }
                     println!("\n🧠 Planning...");
                     self.send_event("step", Some("Planning"), Some("Generating execution plan"), None, None);
+                    // v6.1: ECM — probe البيئة قبل Planning
+                    let ecm = crate::environment::EnvironmentCapabilities::probe();
+                    println!("   🔍 Environment: {}", {
+                        let py = ecm.python.as_ref().map(|p| format!("python={}", p.cmd)).unwrap_or("python=none".into());
+                        let nd = if ecm.node.is_some() { "node=✓" } else { "node=✗" };
+                        let rs = if ecm.rust.is_some() { "rust=✓" } else { "rust=✗" };
+                        format!("{} {} {}", py, nd, rs)
+                    });
+                    let env_context = ecm.to_planning_context();
+                    let constraints = ecm.derive_constraints();
                     // v5.6: استخدام helpers المستخرجة
                     let lang_hint = self.build_lang_hint();
                     // v5.6: استخدام build_skeleton_context helper
@@ -355,8 +365,9 @@ impl Agent {
                     let ref_context = self.build_ref_context();
 
                     let prompt = format!(
-                        "{}{}{}\nGoal: {}\nProvide the complete execution plan.",
-                        existing_files, ref_context, lang_hint, self.goal
+                        "{}{}{}\n{}\n{}\nGoal: {}\nProvide the complete execution plan.",
+                        existing_files, ref_context, lang_hint,
+                        env_context, constraints, self.goal
                     );
                     // Protocol Resilience v1.3
                     match self.plan_with_resilience(prompt).await {

@@ -7,6 +7,8 @@ mod executor;
 mod llm;
 mod agent;
 mod memory;
+mod evaluator;
+mod environment;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -84,7 +86,7 @@ async fn run_health(api_key: &str) -> Result<()> {
     let llm = llm::LlmClient::new(api_key.to_string());
     let test_msg = types::Message::user("Reply with exactly: PONG".to_string());
     match llm.call(&[test_msg]).await {
-        Ok(resp) => {
+        Ok((resp, _stats)) => {
             pb.finish_and_clear();
             if !resp.is_empty() {
                 println!("🤖 Model:        {}", "✅ Responding".green());
@@ -554,27 +556,31 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
         });
     }
 
-    // ── طباعة جدول المقارنة ──
-    println!("\n╔══════════════════════════════════════════════════════════════════════╗");
-    println!("║   Model Comparison Results — suite: {:<33}║", suite);
-    println!("╠══════════════════════════════════════════════════════════════════════╣");
-    println!("║  {:<35} {:>6} {:>8} {:>8} {:>8} ║", "Model", "Score", "Repairs", "Mut%", "Time");
-    println!("╠══════════════════════════════════════════════════════════════════════╣");
-    for r in &results {
-        let score_str   = format!("{}/{}", r.passed, r.total);
-        let repairs_str = format!("{:.1}", r.avg_repairs);
-        let mut_str     = if r.mut_score >= 0.0 { format!("{:.0}%", r.mut_score * 100.0) } else { "N/A".to_string() };
-        let time_str    = format!("{}s", r.elapsed_secs);
-        println!("║  {:<35} {:>6} {:>8} {:>8} {:>8} ║", r.model, score_str, repairs_str, mut_str, time_str);
-    }
-    println!("╚══════════════════════════════════════════════════════════════════════╝\n");
+    // ── v6.1: RAS + DTO ──
+    let max_time = results.iter().map(|r| r.elapsed_secs).max().unwrap_or(1);
+    let mut scores: Vec<evaluator::ModelScore> = results.iter().enumerate().map(|(i, r)| {
+        let raw = evaluator::RawMetrics {
+            tests_passed:      r.passed as u32,
+            tests_total:       r.total as u32,
+            mutation_score:    if r.mut_score >= 0.0 { r.mut_score } else { 0.0 },
+            repairs:           (r.avg_repairs * r.total as f64).round() as u32,
+            retries:           0,
+            connection_errors: 0,
+            rate_limits:       0,
+            timeouts:          0,
+            elapsed_secs:      r.elapsed_secs,
+        };
+        evaluator::ModelScore::from_metrics(&r.model, &format!("run-{}", i), &raw, max_time)
+    }).collect();
 
-    // ── أفضل نموذج ──
-    if let Some(best) = results.iter().max_by(|a, b| {
-        a.quality.partial_cmp(&b.quality).unwrap()
-            .then_with(|| b.elapsed_secs.cmp(&a.elapsed_secs))
-    }) {
-        println!("🏆 أفضل نموذج: {} (Quality: {:.2} | وقت: {}s)\n", best.model, best.quality, best.elapsed_secs);
+    scores = evaluator::rank_models(scores);
+    evaluator::print_comparison_table(&scores);
+
+    if let Some(best) = scores.iter().find(|s| !s.unstable) {
+        println!("🏆 أفضل نموذج: {} (Composite: {:.3} | Correct: {:.2} | Reliable: {:.2})\n",
+            best.model, best.composite, best.correctness, best.reliability);
+    } else {
+        println!("⚠ جميع النماذج غير مستقرة — لا يوجد فائز\n");
     }
 
     Ok(())
@@ -620,7 +626,7 @@ async fn main() -> Result<()> {
                 let llm = llm::LlmClient::new(api_key);
                 let prompt = format!("Goal: {}\n\nProvide the complete execution plan.", goal);
                 match llm.call(&[types::Message::user(prompt)]).await {
-                    Ok(response) => match protocol::parse(&response) {
+                    Ok((response, _stats)) => match protocol::parse(&response) {
                         Ok(plan) => {
                             println!("📋 Plan preview ({} commands):\n", plan.commands.len());
                             for (i, cmd) in plan.commands.iter().enumerate() {
