@@ -613,6 +613,8 @@ impl Agent {
                                         self.state = AgentState::Repairing;
                                     }
                                     MutationResult::Strong  => {
+                                        self.ctx.mutations_total += 1;
+                                        self.ctx.mutations_killed += 1;
                                         println!(" ✅ Tests are solid.");
                                         self.ctx.save_hashes(&self.executor.workspace);
                                         println!("\n✅ Goal complete! Tests passed.");
