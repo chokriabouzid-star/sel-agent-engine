@@ -519,3 +519,22 @@ Output: 70+ projects scanned from ~/
 - fix_summary يشمل: patch_file + write_file + run commands
 - تم التحقق: ImportError → pyfiglet → حُفظ بنجاح ✅
 - التالي: v6.0 Model Comparison Engine
+
+## 2026-03-22 — v6.0 مكتمل
+- Model Comparison Engine: compare --models --suite --max-repairs
+- Provider enum: Groq, Moonshot, SiliconFlow
+- ModelConfig::from_alias() + LlmClient::with_model()
+- جدول مقارنة: Correct, Reliable, Effic., Composite
+- أول مقارنة: kimi vs llama على suite python — كلاهما 3/3 | mutation:100%
+- التالي: v6.1 Reliability-Aware Scoring
+
+## 2026-03-23 — v6.1 مكتمل
+- fix: stats tracking on error (retries, conn_err, rate_lim, timeouts)
+- fix: efficiency scaling — حد أدنى 0.70، لا collapse
+- fix: mutation_score لا يُحدَّث بعد repair-loop Strong result (bug حرج)
+- RAS (Reliability-Aware Scoring): correctness×0.70 + reliability×0.20 + efficiency×0.10
+- compute_reliability: يشمل conn_err×0.15 + rate_lim×0.10 + retries×0.05 + timeouts×0.12 + repairs×0.03
+- DTO (Deterministic Total Ordering): 5 مستويات لفك التعادل
+- أول نتيجة صالحة: llama(0.974) > kimi(0.890) — kimi خسر بسبب conn_err:2 لا بسبب الذكاء
+- النظام انتقل من prototype إلى measurement system حقيقي
+- التالي: v6.2 scan command
