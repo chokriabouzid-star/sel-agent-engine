@@ -185,6 +185,74 @@ impl Agent {
 
     // ══════════════════════════════════════════════════════════
     // v5.6: Unique Patch Enforcer
+    // v6.2c: M4 — استخراج اسم الـ module من المصدر الرسمي لكل لغة
+    fn build_module_name_hint(&self) -> String {
+        let ws = &self.executor.workspace;
+        let mut hint = String::new();
+
+        // Rust: Cargo.toml [package] name → تحويل - إلى _
+        if let Ok(toml) = std::fs::read_to_string(ws.join("Cargo.toml")) {
+            if let Some(name) = toml.lines()
+                .find(|l| l.trim().starts_with("name"))
+                .and_then(|l| l.split('"').nth(1))
+            {
+                let crate_name = name.replace('-', "_");
+                hint.push_str(&format!(
+                    "CRATE NAME (EXACT): {}\n                     In test files use EXACTLY: use {}:: — DO NOT GUESS OR SHORTEN\n",
+                    name, crate_name
+                ));
+            }
+        }
+
+        // Python: pyproject.toml أو setup.py
+        if let Ok(pyproject) = std::fs::read_to_string(ws.join("pyproject.toml")) {
+            for line in pyproject.lines() {
+                let t = line.trim();
+                if t.starts_with("name") {
+                    if let Some(name) = t.split('"').nth(1)
+                        .or_else(|| t.split('\'').nth(1))
+                        .or_else(|| t.splitn(2, '=').nth(1).map(|s| s.trim().trim_matches('"').trim_matches('\'')))
+                    {
+                        hint.push_str(&format!(
+                            "PYTHON PACKAGE NAME: {} — use in imports EXACTLY\n", name
+                        ));
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Go: go.mod module line
+        if let Ok(gomod) = std::fs::read_to_string(ws.join("go.mod")) {
+            if let Some(module) = gomod.lines()
+                .find(|l| l.starts_with("module "))
+                .map(|l| l.trim_start_matches("module ").trim())
+            {
+                hint.push_str(&format!(
+                    "GO MODULE: {} — use in imports EXACTLY\n", module
+                ));
+            }
+        }
+
+        // Node.js / TypeScript: package.json name
+        if let Ok(pkg) = std::fs::read_to_string(ws.join("package.json")) {
+            if let Some(name) = pkg.lines()
+                .find(|l| l.trim().starts_with("\"name\""))
+                .and_then(|l| l.split('"').nth(3))
+            {
+                hint.push_str(&format!(
+                    "NODE/TS PACKAGE: {} — use in require/import EXACTLY\n", name
+                ));
+            }
+        }
+
+        if hint.is_empty() {
+            String::new()
+        } else {
+            format!("\n=== MODULE NAMES — DO NOT GUESS ===\n{}===================================\n", hint)
+        }
+    }
+
     fn build_lang_hint(&self) -> String {
         let ws = &self.executor.workspace;
         if ws.join("Cargo.toml").exists() {
@@ -254,6 +322,26 @@ impl Agent {
         }
         if !map.is_empty() {
             map.push_str("CRITICAL RULES (violations = build failure):\n");
+        map.push_str("\n⚠ DEPENDENCIES — NO EXCEPTIONS (ALL 5 LANGUAGES):\n");
+        map.push_str("- Rust:       ONLY crates in Cargo.toml [dependencies]. NEVER invent new ones.\n");
+        map.push_str("- Python:     ONLY packages in requirements.txt or stdlib. NEVER invent new ones.\n");
+        map.push_str("- Go:         ONLY modules in go.mod. NEVER invent new ones.\n");
+        map.push_str("- Node.js/TS: ONLY packages in package.json. NEVER invent new ones.\n");
+        map.push_str("\n⚠ TESTS PROTECTION:\n");
+        map.push_str("- NEVER write_file or patch_file on tests/ files to make them pass.\n");
+        map.push_str("- Fix src/ to pass the tests — not the opposite.\n");
+        // M2: Dependencies rule for all languages
+        map.push_str("\n### DEPENDENCIES RULE (ALL LANGUAGES) ###\n");
+        map.push_str("You MUST ONLY use dependencies that already exist in the project:\n");
+        map.push_str("\n");
+        map.push_str("- **Rust**:   ONLY crates listed in Cargo.toml [dependencies]\n");
+        map.push_str("- **Python**: ONLY packages in requirements.txt or Python standard library\n");
+        map.push_str("- **Go**:     ONLY modules in go.mod\n");
+        map.push_str("- **Node/TS**: ONLY packages in package.json dependencies\n");
+        map.push_str("\n");
+        map.push_str("NEVER invent, add, or assume new dependencies.\n");
+        map.push_str("If a dependency is missing, DO NOT use it. Use existing alternatives.\n");
+        map.push_str("\n");
             map.push_str("- NEVER use write_file on existing files — use patch_file only\n");
             map.push_str("- NEVER redefine functions already listed above\n");
             map.push_str("- NEVER guess the crate name — use exactly what CRATE NAME shows above\n");
@@ -381,6 +469,7 @@ impl Agent {
                     let constraints = ecm.derive_constraints();
                     // v5.6: استخدام helpers المستخرجة
                     let lang_hint = self.build_lang_hint();
+        let module_hint = self.build_module_name_hint();
                     // v5.6: استخدام build_skeleton_context helper
                     let existing_files = if self.context_config.ref_file.is_some() {
                         self.build_skeleton_context()
@@ -958,7 +1047,7 @@ impl Agent {
                     );
 
                     let patch_note = if !files_context.starts_with("FILES IN PROJECT:") {
-                        "\n\n⚠ REPAIR RULES — MANDATORY:\n1. DO NOT use write_file on files that already exist — this resets them to broken state.\n2. Use patch_file to fix existing files. Copy search text EXACTLY from CURRENT FILES above.\n3. write_file is FORBIDDEN for existing files during repair.\nWRONG: {\"type\":\"write_file\",\"path\":\"calc.py\",...}  ← overwrites with wrong code\nRIGHT: {\"type\":\"patch_file\",\"path\":\"calc.py\",\"search\":\"return a - b\",\"replace\":\"return a + b\"}"
+                        "\n\n⚠ REPAIR RULES — MANDATORY:\n1. DO NOT use write_file on files that already exist — this resets them to broken state.\n2. Use patch_file to fix existing files. Copy search text EXACTLY from CURRENT FILES above.\n3. write_file is FORBIDDEN for existing files during repair.\nWRONG: {\"type\":\"write_file\",\"path\":\"calc.py\",...}  ← overwrites with wrong code\nRIGHT: {\"type\":\"patch_file\",\"path\":\"calc.py\",\"search\":\"return a - b\",\"replace\":\"return a + b\"}\n\n⚠ DEPENDENCIES — CRITICAL (ALL 5 LANGUAGES — NO EXCEPTIONS):\n- Rust:       ONLY use crates already in Cargo.toml [dependencies]. NEVER add new ones.\n- Python:     ONLY use packages in requirements.txt or Python stdlib. NEVER add new ones.\n- Go:         ONLY use modules already in go.mod. NEVER add new ones.\n- Node.js/TS: ONLY use packages already in package.json. NEVER add new ones.\nIf you need functionality, use std:: equivalent or what is already imported.\n\n⚠ TESTS PROTECTION — CRITICAL:\n- files in tests/ are READ-ONLY during repair.\n- NEVER modify *.test.js *.test.ts *.spec.js *.spec.ts files.\n- Fix the SOURCE files (src/) to make tests pass — NOT the tests themselves."
                     } else { "" };
                     
                     // v5.1: Reference File Support

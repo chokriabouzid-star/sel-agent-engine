@@ -638,6 +638,17 @@ async fn main() -> Result<()> {
             run_compare(&models, &suite, max_repairs).await?;
         }
         Commands::Run { workspace, goal, max_repairs, dry_run, ref_file, focus, auto_detect } => {
+            if !workspace.exists() {
+                eprintln!("❌ Workspace not found: {}", workspace.display());
+                eprintln!("   تحقق من المسار أو أنشئ المجلد أولاً.");
+                std::process::exit(1);
+                eprintln!("   Creating directory...");
+                if let Err(e) = std::fs::create_dir_all(&workspace) {
+                    eprintln!("❌ Failed to create workspace: {}", e);
+                    std::process::exit(1);
+                }
+                eprintln!("✅ Workspace created: {}", workspace.display());
+            }
             println!("\n╔══════════════════════════════════════════╗");
             println!("║   SEL Agent v5.8 — State Machine Engine  ║");
             println!("╚══════════════════════════════════════════╝");
@@ -715,6 +726,8 @@ fn cmd_scan(workspace: &str, json: bool) {
     let path = Path::new(workspace);
     if !path.exists() {
         eprintln!("❌ Workspace not found: {}", workspace);
+        eprintln!("   تحقق من المسار أو أنشئ المجلد أولاً.");
+        std::process::exit(1);
         std::process::exit(1);
     }
 

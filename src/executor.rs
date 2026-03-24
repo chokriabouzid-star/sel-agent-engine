@@ -153,13 +153,14 @@ impl SafeExecutor {
             )));
         }
         if let Some(parent) = p.parent() { std::fs::create_dir_all(parent)?; }
-        // حماية: إذا كان الملف موجوداً وأكبر بكثير من المحتوى الجديد → تحذير
+        // M1: رفض كامل — أي ملف موجود بحجم > 500 bytes لا يُكتب عليه أبداً
         if p.exists() {
             let existing_len = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
-            let new_len = content.len() as u64;
-            if existing_len > 500 && new_len < existing_len / 3 {
-                println!("   ⚠ WARNING: Overwriting {} ({} bytes) with much smaller content ({} bytes)",
-                    path, existing_len, new_len);
+            if existing_len > 500 {
+                return Ok(ExecResult::fail(format!(
+                    "write_file: REFUSED — '{}' already exists ({} bytes). NEVER overwrite existing files. Use patch_file with EXACT text to modify.",
+                    path, existing_len
+                )));
             }
         }
         // Rust brace balance check
@@ -260,7 +261,7 @@ impl SafeExecutor {
         let new_lines = patched.lines().count();
         let diff = (new_lines as i32 - orig_lines as i32).abs();
         
-        if diff > 20 {
+        if diff > 50 {
             return Err(format!("Patch changed too many lines: {} → {} lines", orig_lines, new_lines));
         }
         
@@ -490,8 +491,11 @@ impl SafeExecutor {
                 ("npx", vec!["jest", "--runInBand", "--forceExit"])
             } else if target == "npm test" || target == "npm" {
                 ("npm", vec!["test", "--", "--runInBand", "--forceExit"])
+            } else if target.contains("test") || target.contains("spec") {
+                // .js test file — شغّل مع npx jest (لا node — describe/it غير معرَّفة في node مباشرة)
+                ("npx", vec!["jest", "--runInBand", "--forceExit", "--testPathPattern", target])
             } else {
-                // .js file — شغّل مع node
+                // .js script عادي (ليس test)
                 ("node", vec![target])
             };
             println!("   🟨 {} {}", prog, args.join(" "));
