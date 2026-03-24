@@ -29,11 +29,12 @@ struct Cli {
 enum Commands {
     Run {
         #[arg(long)] workspace:   PathBuf,
-        #[arg(long)] goal:        String,
+        #[arg(long, default_value = "")] goal: String,
         #[arg(long, default_value = "3")] max_repairs: u8,
         #[arg(long, default_value = "false")] dry_run: bool,
         #[arg(long)] ref_file: Option<PathBuf>,
         #[arg(long, value_delimiter = ',')] focus: Vec<String>,
+        #[arg(long, default_value_t = false)] auto_detect: bool,
     },
     Health,
     Stress {
@@ -636,10 +637,20 @@ async fn main() -> Result<()> {
         Commands::Compare { models, suite, max_repairs } => {
             run_compare(&models, &suite, max_repairs).await?;
         }
-        Commands::Run { workspace, goal, max_repairs, dry_run, ref_file, focus } => {
+        Commands::Run { workspace, goal, max_repairs, dry_run, ref_file, focus, auto_detect } => {
             println!("\n╔══════════════════════════════════════════╗");
             println!("║   SEL Agent v5.8 — State Machine Engine  ║");
             println!("╚══════════════════════════════════════════╝");
+            let goal = if auto_detect || goal.is_empty() {
+                let profile = crate::scanner::scan_project(&workspace);
+                println!("\n🔍 Auto-detect: {} ({:.0}% confidence)", profile.language, profile.confidence * 100.0);
+                let g = match profile.test_cmd.as_deref() {
+                    Some(cmd) => format!("Run `{}`, fix any failing tests, ensure all tests pass.", cmd),
+                    None => "Analyze the project, fix any issues, ensure it builds.".to_string(),
+                };
+                println!("🎯 Generated goal: \"{}\"", g);
+                g
+            } else { goal };
             println!("\n📋 Goal: \"{}\"", goal);
             println!("   Workspace:   {}", workspace.display());
             println!("   Max repairs: {}", max_repairs);
