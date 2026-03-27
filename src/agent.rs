@@ -355,6 +355,17 @@ impl Agent {
             let _ = std::fs::remove_file(&cache_path);
             println!("   🗑  Cache cleared — fresh start");
         }
+
+        // v6.3: ScaffoldEngine — يُجهّز البيئة قبل LLM
+        let scaffold = crate::scaffold_engine::prepare(&ws, &self.goal).await;
+        if scaffold.ready {
+            println!("   🏗  Scaffold ready: {:?} ({} files)", scaffold.kind, scaffold.files_created.len());
+            if !scaffold.logic_hint.is_empty() {
+                self.goal = format!("{}
+{}", self.goal, scaffold.logic_hint);
+            }
+        }
+
         loop {
             match self.state.clone() {
 
