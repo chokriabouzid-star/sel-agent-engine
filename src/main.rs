@@ -187,6 +187,7 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8) 
         for (i, (_lang, name, goal)) in cases.iter().enumerate() {
             let workspace = tmpdir.join(format!("sel-bench-{}-{}", iter, i));
             let _ = std::fs::remove_dir_all(&workspace);
+            std::fs::create_dir_all(&workspace).ok();
             let pb = ProgressBar::new_spinner();
             pb.set_style(ProgressStyle::default_spinner()
                 .template(&format!("{{spinner:.cyan}} 🔬 [{}/{}] {}...", iter+1, iterations, name)).unwrap());
