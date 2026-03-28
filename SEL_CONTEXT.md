@@ -538,3 +538,14 @@ Output: 70+ projects scanned from ~/
 - أول نتيجة صالحة: llama(0.974) > kimi(0.890) — kimi خسر بسبب conn_err:2 لا بسبب الذكاء
 - النظام انتقل من prototype إلى measurement system حقيقي
 - التالي: v6.2 scan command
+
+## v6.3-final — ScaffoldEngine (مكتمل ✅)
+**التاريخ:** مارس 2026
+**النهج:** Proactive Scaffolding — يُجهّز البيئة قبل LLM
+**النتائج:**
+- TypeScript: 0 repairs (كان 3) — idempotent ✅
+- Python: 0 repairs ✅
+**الملف:** src/scaffold_engine.rs
+**Pipeline:** prepare() → LLM plans logic only → Executor runs
+**الحالة:** مستقر — جاهز لـ v6.4
+**التالي:** توسيع Scaffold لـ Rust + Go + React
