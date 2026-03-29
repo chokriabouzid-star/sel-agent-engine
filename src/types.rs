@@ -198,12 +198,22 @@ pub enum FailureKind {
     NodeTestError,
     FlaskConcurrency,
     InfraError,   // v6.4: connection error / rate limit / pip timeout
+    PatchError,   // v6.6: search block not found / validation failed
     Unknown,
 }
 
 impl FailureKind {
     pub fn classify(stderr: &str) -> Self {
         let s = stderr;
+        // Patch errors — highest priority after Infra (context mismatch)
+        // يجب أن يسبق كل تصنيف آخر لأن patch failure يختلط مع أخطاء أخرى
+        if s.contains("search block not found")
+            || s.contains("patch_file validation failed")
+            || s.contains("Patch changed too many lines")
+            || s.contains("search block is empty")
+        {
+            return Self::PatchError;
+        }
         // Infra errors — highest priority (never send to LLM)
         if s.contains("Connection error")
             || s.contains("rate limit") || s.contains("Rate limit")
@@ -346,6 +356,8 @@ PATTERN B — app_context manually:
       # code that needs app context                 
 
 NEVER call db or app internals outside app context.",
+            Self::PatchError =>
+                "PATCH ERROR: The search block was not found in the file.                 You MUST read the current file content first, then use the EXACT text as the search block.                 Do NOT approximate or paraphrase. Copy the exact lines from the file.",
             Self::InfraError =>
                 "INFRA ERROR: Network/API issue. No code fix needed — retry automatically.",
             Self::Unknown =>
@@ -396,6 +408,7 @@ impl Default for ContextConfig {
 impl FailureKind {
     pub fn max_attempts(&self) -> u8 {
         match self {
+            Self::PatchError       => 2,  // context mismatch — أعطِ فرصتين مع hint
             Self::InfraError       => 0,  // لا LLM repair — retry فقط
             Self::ImportError      => 1,
             Self::NodeTestError    => 1,
@@ -421,6 +434,9 @@ mod tests {
         assert_eq!(FailureKind::DatabaseError.max_attempts(), 2);
         assert_eq!(FailureKind::Unknown.max_attempts(), 3);
         assert_eq!(FailureKind::InfraError.max_attempts(), 0);
+        assert_eq!(FailureKind::PatchError.max_attempts(), 2);
+        assert_eq!(FailureKind::classify("search block not found in 'app.ts'"), FailureKind::PatchError);
+        assert_eq!(FailureKind::classify("patch_file validation failed: too many lines"), FailureKind::PatchError);
         // InfraError يجب أن يُصنَّف صح
         assert_eq!(FailureKind::classify("Connection error: timeout"), FailureKind::InfraError);
         assert_eq!(FailureKind::classify("Timeout after 120s"), FailureKind::InfraError);

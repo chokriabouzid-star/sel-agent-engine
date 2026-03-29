@@ -475,12 +475,16 @@ impl SafeExecutor {
         }
 
         // Node.js tests — npm test / jest / npx jest
+        // اكتشاف TypeScript من الـ workspace (package.json موجود)
+        let is_ts_workspace = self.workspace.join("package.json").exists();
         let is_node_target = target.ends_with(".js")
+            || target.ends_with(".ts")   // v6.6: .ts files → npm test لا pytest
             || target == "npm test"
             || target == "npm"
             || target == "jest"
             || target == "npx jest"
-            || target.contains("jest");
+            || target.contains("jest")
+            || is_ts_workspace;          // v6.6: أي workspace فيه package.json → npm test
         if is_node_target {
             // تحديد الأمر الصحيح
             let (prog, args): (&str, Vec<&str>) = if target == "jest" {
