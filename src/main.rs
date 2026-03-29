@@ -1,4 +1,4 @@
-// src/main.rs — SEL Agent v5.8
+// src/main.rs — SEL Agent v6.4
 mod context;
 mod chunker;
 mod types;
@@ -62,7 +62,7 @@ enum Commands {
 
 async fn run_health(api_key: &str) -> Result<()> {
     println!("\n╔══════════════════════════════════════════╗");
-    println!("║   SEL Agent v5.8 — Health Check          ║");
+    println!("║   SEL Agent v6.4 — Health Check                   ║");
     println!("╚══════════════════════════════════════════╝\n");
 
     let internet = reqwest::Client::new()
@@ -258,7 +258,7 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8) 
 
 async fn run_stress(api_key: &str, max_repairs: u8) -> Result<()> {
     println!("\n╔══════════════════════════════════════════╗");
-    println!("║   SEL Agent v5.8 — Stress Test           ║");
+    println!("║   SEL Agent v6.4 — Stress Test                     ║");
     println!("╚══════════════════════════════════════════╝\n");
 
     let cases: &[(&str, &str)] = &[
@@ -458,7 +458,7 @@ async fn run_integration_bench(api_key: &str, max_repairs: u8) -> Result<()> {
 
 async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<()> {
     println!("\n╔══════════════════════════════════════════╗");
-    println!("║   SEL Agent v6.0 — Model Comparison      ║");
+    println!("║   SEL Agent v6.4 — Model Comparison       ║");
     println!("╚══════════════════════════════════════════╝\n");
     println!("   Models:  {:?}", models);
     println!("   Suite:   {}", suite);
@@ -640,7 +640,7 @@ async fn main() -> Result<()> {
         }
         Commands::Run { workspace, goal, max_repairs, dry_run, ref_file, focus } => {
             println!("\n╔══════════════════════════════════════════╗");
-            println!("║   SEL Agent v5.8 — State Machine Engine  ║");
+            println!("║   SEL Agent v6.4 — State Machine Engine   ║");
             println!("╚══════════════════════════════════════════╝");
             println!("\n📋 Goal: \"{}\"", goal);
             println!("   Workspace:   {}", workspace.display());

@@ -549,3 +549,12 @@ Output: 70+ projects scanned from ~/
 **Pipeline:** prepare() → LLM plans logic only → Executor runs
 **الحالة:** مستقر — جاهز لـ v6.4
 **التالي:** توسيع Scaffold لـ Rust + Go + React
+
+## v6.3-final — النتائج الرسمية
+- Bench: 28/28 — 100% Success Rate
+- Avg Repairs: 0.1
+- TypeScript: 0 repairs — mutation 100%
+- ScaffoldEngine: Python + TypeScript مستقران
+- ENOENT bench fix: create_dir_all قبل agent.run()
+- مشكلة متبقية: node tests (npm install jest) — للمعالجة في v6.4
+- الحالة: مستقر — جاهز لـ GoalParser + v6.4

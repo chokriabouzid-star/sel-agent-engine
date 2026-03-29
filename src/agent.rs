@@ -655,10 +655,32 @@ impl Agent {
                 // ─── Repairing ────────────────────────────────
                 // استدعاء LLM واحد لخطة إصلاح
                 AgentState::Repairing => {
+                    // ─── InfraError: retry بدون LLM ───────────────
+                    {
+                        let all_err = self.ctx.failed_steps.iter()
+                            .map(|f| f.stderr.as_str()).collect::<Vec<_>>().join("\n");
+                        if FailureKind::classify(&all_err) == FailureKind::InfraError {
+                            let infra_retries = self.ctx.repair_attempts;
+                            if infra_retries >= 3 {
+                                self.state = AgentState::Failed(
+                                    "Infrastructure failure: network/API unavailable after 3 retries.".into()
+                                );
+                                continue;
+                            }
+                            let wait = [15u64, 45, 120][infra_retries as usize];
+                            println!("\n⚠️  Infra error — retry {}/3 in {}s (no LLM call)...", infra_retries + 1, wait);
+                            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                            self.ctx.repair_attempts += 1;
+                            self.ctx.failed_steps.clear();
+                            self.state = AgentState::Planning;
+                            continue;
+                        }
+                    }
                     self.ctx.repair_attempts += 1;
                             self.send_event("repair", None, Some(&format!("Repair attempt {}", self.ctx.repair_attempts)), None, None);
 
-                    if self.ctx.repair_attempts > self.ctx.max_repairs {
+                    let repair_limit = self.ctx.current_failure_kind.as_ref().map(|k: &FailureKind| k.max_attempts()).unwrap_or(self.ctx.max_repairs);
+                    if self.ctx.repair_attempts > repair_limit {
                         let reason = format!(
                             "Failed after {} repair attempts. Last errors:\n{}",
                             self.ctx.repair_attempts - 1,
@@ -671,7 +693,10 @@ impl Agent {
                         continue;
                     }
 
-                    println!("\n🔧 Repair {}/{}...", self.ctx.repair_attempts, self.ctx.max_repairs);
+                    let early_stderr = self.ctx.failed_steps.iter().map(|f| f.stderr.as_str()).collect::<Vec<_>>().join("\n");
+                    let early_kind = FailureKind::classify(&early_stderr);
+                    let display_limit = early_kind.max_attempts();
+                    println!("\n🔧 Repair {}/{}...", self.ctx.repair_attempts, display_limit);
 
                     let ws = &self.executor.workspace;
 
@@ -729,6 +754,7 @@ impl Agent {
                     // Token-Aware Repair v1.2
                     // بعض الأخطاء لا تحتاج محتوى الملفات — فقط أسماءها
                     let failure_kind = FailureKind::classify(&all_stderr);
+                    self.ctx.current_failure_kind = Some(failure_kind.clone());
                     let repair_hint = failure_kind.repair_hint();
                     println!("   🔍 Failure type: {:?}", failure_kind);
 
@@ -934,17 +960,17 @@ impl Agent {
                             Some(prev) => format!(
                                 "ATTEMPT {}/{}: Previous fix failed.\n  Previous error: {}\n  New error:      {}\n  Your fix changed the problem but did not solve it. Try a different approach.",
                                 self.ctx.repair_attempts,
-                                self.ctx.max_repairs,
+                                display_limit,
                                 prev.chars().take(300).collect::<String>(),
                                 all_stderr.chars().take(300).collect::<String>()
                             ),
                             None => format!(
                                 "ATTEMPT {}/{}: Previous fix failed — try a completely different approach.",
-                                self.ctx.repair_attempts, self.ctx.max_repairs
+                                self.ctx.repair_attempts, display_limit
                             ),
                         }
                     } else {
-                        format!("ATTEMPT {}/{}: First repair attempt.", self.ctx.repair_attempts, self.ctx.max_repairs)
+                        format!("ATTEMPT {}/{}: First repair attempt.", self.ctx.repair_attempts, display_limit)
                     };
                     let loop_warning = if self.repair_fingerprints.len() > 1
                         && self.repair_fingerprints.last()

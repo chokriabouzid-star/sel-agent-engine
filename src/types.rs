@@ -34,7 +34,8 @@ pub struct ExecutionContext {
     pub replan_attempts:    u8,   // v5.6: Unique Patch Enforcer
     pub last_failed_steps:  Vec<FailedStep>, // v5.8: نسخة احتياطية قبل المسح
     pub last_failure_kind:  String,  // v5.8: للـ memory
-    pub last_error_sig:     String,  // v5.8: للـ memory
+    pub last_error_sig:     String,  // v5.8
+    pub current_failure_kind: Option<FailureKind>,  // v6.4
 }
 
 impl ExecutionContext {
@@ -196,12 +197,22 @@ pub enum FailureKind {
     DatabaseError,
     NodeTestError,
     FlaskConcurrency,
+    InfraError,   // v6.4: connection error / rate limit / pip timeout
     Unknown,
 }
 
 impl FailureKind {
     pub fn classify(stderr: &str) -> Self {
         let s = stderr;
+        // Infra errors — highest priority (never send to LLM)
+        if s.contains("Connection error")
+            || s.contains("rate limit") || s.contains("Rate limit")
+            || s.contains("429") || s.contains("503") || s.contains("502")
+            || s.contains("Timeout after")
+            || s.contains("error sending request")
+        {
+            return Self::InfraError;
+        }
         // Go errors
         if s.contains("undefined:") || s.contains("cannot use") || s.contains("no required module") || s.contains("cannot find package") {
             return Self::TypeError;
@@ -244,6 +255,9 @@ impl FailureKind {
         }
         if s.contains("collected 0 items") {
             return Self::CollectionError;
+        }
+        if s.contains("AttributeError") {
+            return Self::TypeError;
         }
         if s.contains("TypeError") {
             return Self::TypeError;
@@ -332,6 +346,8 @@ PATTERN B — app_context manually:
       # code that needs app context                 
 
 NEVER call db or app internals outside app context.",
+            Self::InfraError =>
+                "INFRA ERROR: Network/API issue. No code fix needed — retry automatically.",
             Self::Unknown =>
                 "Fix the errors shown above.",
         }
@@ -374,5 +390,39 @@ impl Default for ContextConfig {
             focus_paths:       vec![],
             max_context_files: 50,  // رفع من 20 إلى 50
         }
+    }
+}
+
+impl FailureKind {
+    pub fn max_attempts(&self) -> u8 {
+        match self {
+            Self::InfraError       => 0,  // لا LLM repair — retry فقط
+            Self::ImportError      => 1,
+            Self::NodeTestError    => 1,
+            Self::DatabaseError    => 2,
+            Self::FlaskConcurrency => 2,
+            Self::SyntaxError      => 3,
+            Self::TypeError        => 3,
+            Self::AssertionError   => 3,
+            Self::BuildError       => 3,
+            Self::CollectionError  => 2,
+            Self::Unknown          => 3,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_repair_budget() {
+        assert_eq!(FailureKind::ImportError.max_attempts(), 1);
+        assert_eq!(FailureKind::SyntaxError.max_attempts(), 3);
+        assert_eq!(FailureKind::DatabaseError.max_attempts(), 2);
+        assert_eq!(FailureKind::Unknown.max_attempts(), 3);
+        assert_eq!(FailureKind::InfraError.max_attempts(), 0);
+        // InfraError يجب أن يُصنَّف صح
+        assert_eq!(FailureKind::classify("Connection error: timeout"), FailureKind::InfraError);
+        assert_eq!(FailureKind::classify("Timeout after 120s"), FailureKind::InfraError);
     }
 }
