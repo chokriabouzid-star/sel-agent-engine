@@ -33,8 +33,8 @@ pub struct ExecutionContext {
     pub mutations_killed:   u32,
     pub replan_attempts:    u8,   // v5.6: Unique Patch Enforcer
     pub last_failed_steps:  Vec<FailedStep>, // v5.8: نسخة احتياطية قبل المسح
-    pub last_failure_kind:  String,  // v5.8: للـ memory
-    pub last_error_sig:     String,  // v5.8
+    pub _last_failure_kind:  String,  // v5.8: للـ memory
+    pub _last_error_sig:     String,  // v5.8
     pub current_failure_kind: Option<FailureKind>,  // v6.4
 }
 

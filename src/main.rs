@@ -9,6 +9,7 @@ mod agent;
 mod memory;
 mod scanner;
 mod scaffold_engine;
+mod goal_parser;
 mod evaluator;
 mod environment;
 

@@ -763,7 +763,7 @@ impl Agent {
                     );
                     // v5.9: Patch Error Full Context
                     // إذا كان الخطأ search block → أرسل الملف كاملاً
-                    let patch_error_context: String = if all_stderr.contains("search block not found")
+                    let _patch_error_context: String = if all_stderr.contains("search block not found")
                         || all_stderr.contains("search block found")
                     {
                         // استخرج اسم الملف من رسالة الخطأ — بدون تكرار
@@ -806,7 +806,7 @@ impl Agent {
 
                     // v5.9: Patch Error Full Context
                     // إذا كان الخطأ search block → أرسل الملف كاملاً
-                    let patch_error_context: String = if all_stderr.contains("search block not found")
+                    let _patch_error_context: String = if all_stderr.contains("search block not found")
                         || all_stderr.contains("search block found")
                     {
                         // استخرج اسم الملف من رسالة الخطأ
@@ -846,7 +846,7 @@ impl Agent {
 
                     // v5.9: Patch Error Full Context
                     // إذا كان الخطأ search block → أرسل الملف كاملاً
-                    let patch_error_context: String = if all_stderr.contains("search block not found")
+                    let _patch_error_context: String = if all_stderr.contains("search block not found")
                         || all_stderr.contains("search block found")
                     {
                         // استخرج اسم الملف من رسالة الخطأ
@@ -1008,7 +1008,7 @@ impl Agent {
                     let prompt = format!(
                         "Goal: {}{}{}{}{}{}\n\nHINT: {}\n\n{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}{}\n\
                          Fix ALL issues. Provide complete corrected plan.",
-                        self.goal, network_note, mutation_note, patch_note, ref_file_context, memory_hint, repair_hint, attempt_note, errors, files_context, patch_error_context
+                        self.goal, network_note, mutation_note, patch_note, ref_file_context, memory_hint, repair_hint, attempt_note, errors, files_context, _patch_error_context
                     );
 
                     // Protocol Resilience v1.3

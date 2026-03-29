@@ -3,6 +3,7 @@
 // Pipeline: ScaffoldEngine::prepare() → LLM::plan_logic_only() → Executor::run()
 
 use std::path::Path;
+use crate::goal_parser;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProjectKind {
@@ -61,11 +62,12 @@ const TSCONFIG_JSON: &str = r#"{
 
 // ─── نقطة الدخول ──────────────────────────────────────────
 pub async fn prepare(workspace: &Path, goal: &str) -> ScaffoldResult {
-    let kind = detect_kind(workspace, goal);
+    let parsed = goal_parser::parse(workspace, goal);
+    let kind = parsed.kind.clone();
 
     match &kind {
-        ProjectKind::TypeScript => scaffold_typescript(workspace).await,
-        ProjectKind::Python     => scaffold_python(workspace).await,
+        ProjectKind::TypeScript => scaffold_typescript(workspace, &parsed.extra_deps).await,
+        ProjectKind::Python     => scaffold_python(workspace, &parsed.extra_deps).await,
         ProjectKind::Unknown    => ScaffoldResult {
             kind,
             ready: false,
@@ -81,35 +83,10 @@ pub async fn prepare(workspace: &Path, goal: &str) -> ScaffoldResult {
     }
 }
 
-// ─── اكتشاف نوع المشروع ───────────────────────────────────
-fn detect_kind(workspace: &Path, goal: &str) -> ProjectKind {
-    // من ملفات موجودة أولاً
-    if workspace.join("Cargo.toml").exists()   { return ProjectKind::Rust; }
-    if workspace.join("go.mod").exists()        { return ProjectKind::Go; }
-    if workspace.join("package.json").exists()  { return ProjectKind::TypeScript; }
-    if workspace.join("requirements.txt").exists()
-    || workspace.join("pyproject.toml").exists() { return ProjectKind::Python; }
-
-    // من الـ goal إذا كان المشروع فارغاً
-    let g = goal.to_lowercase();
-    if g.contains("typescript") || g.contains(" ts ") || g.contains(".ts") {
-        return ProjectKind::TypeScript;
-    }
-    if g.contains("python") || g.contains("pytest") || g.contains("fastapi") {
-        return ProjectKind::Python;
-    }
-    if g.contains("rust") || g.contains("cargo") {
-        return ProjectKind::Rust;
-    }
-    if g.contains("golang") || g.contains(" go ") {
-        return ProjectKind::Go;
-    }
-
-    ProjectKind::Unknown
-}
+// detect_kind moved to goal_parser.rs — v6.5
 
 // ─── Scaffold TypeScript ──────────────────────────────────
-async fn scaffold_typescript(workspace: &Path) -> ScaffoldResult {
+async fn scaffold_typescript(workspace: &Path, extra_deps: &[String]) -> ScaffoldResult {
     println!("   🏗  Scaffold: TypeScript environment");
     let mut created = vec![];
 
@@ -149,9 +126,16 @@ async fn scaffold_typescript(workspace: &Path) -> ScaffoldResult {
     let node_modules = workspace.join("node_modules");
     if !node_modules.exists() {
         println!("   📦 Installing pinned TS stack...");
+        let mut npm_args: Vec<&str> = vec!["install", "--save-dev"];
+        let ts_deps: Vec<&str> = TS_JEST_DEPS.split_whitespace().collect();
+        npm_args.extend_from_slice(&ts_deps);
+        let extra_refs: Vec<&str> = extra_deps.iter().map(|s| s.as_str()).collect();
+        npm_args.extend_from_slice(&extra_refs);
+        if !extra_deps.is_empty() {
+            println!("   📦 Extra deps: {}", extra_deps.join(", "));
+        }
         let out = tokio::process::Command::new("npm")
-            .args(["install", "--save-dev"])
-            .args(TS_JEST_DEPS.split_whitespace())
+            .args(&npm_args)
             .current_dir(workspace)
             .output()
             .await;
@@ -180,7 +164,7 @@ async fn scaffold_typescript(workspace: &Path) -> ScaffoldResult {
 }
 
 // ─── Scaffold Python ──────────────────────────────────────
-async fn scaffold_python(workspace: &Path) -> ScaffoldResult {
+async fn scaffold_python(workspace: &Path, extra_deps: &[String]) -> ScaffoldResult {
     println!("   🏗  Scaffold: Python environment");
     let mut created = vec![];
 
@@ -205,6 +189,24 @@ async fn scaffold_python(workspace: &Path) -> ScaffoldResult {
                 .output()
                 .await;
             println!("   ✅ pytest installed (pinned)");
+
+            // تثبيت extra_deps من GoalParser
+            if !extra_deps.is_empty() {
+                println!("   📦 Installing extra deps: {}", extra_deps.join(", "));
+                let mut pip_args = vec!["install", "-q"];
+                let extra_refs: Vec<&str> = extra_deps.iter().map(|s| s.as_str()).collect();
+                pip_args.extend_from_slice(&extra_refs);
+                let pip_out = tokio::process::Command::new("venv/bin/pip")
+                    .args(&pip_args)
+                    .current_dir(workspace)
+                    .output()
+                    .await;
+                match pip_out {
+                    Ok(o) if o.status.success() => println!("   ✅ Extra deps installed"),
+                    Ok(o) => println!("   ⚠️  Extra deps warning: {}", String::from_utf8_lossy(&o.stderr).chars().take(200).collect::<String>()),
+                    Err(e) => println!("   ⚠️  Extra deps failed: {}", e),
+                }
+            }
         }
     } else {
         println!("   ⏭  venv exists — skip");
@@ -269,7 +271,9 @@ fn build_ts_logic_hint(workspace: &Path) -> String {
         - tsconfig.json (ready)\n\
         - jest.config.js (not needed — config is in package.json)\n\
         - node_modules (installed)\n\
-        Your job: write ONLY the logic .ts files and test files.\n\
+        Your job: write ONLY .ts files (TypeScript). NEVER write .js files.\n\
+        Jest testMatch is: **/*.test.ts — .js files will NOT be found by Jest.\n\
+        RULE: Every source file must end in .ts, every test file must end in .test.ts\n\
         Test command: npm test{}\n",
         existing
     )
