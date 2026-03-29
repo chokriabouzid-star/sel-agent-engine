@@ -153,6 +153,13 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8) 
         ("rust", "rust fizzbuzz","Create Rust library crate. Write Cargo.toml name=rustfizz edition=2021. Write src/lib.rs with pub fn fizzbuzz(n:u32)->String returning Fizz Buzz FizzBuzz or number. Write tests module with 4 cases. Run cargo test."),
         ("rust", "rust reverse", "Create Rust library crate. Write Cargo.toml name=rustreverse edition=2021. Write src/lib.rs with pub fn reverse(s:&str)->String. Write tests module testing hello->olleh and empty string. Run cargo test."),
         ("rust", "rust stack",   "Create Rust library crate. Write Cargo.toml name=ruststack edition=2021. Write src/lib.rs with pub struct Stack and impl with push pop is_empty. Write tests module. Run cargo test."),
+        // Flask / FastAPI
+        ("python", "flask hello",   "Create Python Flask app in app.py with GET /hello route returning JSON {\"message\":\"hello world\"}. Create requirements.txt containing only: flask. Write test_app.py using Flask test client: assert response.status_code==200 and response.get_json()[\"message\"]==\"hello world\". Run pytest."),
+        ("python", "fastapi route", "Create Python FastAPI app in main.py with GET /hello route returning {\"message\":\"hello\"}. Create requirements.txt containing: fastapi httpx. Write test_main.py using TestClient from fastapi.testclient: assert response.status_code==200 and response.json()[\"message\"]==\"hello\". Run pytest."),
+        // Express multi-file
+        ("node", "express api",     "Create Node.js Express app in app.js exporting the express app with GET /ping route returning JSON {ok:true}. Create package.json with jest supertest express. Write app.test.js using supertest: assert status 200 and body.ok===true. Run npm test."),
+        // TypeScript Express
+        ("typescript", "ts express", "Create TypeScript Express app. Write app.ts exporting express app with GET /health route returning JSON {status:\"ok\"}. Create package.json with ts-jest jest typescript express @types/express supertest @types/supertest. Create tsconfig.json. Write app.test.ts using supertest: assert status 200 and body.status===\"ok\". Run npm test."),
     ];
 
     let cases: Vec<_> = all_cases.iter().filter(|(lang, _, _)| {
@@ -367,6 +374,18 @@ async fn run_integration_bench(api_key: &str, max_repairs: u8) -> Result<()> {
             "Create Rust library crate with 2 source files. Write Cargo.toml name=rustmulti edition=2021. Write src/lib.rs with: pub mod math; pub use math::add;. Write src/math.rs with pub fn add(a:i32,b:i32)->i32 returning a+b. Write tests/math_test.rs testing add(2,3)==5. Run cargo test.",
             "The crate rustmulti already exists with src/lib.rs and src/math.rs. Use patch_file to add pub fn multiply(a:i32,b:i32)->i32 to src/math.rs ONLY. Do NOT touch src/lib.rs. Add 2 tests in tests/math_test.rs. Run cargo test.",
             "src/math.rs"
+        ),
+        (
+            "flask add route",
+            "Create Python Flask app in app.py with GET /hello route returning JSON {\"message\":\"hello\"}. Create requirements.txt with only: flask. Write test_app.py using Flask test client testing GET /hello returns 200 and message==\"hello\". Run pytest.",
+            "The Flask app already exists in app.py. Use patch_file to add GET /goodbye route returning JSON {\"message\":\"goodbye\"} to app.py. Add 1 new test in test_app.py for GET /goodbye returns 200. Do NOT modify existing tests. Run pytest.",
+            "app.py"
+        ),
+        (
+            "fastapi add endpoint",
+            "Create Python FastAPI app in main.py with GET /hello route returning {\"message\":\"hello\"}. Create requirements.txt with: fastapi httpx. Write test_main.py using TestClient from fastapi.testclient testing GET /hello returns 200. Run pytest.",
+            "The FastAPI app already exists in main.py. Use patch_file to add GET /bye route returning {\"message\":\"bye\"} to main.py. Add 1 new test in test_main.py for GET /bye. Do NOT modify existing tests. Run pytest.",
+            "main.py"
         ),
     ];
 
