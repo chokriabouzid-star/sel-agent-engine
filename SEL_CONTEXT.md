@@ -3,7 +3,7 @@
 ---
 
 ## الإصدار الحالي
-- SEL Agent: v6.6
+- SEL Agent: v6.7
 - Cargo.toml: 6.4.0
 - SEL Observatory: يعمل (port 8777) — WebSocket Live ✅
 
@@ -24,8 +24,8 @@
 
 ---
 
-## نتائج آخر Benchmark (v6.6)
-- Passed:         28/28 (100%)
+## نتائج آخر Benchmark (v6.7)
+- Passed:         32/32 (100%)
 - Avg Repairs:    0.0
 - Mutation Score: 100%
 - Quality Index:  1.00
@@ -35,7 +35,7 @@
 ## هيكل الملفات الأساسية
 ```
 src/
-├── main.rs              — CLI + bench + stress (v6.4)
+├── main.rs              — CLI + bench + stress (v6.7)
 ├── agent.rs             — State Machine + Auto-Context Injection (v6.6)
 ├── executor.rs          — run/write_file/run_tests/patch_file + TS runner fix (v6.6)
 ├── scaffold_engine.rs   — يُجهّز البيئة + يستخدم GoalParser
@@ -53,7 +53,7 @@ src/
 
 ---
 
-## إنجازات v6.3 → v6.6
+## إنجازات v6.3 → v6.7
 
 ### v6.3 — ScaffoldEngine
 - يُجهّز البيئة قبل LLM (package.json + tsconfig + node_modules)
@@ -75,6 +75,15 @@ src/
 - executor.rs: .ts files + is_ts_workspace → npm test (لا pytest)
 - build_workspace_context(): يقرأ كل ملفات الـ workspace قبل Planning
 - يدعم: .ts .js .py .go .rs .toml — يتجاهل node_modules/venv/dist
+
+### v6.7 — Bench Suite Expansion 28→32
+- +flask hello (Python/Flask + test client)
+- +fastapi route (Python/FastAPI + TestClient)
+- +express api (Node/Express + supertest)
+- +ts express (TypeScript/Express + supertest)
+- +flask add route (integration Phase2)
+- +fastapi add endpoint (integration Phase2)
+- Marketing Bot proof-of-concept: 11 cmds, nested folders, jest.mock → SEL_SUCCESS (1 repair)
 
 ---
 
@@ -114,8 +123,8 @@ Unknown          => 3
 ---
 
 ## الخطوات القادمة
-1. Observatory v3 — تحسين Live UI (State Machine visual)
-2. Benchmark suite توسيع — إضافة حالات تعديل مشاريع
+1. Integration bench — إضافة Marketing Bot (Phase1 بناء → Phase2 patch Reddit)
+2. Observatory v3 — تحسين Live UI (State Machine visual)
 3. Workspace Memory (Context Selection Engine) — v7.0
 
 ---
@@ -125,20 +134,18 @@ Unknown          => 3
 # بناء
 cargo build --release 2>&1 | tail -3
 
-# bench سريع
+# bench كامل
 ./target/release/sel-agent bench --iterations 1
+
+# integration bench
+./target/release/sel-agent bench --suite integration
 
 # Observatory
 cd ~/sel-observatory && ./target/release/sel_observatory &
 # افتح: http://172.27.155.106:8777/live
 
-# اختبار FastAPI
-rm -rf /tmp/test_fastapi && mkdir /tmp/test_fastapi && echo "" > /tmp/test_fastapi/requirements.txt
-./target/release/sel-agent run --workspace /tmp/test_fastapi \
-  --goal "Create a Python FastAPI application with /hello route. Include pytest test using TestClient."
-
-# اختبار TypeScript
-rm -rf /tmp/test_ts && mkdir /tmp/test_ts
-./target/release/sel-agent run --workspace /tmp/test_ts \
-  --goal "Create a TypeScript calculator with jest tests"
+# اختبار Marketing Bot
+rm -rf /tmp/marketing_bot && mkdir /tmp/marketing_bot
+./target/release/sel-agent run --workspace /tmp/marketing_bot \
+  --goal "Create a Node.js TypeScript Marketing Bot. Strict Architecture: 1. src/database.ts (in-memory mock). 2. src/platforms/devto.ts (class with postArticle method using axios). 3. src/scheduler.ts (queue processor). 4. src/index.ts. Include Jest tests using mocks. Extra deps: axios"
 ```
