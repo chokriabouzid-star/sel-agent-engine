@@ -387,6 +387,12 @@ async fn run_integration_bench(api_key: &str, max_repairs: u8) -> Result<()> {
             "The FastAPI app already exists in main.py. Use patch_file to add GET /bye route returning {\"message\":\"bye\"} to main.py. Add 1 new test in test_main.py for GET /bye. Do NOT modify existing tests. Run pytest.",
             "main.py"
         ),
+        (
+            "marketing bot patch reddit",
+            "Create a Node.js TypeScript Marketing Bot. Architecture: 1. src/database.ts with in-memory CampaignStore class storing {id,platform,url,date}. 2. src/platforms/devto.ts with DevToClient class taking apiKey, having postArticle(title:string,url:string):Promise<string> method using axios (mock-friendly). 3. src/scheduler.ts with Scheduler class that takes a platform client and has schedule(campaign) method. 4. src/index.ts exporting all. Write src/scheduler.test.ts using jest.mock for axios testing schedule() works. Extra deps: axios",
+            "The Marketing Bot already exists with src/database.ts src/platforms/devto.ts src/scheduler.ts src/index.ts. Use patch_file or write_file to ADD src/platforms/reddit.ts with RedditClient class taking apiKey, having postLink(title:string,url:string,subreddit:string):Promise<string> method (axios-based). Add src/platforms/reddit.test.ts using jest.mock for axios testing postLink returns a string id. Do NOT modify existing files except src/index.ts to export RedditClient. Run npm test.",
+            "src/scheduler.ts"
+        ),
     ];
 
     let total = cases.len();
