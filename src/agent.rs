@@ -261,6 +261,66 @@ impl Agent {
         map
     }
 
+    // v6.6: Auto-Context Injection — يقرأ كل ملفات الـ workspace الموجودة
+    fn build_workspace_context(&self) -> String {
+        let ws = &self.executor.workspace;
+        let mut ctx = String::new();
+
+        // الامتدادات المدعومة
+        let supported = ["ts", "js", "py", "go", "rs", "toml", "json", "mod"];
+
+        // اقرأ كل الملفات بشكل recursive (حد 50 ملف، حد 300 سطر لكل ملف)
+        let mut files: Vec<std::path::PathBuf> = walkdir::WalkDir::new(ws)
+            .max_depth(4)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path().to_path_buf())
+            .filter(|p| p.is_file())
+            .filter(|p| {
+                let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+                supported.contains(&ext)
+            })
+            .filter(|p| {
+                // تجاهل node_modules, venv, dist, target
+                let s = p.to_string_lossy();
+                !s.contains("node_modules") && !s.contains("/venv/")
+                    && !s.contains("/dist/") && !s.contains("/target/")
+                    && !s.contains("/.") && !s.contains("package-lock")
+            })
+            .take(50)
+            .collect();
+        files.sort();
+
+        if files.is_empty() { return String::new(); }
+
+        ctx.push_str("=== EXISTING WORKSPACE FILES (read carefully before planning) ===
+");
+        ctx.push_str("CRITICAL: Use patch_file (NOT write_file) for ALL files listed below.
+
+");
+
+        for path in &files {
+            let rel = path.strip_prefix(ws).unwrap_or(path).to_string_lossy();
+            if let Ok(src) = std::fs::read_to_string(path) {
+                let lines: Vec<&str> = src.lines().collect();
+                let preview: Vec<&str> = lines.iter().take(300).cloned().collect();
+                ctx.push_str(&format!("--- FILE: {} ({} lines) ---
+", rel, lines.len()));
+                ctx.push_str(&preview.join("\n"));
+                ctx.push('\n');
+                if lines.len() > 300 {
+                    ctx.push_str(&format!("... ({} more lines)\n", lines.len() - 300));
+                }
+                ctx.push('\n');
+            }
+        }
+
+        ctx.push_str("=== END OF EXISTING FILES ===
+
+");
+        ctx
+    }
+
     fn build_ref_context(&self) -> String {
         if let Some(ref ref_path) = self.context_config.ref_file {
             crate::context::read_ref_file(ref_path)
@@ -393,7 +453,12 @@ impl Agent {
                     // v5.6: استخدام helpers المستخرجة
                     let lang_hint = self.build_lang_hint();
                     // v5.6: استخدام build_skeleton_context helper
-                    let existing_files = if self.context_config.ref_file.is_some() {
+                    // v6.6: Auto-Context Injection
+                    // استخدم workspace context إذا كانت هناك ملفات موجودة
+                    let ws_ctx = self.build_workspace_context();
+                    let existing_files = if !ws_ctx.is_empty() {
+                        ws_ctx
+                    } else if self.context_config.ref_file.is_some() {
                         self.build_skeleton_context()
                     } else { String::new() };
 
