@@ -2,7 +2,16 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use crate::types::Message;
 
-const SYSTEM_PROMPT: &str = r#"You are SEL Agent v1.3 — a deterministic software execution agent.
+#[derive(Debug, Clone, Default)]
+pub struct LlmCallStats {
+    pub retries: u32,
+    pub connection_errors: u32,
+    pub rate_limits: u32,
+    pub timeouts: u32,
+    pub total_latency_ms: u64,
+}
+
+const SYSTEM_PROMPT: &str = r#"You are SEL Agent v5.8 — a deterministic software execution agent.
 
 OUTPUT: Respond ONLY with a single ```json block. No text outside it.
 
@@ -55,6 +64,10 @@ PYTHON FILE NAMING:
 - Use descriptive names: math_utils.py, string_ops.py, file_io.py, numbers_utils.py
 
 RUST PROJECTS:
+- RUST STRINGS — CRITICAL: ALWAYS use double quotes for string literals: assert_eq!(x, "INFO") NOT 'INFO'
+  Single quotes in Rust = char only (one character). Multi-character strings MUST use double quotes.
+  WRONG: assert_eq!(result, 'CRITICAL')  — this is a char literal and will not compile
+  CORRECT: assert_eq!(result, "CRITICAL")  — this is a string literal
 - NEVER use "cargo new" — create files directly with write_file
 - ALWAYS create Cargo.toml in workspace root (not in subdirectory)
 - ALWAYS create src/lib.rs or src/main.rs directly
@@ -206,20 +219,143 @@ JEST RULES — CRITICAL:
 - test files: ALWAYS use describe() and it() or test() — NEVER call assertions outside describe
 
 TYPESCRIPT + TS-JEST — CRITICAL:
-- Install: typescript ts-jest @types/jest jest
-- jest.config.js: module.exports = { preset: 'ts-jest', testEnvironment: 'node' }
-- tsconfig.json: { "compilerOptions": { "target": "ES2020", "module": "commonjs", "strict": true } }
+- Install order: npm install typescript ts-jest @types/jest jest
+- ALWAYS use jest.config.js (NOT package.json jest field) for ts-jest:
+  module.exports = { preset: "ts-jest", testEnvironment: "node" }
+- tsconfig.json MUST have: { "compilerOptions": { "target": "ES2020", "module": "commonjs", "strict": false } }
+- strict: false — avoids type errors blocking tests
+- package.json scripts: { "test": "jest --runInBand --forceExit" }
+- NEVER add "jest" field in package.json when using jest.config.js — they conflict
+- test files: .test.ts extension ONLY
+- source files: export functions with "export function" or "export default"
 - NEVER use .toThrowError() — use .toThrow() only
-- test files extension: .test.ts
+- STEP ORDER: 1) package.json 2) npm install 3) tsconfig.json 4) jest.config.js 5) source.ts 6) source.test.ts 7) run_tests
 
 ALWAYS:
 1. python3 -m venv venv
 2. venv/bin/pip3 install [packages]  (skip if no external packages)
 3. write_file for all source files
 4. run_tests
-5. done"#;
+5. done
+FILE OPERATIONS:
+- write_file:  ONLY for creating NEW files that do not exist yet — NEVER on existing files
+- patch_file:  ALWAYS for modifying EXISTING files (add/change/fix code)
+- append_file: ONLY for adding content at the END of an existing file
+- delete_file: ONLY for removing files that are no longer needed
 
-pub struct LlmClient { api_key: String, model: String, endpoint: String }
+PLANNING RULE — CRITICAL: Before writing the plan, check which files already exist.
+  If the workspace has existing source files → use patch_file to modify them, NEVER write_file.
+  write_file on an existing file DESTROYS the original code and causes duplicate methods.
+  WRONG (existing file): {"type":"write_file","path":"src/lib.rs",...}  ← DESTROYS original
+  CORRECT (existing file): {"type":"patch_file","path":"src/lib.rs","search":"impl Foo {","replace":"impl Foo {\n    pub fn new_method..."}
+
+PATCH_FILE RULES — CRITICAL:
+- The "search" block MUST be copied EXACTLY from the file (no approximation)
+- The "search" block MUST appear exactly ONCE in the file
+- If the search block is not unique, use MORE surrounding context
+- NEVER use patch_file on a file that does not exist yet
+
+WRONG:  {"type":"write_file","path":"src/lib.rs","content":"...entire file..."}  ← when file already exists
+CORRECT: {"type":"patch_file","path":"src/lib.rs","search":"fn old()","replace":"fn new() -> i32"}
+
+OLD FILE OPERATIONS:
+- To delete a conflicting file use: {"type":"delete_file","path":"..."}
+- NEVER use shell rm commands — always use delete_file instead.
+- If two files conflict (e.g. src/executor.rs AND src/executor/mod.rs), use delete_file to remove one before proceeding.
+
+PYTHON TESTING (MANDATORY):
+1. Floats: ALWAYS use pytest.approx(x, rel=1e-6) — NEVER compare floats with ==
+2. Branches: every if/else MUST have a test for EACH branch (both True and False paths)
+3. Assume your code is wrong. Tests must try to BREAK the code, not mirror its logic.
+4. For None/null returns: ALWAYS test BOTH the normal case AND the edge case (e.g. divide(10,2) AND divide(10,0)).
+5. For conditional returns (if x: return A else return B): test BOTH branches explicitly — one test where condition is True, one where it is False.
+6. MINIMUM 6 tests per file — fewer tests almost always means weak mutation coverage.
+7. ALWAYS include edge cases: empty input, zero, negative numbers, boundary values (e.g. n=0, n=1, n=-1).
+8. NEVER write tests that only check the happy path — mutations survive when you only test the expected output.
+"#;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Provider {
+    Groq,
+    Moonshot,
+}
+
+#[derive(Debug, Clone)]
+pub struct ModelConfig {
+    pub provider: Provider,
+    pub model_id: String,
+    pub base_url: String,
+    pub env_key: String,
+}
+
+impl ModelConfig {
+    pub fn from_alias(alias: &str) -> Self {
+        match alias {
+            "kimi" | "kimi-k2" | "kimi-k2-instruct" => ModelConfig {
+                provider: Provider::Cerebras,
+                model_id: "moonshotai/kimi-k2-instruct-0905".to_string(),
+                base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
+                env_key: "GROQ_API_KEY".to_string(),
+            },
+            "llama" | "llama-70b" => ModelConfig {
+                provider: Provider::Cerebras,
+                model_id: "llama-3.3-70b-versatile".to_string(),
+                base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
+                env_key: "GROQ_API_KEY".to_string(),
+            },
+            "kimi-k2.5" | "kimi25" | "kimi-latest" => ModelConfig {
+                provider: Provider::Moonshot,
+                model_id: "kimi-k2.5".to_string(),
+                base_url: "https://api.moonshot.ai/v1/chat/completions".to_string(),
+                env_key: "MOONSHOT_API_KEY".to_string(),
+            },
+            "silicon" | "kimi-silicon" => ModelConfig {
+                provider: Provider::Moonshot,
+                model_id: "moonshotai/Kimi-K2.5".to_string(),
+                base_url: "https://api.siliconflow.cn/v1/chat/completions".to_string(),
+                env_key: "SILICONFLOW_API_KEY".to_string(),
+            },
+            "cerebras" | "cerebras-llama" => ModelConfig {
+                provider: Provider::Cerebras,
+                model_id: "llama-3.3-70b".to_string(),
+                base_url: "https://api.cerebras.ai/v1/chat/completions".to_string(),
+                env_key: "CEREBRAS_API_KEY".to_string(),
+            },
+            "openrouter" | "or" | "openrouter/free" => ModelConfig {
+                provider: Provider::OpenRouter,
+                model_id: "openrouter/free".to_string(),
+                base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
+                env_key: "OPENROUTER_API_KEY".to_string(),
+            },
+            "cerebras/llama" | "cerebras-llama" => ModelConfig {
+                provider: Provider::OpenRouter,
+                model_id: "cerebras/llama-3.3-70b".to_string(),
+                base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
+                env_key: "OPENROUTER_API_KEY".to_string(),
+            },
+            "mistral/small" | "mistral-small" => ModelConfig {
+                provider: Provider::OpenRouter,
+                model_id: "mistralai/mistral-small-3.1-24b-instruct:free".to_string(),
+                base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
+                env_key: "OPENROUTER_API_KEY".to_string(),
+            },
+            "google/gemini-flash" | "gemini-flash" => ModelConfig {
+                provider: Provider::OpenRouter,
+                model_id: "google/gemini-2.5-flash:free".to_string(),
+                base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
+                env_key: "OPENROUTER_API_KEY".to_string(),
+            },
+            _ => ModelConfig {
+                provider: Provider::Cerebras,
+                model_id: alias.to_string(),
+                base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
+                env_key: "GROQ_API_KEY".to_string(),
+            },
+        }
+    }
+}
+
+pub struct LlmClient { pub api_key: String, pub model: String, pub endpoint: String, pub config: ModelConfig }
 
 #[derive(Serialize)]
 struct Request { model: String, messages: Vec<ApiMsg>, temperature: f32, max_tokens: u32 }
@@ -235,14 +371,30 @@ struct Choice { message: ApiMsg }
 
 impl LlmClient {
     pub fn new(api_key: String) -> Self {
+        let config = ModelConfig::from_alias("kimi");
         Self {
             api_key,
-            model:    "moonshotai/kimi-k2-instruct".into(),
-            endpoint: "https://api.groq.com/openai/v1/chat/completions".into(),
+            model:    config.model_id.clone(),
+            endpoint: config.base_url.clone(),
+            config,
         }
     }
 
-    pub async fn call(&self, messages: &[Message]) -> Result<String> {
+    pub fn with_model(alias: &str) -> Self {
+        let config = ModelConfig::from_alias(alias);
+        let api_key = std::env::var(&config.env_key)
+            .unwrap_or_else(|_| panic!("❌ متغير البيئة {} غير موجود", config.env_key));
+        Self {
+            model:    config.model_id.clone(),
+            endpoint: config.base_url.clone(),
+            api_key,
+            config,
+        }
+    }
+
+    pub async fn call(&self, messages: &[Message]) -> Result<(String, LlmCallStats)> {
+        let mut stats = LlmCallStats::default();
+        let call_start = std::time::Instant::now();
         let mut msgs = vec![ApiMsg { role: "system".into(), content: SYSTEM_PROMPT.into() }];
         for m in messages { msgs.push(ApiMsg { role: m.role.clone(), content: m.content.clone() }); }
 
@@ -254,6 +406,7 @@ impl LlmClient {
 
         for (attempt, &delay) in delays.iter().enumerate() {
             if attempt > 0 {
+                stats.retries += 1;
                 println!("   ⏳ Rate limit — retry in {}s...", delay);
                 tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
             }
@@ -270,7 +423,9 @@ impl LlmClient {
                 .send().await {
                     Ok(r)  => r,
                     Err(e) => {
+                        stats.connection_errors += 1;
                         if attempt + 1 == delays.len() {
+                            stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
                             return Err(anyhow!("Connection error: {}", e));
                         }
                         println!("   ⚠ Connection error: {} — retry in {}s...", e, delay);
@@ -280,12 +435,15 @@ impl LlmClient {
 
             let status = resp.status();
             if status == 429 || status == 503 || status == 502 || status == 500 {
+                if status == 429 { stats.rate_limits += 1; } else { stats.connection_errors += 1; }
                 if attempt + 1 == delays.len() {
                     let body = resp.text().await.unwrap_or_default();
+                    stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
                     return Err(anyhow!("API {} — {}", status, &body[..body.len().min(200)]));
                 }
                 let label = if status == 429 { "Rate limit" } else { "Server error" };
                 println!("   ⚠ {} ({}) — retry in {}s...", label, status, delay);
+                if attempt > 0 { stats.retries += 1; }
                 continue;
             }
             if !status.is_success() {
@@ -294,12 +452,70 @@ impl LlmClient {
             }
 
             let data: Response = resp.json().await?;
-            let raw = data.choices.iter().next().map(|c| &c.message.content).cloned().unwrap_or_default();
-            // debug removed v1.5
-            return data.choices.into_iter().next()
+            stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
+            let result = data.choices.into_iter().next()
                 .map(|c| c.message.content)
                 .ok_or_else(|| anyhow!("Empty response"));
+            return result.map(|text| (text, stats));
         }
+        stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
         Err(anyhow!("LLM failed"))
     }
+}
+
+// دعم Cerebras API (متوافق مع OpenAI)
+pub struct CerebrasClient {
+    client: reqwest::Client,
+    api_key: String,
+    model: String,
+}
+
+impl CerebrasClient {
+    pub fn new(api_key: String) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            api_key,
+            model: "llama-3.3-70b".to_string(), // أو qwen3-235b
+        }
+    }
+    
+    pub async fn call(&self, messages: &[Message]) -> Result<String> {
+        let url = "https://api.cerebras.ai/v1/chat/completions";
+        
+        let request = serde_json::json!({
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 4096,
+        });
+        
+        let response = self.client
+            .post(url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(&request)
+            .send()
+            .await?
+            .json::<serde_json::Value>()
+            .await?;
+        
+        Ok(response["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_string())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Provider {
+    Groq,
+    Moonshot,
+    Cerebras,  // جديد
+}
+
+#[derive(Debug, Clone)]
+pub enum Provider {
+    Groq,
+    Moonshot,
+    Cerebras,
+    OpenRouter,  // جديد
 }
