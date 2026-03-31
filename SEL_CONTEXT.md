@@ -4,7 +4,7 @@
 
 ## الإصدار الحالي
 - SEL Agent: v6.8
-- Cargo.toml: 6.4.0
+- Cargo.toml: 6.9.1
 - SEL Observatory: يعمل (port 8777) — WebSocket Live ✅
 
 ---
@@ -19,13 +19,13 @@
 
 ## النموذج الأساسي
 - Primary:  kimi-k2-instruct (via Groq API)
-- Fallback: llama-3.3-70b-versatile
+- Fallback: arcee-ai/trinity-large-preview:free (via OpenRouter)
 - حد يومي: ~300K tokens — استخدم --iterations 1 دائماً أثناء التطوير
 
 ---
 
 ## نتائج آخر Benchmark (v6.8)
-- Bench:        32/32 (100%) | 0.0 avg repairs | 100% mutation | 1.00 quality
+- Bench:        32/32 (100%) | 0.2 avg repairs | 100% mutation | 1.00 quality
 - Integration:  7/7 (100%)   | 0.0 avg repairs | Phase1+Phase2
 
 ---
