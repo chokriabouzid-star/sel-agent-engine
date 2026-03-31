@@ -11,273 +11,65 @@ pub struct LlmCallStats {
     pub total_latency_ms: u64,
 }
 
-const SYSTEM_PROMPT: &str = r#"You are SEL Agent v5.8 — a deterministic software execution agent.
+const SYSTEM_PROMPT: &str = include_str!("system_prompt.txt");
 
-OUTPUT: Respond ONLY with a single ```json block. No text outside it.
-
-CORRECT SCHEMA (every command needs "type"):
-```json
-{
-  "version": "1.0",
-  "commands": [
-    {"type": "run",        "command": "python3 -m venv venv"},
-    {"type": "run",        "command": "venv/bin/pip3 install pytest"},
-    {"type": "write_file", "path": "stats.py",      "content": "import csv\nimport statistics\n\ndef calc(nums):\n    return {'count': len(nums), 'mean': statistics.mean(nums), 'min': min(nums), 'max': max(nums)}\n"},
-    {"type": "write_file", "path": "test_stats.py", "content": "import pytest\nfrom stats import calc\n\ndef test_calc():\n    r = calc([1,2,3])\n    assert r['mean'] == 2.0\n    assert r['min'] == 1\n"},
-    {"type": "run_tests",  "target": "test_stats.py"},
-    {"type": "done",       "message": "All tests passed"}
-  ]
+// ─── v7.0: Multi-Provider Support ─────────────────────────────────────────────
+/// Priority: SEL_API_KEY → OPENROUTER_API_KEY → GROQ_API_KEY
+pub fn resolve_api_key() -> String {
+    if let Ok(k) = std::env::var("SEL_API_KEY") {
+        if !k.trim().is_empty() { eprintln!("🔑 Using SEL_API_KEY"); return k; }
+    }
+    if let Ok(k) = std::env::var("OPENROUTER_API_KEY") {
+        if !k.trim().is_empty() { eprintln!("🔑 Using OPENROUTER_API_KEY"); return k; }
+    }
+    if let Ok(k) = std::env::var("GROQ_API_KEY") {
+        if !k.trim().is_empty() { eprintln!("🔑 Using GROQ_API_KEY"); return k; }
+    }
+    panic!("❌ No API key found. Set SEL_API_KEY, OPENROUTER_API_KEY, or GROQ_API_KEY");
 }
-```
 
-PIP RULES — CRITICAL:
-- ALWAYS include package names: venv/bin/pip3 install pytest
-- NEVER write just: venv/bin/pip3 install   ← WRONG, will fail!
-- If no packages needed, SKIP the pip command entirely
-- Only install what you actually import
+/// Priority: SEL_MODEL → default kimi-k2
+pub fn resolve_model() -> String {
+    if let Ok(m) = std::env::var("SEL_MODEL") {
+        if !m.trim().is_empty() { return m; }
+    }
+    "moonshotai/kimi-k2-instruct".to_string()
+}
 
-STDLIB-ONLY PROJECTS (no internet/pip issues):
-- csv, statistics, os, sys, json, re, pathlib — already built in
-- Only need: venv/bin/pip3 install pytest
-- Never use pandas if stdlib works
+/// Priority: SEL_API_BASE → OPENAI_BASE_URL → infer from model → Groq
+pub fn resolve_base_url(model: &str) -> String {
+    if let Ok(base) = std::env::var("SEL_API_BASE") {
+        if !base.trim().is_empty() {
+            let base = base.trim_end_matches('/');
+            return format!("{}/chat/completions", base);
+        }
+    }
+    if let Ok(base) = std::env::var("OPENAI_BASE_URL") {
+        if !base.trim().is_empty() {
+            let base = base.trim_end_matches('/');
+            return format!("{}/chat/completions", base);
+        }
+    }
+    if model.contains("openrouter") {
+        return "https://openrouter.ai/api/v1/chat/completions".to_string();
+    }
+    "https://api.groq.com/openai/v1/chat/completions".to_string()
+}
 
-TESTING:
-- ALWAYS use run_tests command for tests — NEVER "run: node test.js" or "run: python test.py"
-- run_tests handles exit codes correctly
-- For Node.js: {"type": "run_tests", "target": "test.js"}
-- For Python: {"type": "run_tests", "target": "test_stats.py"}
-- For Rust: {"type": "run_tests", "target": "cargo"}
-- run_tests uses venv/bin/pytest automatically
-- Test functions must start with test_
-
-GO PROJECTS:
-- ALWAYS create go.mod with: module <name> and go 1.21
-- Test files must end with _test.go
-- Test functions must start with Test (capital T): func TestAdd(t *testing.T)
-- Use t.Errorf() for assertions
-- run_tests: {"type": "run_tests", "target": "go"}
-- Do NOT use pytest or cargo for Go projects
-
-PYTHON FILE NAMING:
-- NEVER name files: math.py, string.py, io.py, os.py, re.py, json.py, csv.py, numbers.py, decimal.py, types.py, typing.py, abc.py, queue.py
-- These conflict with Python stdlib modules
-- Use descriptive names: math_utils.py, string_ops.py, file_io.py, numbers_utils.py
-
-RUST PROJECTS:
-- RUST STRINGS — CRITICAL: ALWAYS use double quotes for string literals: assert_eq!(x, "INFO") NOT 'INFO'
-  Single quotes in Rust = char only (one character). Multi-character strings MUST use double quotes.
-  WRONG: assert_eq!(result, 'CRITICAL')  — this is a char literal and will not compile
-  CORRECT: assert_eq!(result, "CRITICAL")  — this is a string literal
-- NEVER use "cargo new" — create files directly with write_file
-- ALWAYS create Cargo.toml in workspace root (not in subdirectory)
-- ALWAYS create src/lib.rs or src/main.rs directly
-- NESTED WORKSPACE BUG — CRITICAL: if workspace is ~/myproject, write files as "Cargo.toml" NOT "myproject/Cargo.toml"
-  WRONG: {"type":"write_file","path":"myproject/Cargo.toml",...}
-  CORRECT: {"type":"write_file","path":"Cargo.toml",...}
-  The workspace path is already set — NEVER repeat the project name in file paths
-- Tests go inside src/lib.rs under #[cfg(test)] mod tests { use super::*; }
-- Use: #[test] fn test_name() { assert_eq!(...); }
-- run_tests: {"type": "run_tests", "target": "cargo"}
-- Do NOT use pytest or python for Rust projects
-- RUST CRYPTO CRATES — CRITICAL:
-- ed25519-dalek v2: use { version = "2.1", features = ["rand_core"] }
-  SigningKey::generate(&mut rand::rngs::OsRng)  — NEVER SigningKey::generate(&mut rand::thread_rng())
-  ALWAYS import: use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer, Verifier};
-  NEVER use: Keypair, PublicKey, SecretKey — these are v1 API
-- sha2: ALWAYS import: use sha2::{Sha256, Digest};
-  use Sha256::new() only after importing Digest trait
-- RUST INTEGRATION TESTS that run CLI binary:
-  ALWAYS use: let manifest_dir = env!("CARGO_MANIFEST_DIR");
-  ALWAYS build with: Command::new("cargo").args(["build"]).current_dir(manifest_dir).status()
-  ALWAYS run binary from: Path::new(manifest_dir).join("target/debug/<binary_name>")
-
-SQLITE TESTING RULES:
-- ALWAYS use :memory: database in tests (not a file)
-- OR use autouse fixture to delete db file before each test:
-    import pytest, os
-    @pytest.fixture(autouse=True)
-    def clean_db():
-        if os.path.exists("users.db"): os.remove("users.db")
-        yield
-        if os.path.exists("users.db"): os.remove("users.db")
-- NEVER assert exact count without resetting state first
-- Each test must be independent
-
-FASTAPI PROJECTS:
-- from fastapi.testclient import TestClient  (NEVER from httpx)
-- POST body must use Pydantic BaseModel
-- autouse fixture to reset in-memory state
-
-FASTAPI + SQLITE RULES — CRITICAL:
-- ALWAYS call Base.metadata.create_all(bind=engine) before tests run
-- Use :memory: SQLite in tests: SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
-- Add autouse fixture to create and drop tables:
-    @pytest.fixture(autouse=True)
-    def setup_db():
-        Base.metadata.create_all(bind=engine)
-        yield
-        Base.metadata.drop_all(bind=engine)
-- NEVER assume tables exist without creating them first
-- Use Pydantic v2 style: model_config = ConfigDict(...) not class Config
-- ALWAYS install sqlalchemy: pip install fastapi uvicorn pytest httpx sqlalchemy
-ASYNC PYTHON RULES — CRITICAL:
-- ALWAYS install: pytest pytest-asyncio aiohttp
-- ALWAYS add @pytest.mark.asyncio on every async test function
-- ALWAYS create conftest.py with content: import pytest
-- The ONLY correct way to mock aiohttp session:
-    from unittest.mock import MagicMock, AsyncMock
-    mock_resp = AsyncMock()
-    mock_resp.status = 200
-    mock_cm = MagicMock()
-    mock_cm.__aenter__ = AsyncMock(return_value=mock_resp)
-    mock_cm.__aexit__ = AsyncMock(return_value=False)
-    mock_session = MagicMock()
-    mock_session.get.return_value = mock_cm
-- session.get() returns a context manager NOT a coroutine — use MagicMock for session and get()
-- ONLY use AsyncMock for __aenter__ and __aexit__
-- NEVER call asyncio.run() inside tests
-
-EDGE CASE RULES — CRITICAL:
-- ALWAYS handle empty string in string functions
-- ALWAYS handle None and zero in numeric functions
-- For palindrome/reverse: check if len(s) == 0 before indexing
-- For math functions: handle n=0 explicitly
-- Write at least one test for empty/zero/None input
-
-PYQT PROJECTS — CRITICAL:
-- ALWAYS use PyQt6 (NEVER PyQt5 — it may not be installed)
-- WebEngine imports: from PyQt6.QtWebEngineWidgets import QWebEngineView
-- WebEngine URL: from PyQt6.QtWebEngineCore import QWebEngineUrlScheme
-- URL type: from PyQt6.QtCore import QUrl  — ALWAYS wrap strings: QUrl('https://...')
-- NEVER: setUrl('https://...') — ALWAYS: setUrl(QUrl('https://...'))
-- NEVER: load('https://...') — ALWAYS: load(QUrl('https://...'))
-- Install: venv/bin/pip3 install PyQt6 PyQt6-WebEngine pytest pytest-qt
-- Headless tests: set QT_QPA_PLATFORM=offscreen in test env
-- isVisible() tests require window.show() first
-
-PYTHON CODE IN JSON — CRITICAL:
-- Inside "content" fields, ONLY use single quotes in Python
-- NEVER: print("hello") — use: print('hello')
-- NEVER: f"text {var}" — use: f'text {var}'
-- NEVER: with open(f, "r") — use: with open(f, 'r')
-- This prevents JSON string from breaking
-
-PYTHON CODE IN JSON — CRITICAL:
-- Inside "content" fields, ONLY use single quotes in Python
-- NEVER: print("hello") — use: print('hello')
-- NEVER: f"text {var}" — use: f'text {var}'
-- NEVER: with open(f, "r") — use: with open(f, 'r')
-- This prevents JSON string from breaking
-
-GO PROJECTS — CRITICAL:
-- go.mod: ALWAYS specify exact go version: "go 1.21"
-- ALWAYS run "go mod tidy" after writing go.mod
-- Go struct tags use backticks: `gorm:"primaryKey"` — INSIDE JSON this BREAKS
-  SOLUTION: write struct tags WITHOUT backticks in JSON content:
-  WRONG in JSON: `gorm:"primaryKey"`
-  CORRECT in JSON: use \u0060gorm:\"primaryKey\"\u0060 OR avoid tags entirely
-  BEST SOLUTION: put Go code with struct tags in separate file and use write_file carefully
-- NEVER mix single quotes and double quotes in Go import blocks
-- Go imports: ALWAYS use double quotes: import "gorm.io/gorm"
-- GORM v2: use gorm.io/gorm and gorm.io/driver/sqlite (NOT github.com/jinzhu/gorm)
-- GORM SQLite memory: db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-- ioutil is DEPRECATED since Go 1.16 — use os.ReadFile, os.WriteFile instead
-- chi router: github.com/go-chi/chi/v5 (NOT gorilla/mux)
-- JWT: github.com/golang-jwt/jwt/v5 (v5 API — NOT v4)
-- ALWAYS use "go mod tidy" to download dependencies — NEVER "go get <package>"
-- go mod tidy sequence: write go.mod first → write all .go files → run "go mod tidy" → run tests
-- NEVER run "go get g4" or "go get ." — this breaks module resolution
-- GO CODE IN JSON — CRITICAL:
-  NEVER use backticks inside JSON string values
-  Replace struct tags backticks with raw string workaround:
-  Instead of: type User struct { ID uint `gorm:"primaryKey"` }
-  Write file content without tags first, then add tags via separate patch
-  OR use: type User struct { gorm.Model; Name string; Email string }
-
-NODE.JS PROJECTS — CRITICAL:
-- ALWAYS create package.json first with: {"name":"app","version":"1.0.0","scripts":{"test":"jest --runInBand"}}
-- ALWAYS install jest BEFORE writing test files
-- ALWAYS add to package.json: "jest":{"testEnvironment":"node"}
-- NEVER use backticks (`) inside JSON content fields — use single quotes or escaped strings only
-- NEVER use template literals in code inside JSON strings
-
-NODE.JS COMMONJS (default) — CRITICAL:
-- Default is CommonJS — NEVER add "type":"module" unless goal explicitly says ESM
-- Use require() and module.exports — NEVER import/export in CJS projects
-- Jest config: {"testEnvironment":"node"} — ALWAYS include this
-
-NODE.JS ESM — CRITICAL (only when goal says ESM or type:module):
-- Add "type":"module" to package.json
-- Use import/export syntax — NEVER require()
-- Jest ESM: install jest + add to package.json scripts: "NODE_OPTIONS=--experimental-vm-modules jest"
-- NEVER use @jest/globals import — jest globals (describe/it/expect) are auto-injected
-
-JEST RULES — CRITICAL:
-- ALWAYS add "jest":{"testEnvironment":"node"} in package.json
-- NEVER use .toThrowError() — it is REMOVED in Jest 29+ — use .toThrow() instead
-- NEVER use jest.config.js with require() in ESM projects — use package.json jest field
-- test files: ALWAYS use describe() and it() or test() — NEVER call assertions outside describe
-
-TYPESCRIPT + TS-JEST — CRITICAL:
-- Install order: npm install typescript ts-jest @types/jest jest
-- ALWAYS use jest.config.js (NOT package.json jest field) for ts-jest:
-  module.exports = { preset: "ts-jest", testEnvironment: "node" }
-- tsconfig.json MUST have: { "compilerOptions": { "target": "ES2020", "module": "commonjs", "strict": false } }
-- strict: false — avoids type errors blocking tests
-- package.json scripts: { "test": "jest --runInBand --forceExit" }
-- NEVER add "jest" field in package.json when using jest.config.js — they conflict
-- test files: .test.ts extension ONLY
-- source files: export functions with "export function" or "export default"
-- NEVER use .toThrowError() — use .toThrow() only
-- STEP ORDER: 1) package.json 2) npm install 3) tsconfig.json 4) jest.config.js 5) source.ts 6) source.test.ts 7) run_tests
-
-ALWAYS:
-1. python3 -m venv venv
-2. venv/bin/pip3 install [packages]  (skip if no external packages)
-3. write_file for all source files
-4. run_tests
-5. done
-FILE OPERATIONS:
-- write_file:  ONLY for creating NEW files that do not exist yet — NEVER on existing files
-- patch_file:  ALWAYS for modifying EXISTING files (add/change/fix code)
-- append_file: ONLY for adding content at the END of an existing file
-- delete_file: ONLY for removing files that are no longer needed
-
-PLANNING RULE — CRITICAL: Before writing the plan, check which files already exist.
-  If the workspace has existing source files → use patch_file to modify them, NEVER write_file.
-  write_file on an existing file DESTROYS the original code and causes duplicate methods.
-  WRONG (existing file): {"type":"write_file","path":"src/lib.rs",...}  ← DESTROYS original
-  CORRECT (existing file): {"type":"patch_file","path":"src/lib.rs","search":"impl Foo {","replace":"impl Foo {\n    pub fn new_method..."}
-
-PATCH_FILE RULES — CRITICAL:
-- The "search" block MUST be copied EXACTLY from the file (no approximation)
-- The "search" block MUST appear exactly ONCE in the file
-- If the search block is not unique, use MORE surrounding context
-- NEVER use patch_file on a file that does not exist yet
-
-WRONG:  {"type":"write_file","path":"src/lib.rs","content":"...entire file..."}  ← when file already exists
-CORRECT: {"type":"patch_file","path":"src/lib.rs","search":"fn old()","replace":"fn new() -> i32"}
-
-OLD FILE OPERATIONS:
-- To delete a conflicting file use: {"type":"delete_file","path":"..."}
-- NEVER use shell rm commands — always use delete_file instead.
-- If two files conflict (e.g. src/executor.rs AND src/executor/mod.rs), use delete_file to remove one before proceeding.
-
-PYTHON TESTING (MANDATORY):
-1. Floats: ALWAYS use pytest.approx(x, rel=1e-6) — NEVER compare floats with ==
-2. Branches: every if/else MUST have a test for EACH branch (both True and False paths)
-3. Assume your code is wrong. Tests must try to BREAK the code, not mirror its logic.
-4. For None/null returns: ALWAYS test BOTH the normal case AND the edge case (e.g. divide(10,2) AND divide(10,0)).
-5. For conditional returns (if x: return A else return B): test BOTH branches explicitly — one test where condition is True, one where it is False.
-6. MINIMUM 6 tests per file — fewer tests almost always means weak mutation coverage.
-7. ALWAYS include edge cases: empty input, zero, negative numbers, boundary values (e.g. n=0, n=1, n=-1).
-8. NEVER write tests that only check the happy path — mutations survive when you only test the expected output.
-"#;
+fn resolve_api_key_for(env_key: &str) -> String {
+    if let Ok(k) = std::env::var(env_key) {
+        if !k.trim().is_empty() { return k; }
+    }
+    resolve_api_key()
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Provider {
     Groq,
+    OpenRouter,
     Moonshot,
+    SiliconFlow,
+    Custom,
 }
 
 #[derive(Debug, Clone)]
@@ -285,47 +77,115 @@ pub struct ModelConfig {
     pub provider: Provider,
     pub model_id: String,
     pub base_url: String,
-    pub env_key: String,
+    pub env_key:  String,
 }
 
 impl ModelConfig {
+    pub fn from_env() -> Self {
+        let model    = resolve_model();
+        let url      = resolve_base_url(&model);
+        let model_id = if model.starts_with("openrouter/") {
+            model["openrouter/".len()..].to_string()
+        } else { model.clone() };
+        let provider = if url.contains("openrouter.ai")  { Provider::OpenRouter }
+                       else if url.contains("groq.com")  { Provider::Groq }
+                       else if url.contains("moonshot.ai") { Provider::Moonshot }
+                       else if url.contains("siliconflow") { Provider::SiliconFlow }
+                       else { Provider::Custom };
+        ModelConfig { provider, model_id, base_url: url, env_key: String::new() }
+    }
+
     pub fn from_alias(alias: &str) -> Self {
         match alias {
             "kimi" | "kimi-k2" | "kimi-k2-instruct" => ModelConfig {
                 provider: Provider::Groq,
                 model_id: "moonshotai/kimi-k2-instruct-0905".to_string(),
                 base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
-                env_key: "GROQ_API_KEY".to_string(),
+                env_key:  "GROQ_API_KEY".to_string(),
             },
             "llama" | "llama-70b" => ModelConfig {
                 provider: Provider::Groq,
                 model_id: "llama-3.3-70b-versatile".to_string(),
                 base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
-                env_key: "GROQ_API_KEY".to_string(),
+                env_key:  "GROQ_API_KEY".to_string(),
             },
-            "kimi-k2.5" | "kimi25" | "kimi-latest" => ModelConfig {
+            "openrouter" | "or" => ModelConfig {
+                provider: Provider::OpenRouter,
+                model_id: resolve_model(),
+                base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
+                env_key:  "OPENROUTER_API_KEY".to_string(),
+            },
+            "kimi25" | "kimi-latest" => ModelConfig {
                 provider: Provider::Moonshot,
                 model_id: "kimi-k2.5".to_string(),
                 base_url: "https://api.moonshot.ai/v1/chat/completions".to_string(),
-                env_key: "MOONSHOT_API_KEY".to_string(),
+                env_key:  "MOONSHOT_API_KEY".to_string(),
             },
             "silicon" | "kimi-silicon" => ModelConfig {
-                provider: Provider::Moonshot,
+                provider: Provider::SiliconFlow,
                 model_id: "moonshotai/Kimi-K2.5".to_string(),
                 base_url: "https://api.siliconflow.cn/v1/chat/completions".to_string(),
-                env_key: "SILICONFLOW_API_KEY".to_string(),
+                env_key:  "SILICONFLOW_API_KEY".to_string(),
+            },
+            // ─── OpenRouter Free Models (v6.9.1) ───────────────────────
+            "trinity" | "arcee" | "arcee-trinity" => ModelConfig {
+                provider: Provider::OpenRouter,
+                model_id: "arcee-ai/trinity-large-preview:free".to_string(),
+                base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
+                env_key:  "OPENROUTER_API_KEY".to_string(),
+            },
+            "qwen-80b" | "qwen3-80b" | "qwen-next" => ModelConfig {
+                provider: Provider::OpenRouter,
+                model_id: "qwen/qwen3-next-80b-a3b-instruct".to_string(),
+                base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
+                env_key:  "OPENROUTER_API_KEY".to_string(),
+            },
+            "qwen-coder" | "qwen3-coder" => ModelConfig {
+                provider: Provider::OpenRouter,
+                model_id: "qwen/qwen3-coder".to_string(),
+                base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
+                env_key:  "OPENROUTER_API_KEY".to_string(),
+            },
+            "llama-70b-or" | "llama-or" => ModelConfig {
+                provider: Provider::OpenRouter,
+                model_id: "meta-llama/llama-3.3-70b-instruct".to_string(),
+                base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
+                env_key:  "OPENROUTER_API_KEY".to_string(),
+            },
+            "gpt-oss-120b" | "gpt-oss" => ModelConfig {
+                provider: Provider::OpenRouter,
+                model_id: "openai/gpt-oss-120b".to_string(),
+                base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
+                env_key:  "OPENROUTER_API_KEY".to_string(),
+            },
+            "hermes" | "hermes-405b" => ModelConfig {
+                provider: Provider::OpenRouter,
+                model_id: "nousresearch/hermes-3-llama-3.1-405b".to_string(),
+                base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
+                env_key:  "OPENROUTER_API_KEY".to_string(),
+            },
+            "deepseek" | "deepseek-v3" => ModelConfig {
+                provider: Provider::OpenRouter,
+                model_id: "deepseek/deepseek-chat-v3-0324".to_string(),
+                base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
+                env_key:  "OPENROUTER_API_KEY".to_string(),
             },
             _ => ModelConfig {
                 provider: Provider::Groq,
                 model_id: alias.to_string(),
                 base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
-                env_key: "GROQ_API_KEY".to_string(),
+                env_key:  "GROQ_API_KEY".to_string(),
             },
         }
     }
 }
 
-pub struct LlmClient { pub api_key: String, pub model: String, pub endpoint: String, pub config: ModelConfig }
+pub struct LlmClient {
+    pub api_key:  String,
+    pub model:    String,
+    pub endpoint: String,
+    pub config:   ModelConfig,
+}
 
 #[derive(Serialize)]
 struct Request { model: String, messages: Vec<ApiMsg>, temperature: f32, max_tokens: u32 }
@@ -340,32 +200,37 @@ struct Response { choices: Vec<Choice> }
 struct Choice { message: ApiMsg }
 
 impl LlmClient {
+    pub fn from_env() -> Self {
+        let config  = ModelConfig::from_env();
+        let api_key = resolve_api_key();
+        Self { model: config.model_id.clone(), endpoint: config.base_url.clone(), api_key, config }
+    }
+
     pub fn new(api_key: String) -> Self {
-        let config = ModelConfig::from_alias("kimi");
-        Self {
-            api_key,
-            model:    config.model_id.clone(),
-            endpoint: config.base_url.clone(),
-            config,
-        }
+        let key     = if api_key.is_empty() { resolve_api_key() } else { api_key };
+        let model   = resolve_model();
+        let url     = resolve_base_url(&model);
+        let model_id = if model.starts_with("openrouter/") {
+            model["openrouter/".len()..].to_string()
+        } else { model.clone() };
+        let provider = if url.contains("openrouter.ai") { Provider::OpenRouter }
+                       else if url.contains("groq.com") { Provider::Groq }
+                       else { Provider::Custom };
+        let config = ModelConfig { provider, model_id: model_id.clone(), base_url: url.clone(), env_key: String::new() };
+        Self { api_key: key, model: model_id, endpoint: url, config }
     }
 
     pub fn with_model(alias: &str) -> Self {
-        let config = ModelConfig::from_alias(alias);
-        let api_key = std::env::var(&config.env_key)
-            .unwrap_or_else(|_| panic!("❌ متغير البيئة {} غير موجود", config.env_key));
-        Self {
-            model:    config.model_id.clone(),
-            endpoint: config.base_url.clone(),
-            api_key,
-            config,
-        }
+        let config  = ModelConfig::from_alias(alias);
+        let api_key = resolve_api_key_for(&config.env_key);
+        Self { model: config.model_id.clone(), endpoint: config.base_url.clone(), api_key, config }
     }
 
     pub async fn call(&self, messages: &[Message]) -> Result<(String, LlmCallStats)> {
-        let mut stats = LlmCallStats::default();
-        let call_start = std::time::Instant::now();
-        let mut msgs = vec![ApiMsg { role: "system".into(), content: SYSTEM_PROMPT.into() }];
+        let mut stats      = LlmCallStats::default();
+        let call_start     = std::time::Instant::now();
+        let system_content = SYSTEM_PROMPT.to_string();
+        let mut msgs = vec![ApiMsg { role: "system".into(), content: system_content }];
         for m in messages { msgs.push(ApiMsg { role: m.role.clone(), content: m.content.clone() }); }
 
         let client = reqwest::Client::builder()
@@ -385,10 +250,10 @@ impl LlmClient {
                 .post(&self.endpoint)
                 .bearer_auth(&self.api_key)
                 .json(&Request {
-                    model: self.model.clone(),
-                    messages: msgs.clone(),
+                    model:       self.model.clone(),
+                    messages:    msgs.clone(),
                     temperature: 0.1,
-                    max_tokens: 8192,
+                    max_tokens:  8192,
                 })
                 .send().await {
                     Ok(r)  => r,
@@ -404,6 +269,13 @@ impl LlmClient {
                 };
 
             let status = resp.status();
+
+            if status.as_u16() == 413 {
+                let body = resp.text().await.unwrap_or_default();
+                stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
+                return Err(anyhow!("API 413 Payload Too Large — {}", &body[..body.len().min(300)]));
+            }
+
             if status == 429 || status == 503 || status == 502 || status == 500 {
                 if status == 429 { stats.rate_limits += 1; } else { stats.connection_errors += 1; }
                 if attempt + 1 == delays.len() {
@@ -429,6 +301,6 @@ impl LlmClient {
             return result.map(|text| (text, stats));
         }
         stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
-        Err(anyhow!("LLM failed"))
+        Err(anyhow!("LLM failed after all retries"))
     }
 }

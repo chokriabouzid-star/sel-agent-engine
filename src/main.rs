@@ -535,13 +535,8 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
         println!("\n🤖 Testing model: {} ──────────────────────────", model_alias);
 
         let model_cfg = llm::ModelConfig::from_alias(model_alias);
-        let api_key = std::env::var(&model_cfg.env_key)
-            .unwrap_or_else(|_| {
-                println!("   ⚠ {} غير موجود — تخطي النموذج {}", model_cfg.env_key, model_alias);
-                String::new()
-            });
-
-        if api_key.is_empty() { continue; }
+        // v6.9.1: resolve_api_key_for — يجرب كل providers
+        let api_key = llm::resolve_api_key();
 
         let mut passed = 0usize;
         let mut total_repairs = 0usize;
@@ -733,15 +728,15 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Health => {
-            let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
+            let api_key = crate::llm::resolve_api_key();
             run_health(&api_key).await?;
         }
         Commands::Bench { suite, max_repairs, iterations } => {
-            let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
+            let api_key = crate::llm::resolve_api_key();
             run_bench(&api_key, &suite, max_repairs, iterations).await?;
         }
         Commands::Stress { max_repairs } => {
-            let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
+            let api_key = crate::llm::resolve_api_key();
             run_stress(&api_key, max_repairs).await?;
         }
         Commands::Scan { workspace, json } => {
@@ -751,7 +746,7 @@ async fn main() -> Result<()> {
             run_compare(&models, &suite, max_repairs).await?;
         }
         Commands::Plan { workspace, plan, max_repairs } => {
-            let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
+            let api_key = crate::llm::resolve_api_key();
             run_plan(&api_key, &workspace, &plan, max_repairs).await?;
         }
         Commands::Run { workspace, goal, max_repairs, dry_run, ref_file, focus } => {
@@ -768,7 +763,7 @@ async fn main() -> Result<()> {
                 println!("   Focus:       {:?}", focus);
             }
 
-            let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
+            let api_key = crate::llm::resolve_api_key();
 
             if dry_run {
                 println!("   Mode:         🔍 DRY RUN\n");
