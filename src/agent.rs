@@ -820,7 +820,14 @@ impl Agent {
                     // بعض الأخطاء لا تحتاج محتوى الملفات — فقط أسماءها
                     let failure_kind = FailureKind::classify(&all_stderr);
                     self.ctx.current_failure_kind = Some(failure_kind.clone());
-                    let repair_hint = failure_kind.repair_hint();
+                    // v7.1: Failure Intelligence — hint دقيق بدل hint جامد
+                    let failure_report = crate::failure_extractor::FailureReport::extract(
+                        &all_stderr, &failure_kind
+                    );
+                    let repair_hint = failure_report.to_repair_hint();
+                    if failure_report.file.is_some() || failure_report.function.is_some() {
+                        println!("   🔬 Failure Intel: {}", &repair_hint.chars().take(120).collect::<String>());
+                    }
                     println!("   🔍 Failure type: {:?}", failure_kind);
 
                     let dep_only = matches!(failure_kind,

@@ -2,6 +2,8 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use crate::types::Message;
 
+const SYSTEM_PROMPT: &str = include_str!("system_prompt.txt");
+
 #[derive(Debug, Clone, Default)]
 pub struct LlmCallStats {
     pub retries: u32,
@@ -11,7 +13,7 @@ pub struct LlmCallStats {
     pub total_latency_ms: u64,
 }
 
-const SYSTEM_PROMPT: &str = include_str!("system_prompt.txt");
+
 
 // ─── v7.0: Multi-Provider Support ─────────────────────────────────────────────
 /// Priority: SEL_API_KEY → OPENROUTER_API_KEY → GROQ_API_KEY
@@ -19,13 +21,26 @@ pub fn resolve_api_key() -> String {
     if let Ok(k) = std::env::var("SEL_API_KEY") {
         if !k.trim().is_empty() { eprintln!("🔑 Using SEL_API_KEY"); return k; }
     }
-    if let Ok(k) = std::env::var("OPENROUTER_API_KEY") {
-        if !k.trim().is_empty() { eprintln!("🔑 Using OPENROUTER_API_KEY"); return k; }
+    let base = std::env::var("SEL_API_BASE")
+        .or_else(|_| std::env::var("OPENAI_BASE_URL"))
+        .unwrap_or_default();
+    if base.contains("groq.com") {
+        if let Ok(k) = std::env::var("GROQ_API_KEY") {
+            if !k.trim().is_empty() { eprintln!("🔑 Using GROQ_API_KEY"); return k; }
+        }
+    }
+    if base.contains("openrouter.ai") {
+        if let Ok(k) = std::env::var("OPENROUTER_API_KEY") {
+            if !k.trim().is_empty() { eprintln!("🔑 Using OPENROUTER_API_KEY"); return k; }
+        }
     }
     if let Ok(k) = std::env::var("GROQ_API_KEY") {
         if !k.trim().is_empty() { eprintln!("🔑 Using GROQ_API_KEY"); return k; }
     }
-    panic!("❌ No API key found. Set SEL_API_KEY, OPENROUTER_API_KEY, or GROQ_API_KEY");
+    if let Ok(k) = std::env::var("OPENROUTER_API_KEY") {
+        if !k.trim().is_empty() { eprintln!("🔑 Using OPENROUTER_API_KEY"); return k; }
+    }
+    panic!("❌ No API key found. Set GROQ_API_KEY or OPENROUTER_API_KEY");
 }
 
 /// Priority: SEL_MODEL → default kimi-k2
@@ -253,7 +268,7 @@ impl LlmClient {
                     model:       self.model.clone(),
                     messages:    msgs.clone(),
                     temperature: 0.1,
-                    max_tokens:  8192,
+                    max_tokens:  4096,
                 })
                 .send().await {
                     Ok(r)  => r,

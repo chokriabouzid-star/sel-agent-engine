@@ -7,6 +7,7 @@ mod executor;
 mod llm;
 mod agent;
 mod memory;
+mod failure_extractor;
 mod scanner;
 mod scaffold_engine;
 mod goal_parser;
