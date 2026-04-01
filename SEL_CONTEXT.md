@@ -4,7 +4,7 @@
 
 ## الإصدار الحالي
 - SEL Agent: v6.8
-- Cargo.toml: 6.9.1
+- Cargo.toml: 6.9.1 (v7.1 features)
 - SEL Observatory: يعمل (port 8777) — WebSocket Live ✅
 
 ---
