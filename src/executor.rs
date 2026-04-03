@@ -104,6 +104,32 @@ impl SafeExecutor {
                     "pip install needs package name: e.g. venv/bin/pip3 install pytest".to_string()
                 ));
             }
+            // v7.2: منع passlib — غير متوافقة مع Python 3.12
+            if is_install {
+                let cmd_str = parts.join(" ");
+                if cmd_str.contains("passlib") {
+                    let fixed = cmd_str
+                        .replace("passlib[bcrypt]", "bcrypt")
+                        .replace("passlib[argon2]", "bcrypt")
+                        .replace("passlib", "bcrypt");
+                    println!("   ⚠️  passlib blocked (Python 3.12 incompatible) — using bcrypt directly");
+                    let fixed_parts: Vec<&str> = fixed.split_whitespace().collect();
+                    let output = tokio::process::Command::new(&fixed_parts[0])
+                        .args(&fixed_parts[1..])
+                        .current_dir(&self.workspace)
+                        .output()
+                        .await?;
+                    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                    return Ok(ExecResult {
+                        success: output.status.success(),
+                        stdout,
+                        stderr,
+                        exit_code: output.status.code().unwrap_or(-1),
+                        duration_ms: 0,
+                    });
+                }
+            }
         }
 
         if !ALLOWED.iter().any(|a| *a == *prog) {
@@ -180,6 +206,12 @@ impl SafeExecutor {
         // v5.5: auto-fix single-quote string literals in Rust files
         let content = if p.extension().map(|x| x == "rs").unwrap_or(false) {
             std::borrow::Cow::Owned(fix_rust_string_literals(content.as_ref()))
+        } else {
+            content
+        };
+        // v7.2: CodeGate — auto-fix Python compatibility issues before writing
+        let content = if path.ends_with(".py") {
+            std::borrow::Cow::Owned(crate::prompt::CodeGate::pre_write_fix(path, content.as_ref()))
         } else {
             content
         };

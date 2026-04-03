@@ -293,31 +293,46 @@ impl Agent {
 
         if files.is_empty() { return String::new(); }
 
-        ctx.push_str("=== EXISTING WORKSPACE FILES (read carefully before planning) ===
-");
-        ctx.push_str("CRITICAL: Use patch_file (NOT write_file) for ALL files listed below.
+        // v7.2: Context size limit — منع API 413
+        const MAX_CONTEXT_CHARS: usize = 24_000; // ~6000 tokens آمن لكل النماذج
+        let mut total_chars = 0usize;
+        let mut truncated = false;
 
-");
+        ctx.push_str("=== EXISTING WORKSPACE FILES (read carefully before planning) ===\n");
+        ctx.push_str("CRITICAL: Use patch_file (NOT write_file) for ALL files listed below.\n\n");
 
         for path in &files {
             let rel = path.strip_prefix(ws).unwrap_or(path).to_string_lossy();
             if let Ok(src) = std::fs::read_to_string(path) {
                 let lines: Vec<&str> = src.lines().collect();
-                let preview: Vec<&str> = lines.iter().take(300).cloned().collect();
-                ctx.push_str(&format!("--- FILE: {} ({} lines) ---
-", rel, lines.len()));
-                ctx.push_str(&preview.join("\n"));
+
+                // احسب حجم هذا الملف
+                let file_header = format!("--- FILE: {} ({} lines) ---\n", rel, lines.len());
+                let file_content = lines.iter().take(300).cloned().collect::<Vec<_>>().join("\n");
+                let file_size = file_header.len() + file_content.len() + 2;
+
+                // تحقق من الحد قبل الإضافة
+                if total_chars + file_size > MAX_CONTEXT_CHARS {
+                    ctx.push_str(&format!("--- FILE: {} [SKIPPED — context limit reached] ---\n\n", rel));
+                    truncated = true;
+                    continue;
+                }
+
+                ctx.push_str(&file_header);
+                ctx.push_str(&file_content);
                 ctx.push('\n');
                 if lines.len() > 300 {
                     ctx.push_str(&format!("... ({} more lines)\n", lines.len() - 300));
                 }
                 ctx.push('\n');
+                total_chars += file_size;
             }
         }
 
-        ctx.push_str("=== END OF EXISTING FILES ===
-
-");
+        if truncated {
+            ctx.push_str("⚠️  Some files skipped to stay within context limit.\n");
+        }
+        ctx.push_str(&format!("=== END OF EXISTING FILES (total: ~{} chars) ===\n\n", total_chars));
         ctx
     }
 
@@ -465,9 +480,19 @@ impl Agent {
                     // v5.6: استخدام build_ref_context helper
                     let ref_context = self.build_ref_context();
 
+                    // v7.2: trim إذا كان الـ context كبيراً جداً
+                    let existing_files = if existing_files.len() > 20_000 {
+                        let trimmed: String = existing_files.chars().take(20_000).collect();
+                        format!("{}\n... [context trimmed — too large]\n", trimmed)
+                    } else {
+                        existing_files
+                    };
+
+                    // v7.2: إضافة القواعد من PromptEngine
+                    let prompt_rules = crate::prompt::PromptEngine::default_rules_text();
                     let prompt = format!(
-                        "{}{}{}\n{}\n{}\nGoal: {}\nProvide the complete execution plan.",
-                        existing_files, ref_context, lang_hint,
+                        "{}{}{}{}\n{}\n{}\nGoal: {}\nProvide the complete execution plan.",
+                        prompt_rules, existing_files, ref_context, lang_hint,
                         env_context, constraints, self.goal
                     );
                     // Protocol Resilience v1.3
@@ -1077,10 +1102,12 @@ impl Agent {
                             .unwrap_or_default()
                     } else { String::new() };
                     
+                    // v7.2: env rules في repair prompt
+                    let env_rules = "MANDATORY RULES:\n- NEVER import passlib. Use bcrypt directly.\n- NEVER use datetime.utcnow(). Use datetime.now(datetime.UTC).\n- NEVER use .dict() in Pydantic V2. Use .model_dump().\n- FastAPI needs: python-multipart, email-validator.\n\n";
                     let prompt = format!(
-                        "Goal: {}{}{}{}{}{}\n\nHINT: {}\n\n{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}{}\n\
+                        "{}Goal: {}{}{}{}{}{}\n\nHINT: {}\n\n{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}{}\n\
                          Fix ALL issues. Provide complete corrected plan.",
-                        self.goal, network_note, mutation_note, patch_note, ref_file_context, memory_hint, repair_hint, attempt_note, errors, files_context, _patch_error_context
+                        env_rules, self.goal, network_note, mutation_note, patch_note, ref_file_context, memory_hint, repair_hint, attempt_note, errors, files_context, _patch_error_context
                     );
 
                     // Protocol Resilience v1.3
@@ -1158,7 +1185,7 @@ impl Agent {
                     let elapsed = self.ctx.start_time.map(|s: std::time::Instant| s.elapsed().as_secs()).unwrap_or(0);
                     let ms = if self.ctx.mutations_total > 0 { self.ctx.mutations_killed as f64 / self.ctx.mutations_total as f64 } else { -1.0 };
                     let _ = report_run(&self.goal, false, repairs, elapsed, ms).await;
-                    return Ok(());
+                    return Err(anyhow::anyhow!(reason));
                 }
             }
         }

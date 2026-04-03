@@ -293,14 +293,35 @@ impl LlmClient {
 
             if status == 429 || status == 503 || status == 502 || status == 500 {
                 if status == 429 { stats.rate_limits += 1; } else { stats.connection_errors += 1; }
+
+                // v7.2: كشف daily limit — لا فائدة من retry
+                if status == 429 {
+                    let body = resp.text().await.unwrap_or_default();
+                    if body.contains("per day") || body.contains("TPD") || body.contains("daily") {
+                        stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
+                        println!("   🔴 Daily token limit reached for this model.");
+                        println!("   💡 Solutions:");
+                        println!("      1. export SEL_MODEL=llama-3.3-70b-versatile");
+                        println!("      2. export SEL_API_BASE=https://openrouter.ai/api/v1");
+                        println!("      3. Wait until tomorrow for limit reset");
+                        return Err(anyhow!("API 429 Daily Limit — {}", &body[..body.len().min(300)]));
+                    }
+                    // per-minute limit — retry normally
+                    if attempt + 1 == delays.len() {
+                        stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
+                        return Err(anyhow!("API 429 Too Many Requests — {}", &body[..body.len().min(200)]));
+                    }
+                    println!("   ⚠ Rate limit (429 Too Many Requests) — retry in {}s...", delay);
+                    continue;
+                }
+
+                // 503/502/500 — server errors, retry
                 if attempt + 1 == delays.len() {
                     let body = resp.text().await.unwrap_or_default();
                     stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
                     return Err(anyhow!("API {} — {}", status, &body[..body.len().min(200)]));
                 }
-                let label = if status == 429 { "Rate limit" } else { "Server error" };
-                println!("   ⚠ {} ({}) — retry in {}s...", label, status, delay);
-                if attempt > 0 { stats.retries += 1; }
+                println!("   ⚠ Server error ({}) — retry in {}s...", status, delay);
                 continue;
             }
             if !status.is_success() {

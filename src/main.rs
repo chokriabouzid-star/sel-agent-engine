@@ -1,3 +1,4 @@
+mod prompt;
 // src/main.rs — SEL Agent v6.4
 mod context;
 mod chunker;

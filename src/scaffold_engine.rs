@@ -190,11 +190,51 @@ async fn scaffold_python(workspace: &Path, extra_deps: &[String]) -> ScaffoldRes
                 .await;
             println!("   ✅ pytest installed (pinned)");
 
+            // v7.2: FastAPI always needs these — install upfront
+            let goal_lower = ""; // سيُكمل من الـ context لاحقاً
+            let _ = tokio::process::Command::new("venv/bin/pip")
+                .args(["install", "-q",
+                    "email-validator",
+                    "python-multipart",
+                    "httpx",
+                ])
+                .current_dir(workspace)
+                .output()
+                .await;
+
+            // v7.2: FastAPI base deps — دائماً مطلوبة
+            let _ = tokio::process::Command::new("venv/bin/pip")
+                .args(["install", "-q",
+                    "email-validator",
+                    "python-multipart",
+                    "httpx",
+                ])
+                .current_dir(workspace)
+                .output()
+                .await;
+
             // تثبيت extra_deps من GoalParser
-            if !extra_deps.is_empty() {
-                println!("   📦 Installing extra deps: {}", extra_deps.join(", "));
+            // Known incompatibilities — استبدل تلقائياً
+            let extra_deps_fixed: Vec<String> = extra_deps.iter().map(|dep| {
+                let d = dep.to_lowercase();
+                if d == "passlib" || d.starts_with("passlib[") {
+                    println!("   ⚠️  passlib incompatible with Python 3.12 — using bcrypt directly");
+                    "bcrypt".to_string()
+                } else {
+                    dep.clone()
+                }
+            }).collect();
+            // إزالة التكرار بعد الاستبدال
+            let mut seen = std::collections::HashSet::new();
+            let extra_deps_fixed: Vec<String> = extra_deps_fixed
+                .into_iter()
+                .filter(|d| seen.insert(d.clone()))
+                .collect();
+
+            if !extra_deps_fixed.is_empty() {
+                println!("   📦 Installing extra deps: {}", extra_deps_fixed.join(", "));
                 let mut pip_args = vec!["install", "-q"];
-                let extra_refs: Vec<&str> = extra_deps.iter().map(|s| s.as_str()).collect();
+                let extra_refs: Vec<&str> = extra_deps_fixed.iter().map(|s| s.as_str()).collect();
                 pip_args.extend_from_slice(&extra_refs);
                 let pip_out = tokio::process::Command::new("venv/bin/pip")
                     .args(&pip_args)

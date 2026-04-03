@@ -199,6 +199,7 @@ pub enum FailureKind {
     FlaskConcurrency,
     InfraError,   // v6.4: connection error / rate limit / pip timeout
     PatchError,   // v6.6: search block not found / validation failed
+    PasslibError, // v7.2: passlib incompatible with Python 3.12
     Unknown,
 }
 
@@ -213,6 +214,12 @@ impl FailureKind {
             || s.contains("search block is empty")
         {
             return Self::PatchError;
+        }
+        if s.contains("bcrypt.__about__")
+            || s.contains("password cannot be longer than 72 bytes")
+            || (s.contains("passlib") && s.contains("AttributeError"))
+        {
+            return Self::PasslibError;
         }
         // Infra errors — highest priority (never send to LLM)
         if s.contains("Connection error")
@@ -356,6 +363,8 @@ PATTERN B — app_context manually:
       # code that needs app context                 
 
 NEVER call db or app internals outside app context.",
+            Self::PasslibError =>
+                "passlib is incompatible with Python 3.12. Replace ALL passlib usage with direct bcrypt: import bcrypt; hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()); verify: bcrypt.checkpw(password.encode(), hashed). Remove passlib from requirements.",
             Self::PatchError =>
                 "PATCH ERROR: The search block was not found in the file.                 You MUST read the current file content first, then use the EXACT text as the search block.                 Do NOT approximate or paraphrase. Copy the exact lines from the file.",
             Self::InfraError =>
@@ -408,6 +417,7 @@ impl Default for ContextConfig {
 impl FailureKind {
     pub fn max_attempts(&self) -> u8 {
         match self {
+            Self::PasslibError     => 1,  // استبدل passlib بـ bcrypt — محاولة واحدة كافية
             Self::PatchError       => 2,  // context mismatch — أعطِ فرصتين مع hint
             Self::InfraError       => 0,  // لا LLM repair — retry فقط
             Self::ImportError      => 1,
