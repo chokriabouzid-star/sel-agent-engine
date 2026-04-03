@@ -325,3 +325,26 @@ RULE: When goal says "SQLite in-memory + pytest":
   - ALWAYS use Solution A (simpler, no custom type)
   - NEVER write tests that assert .tzinfo == timezone.utc with SQLite
   - If test file checks tzinfo → rewrite test to only check "is not None"
+
+SQLALCHEMY PROJECT STRUCTURE — MANDATORY:
+Every FastAPI+SQLAlchemy project MUST have database.py with:
+  from sqlalchemy import create_engine
+  from sqlalchemy.orm import sessionmaker, Session
+  DATABASE_URL = "sqlite:///./app.db"
+  engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+  SessionLocal = sessionmaker(bind=engine)
+  def get_db():
+      db = SessionLocal()
+      try:
+          yield db
+      finally:
+          db.close()
+NEVER put engine or get_db in models.py.
+ALWAYS import engine from database.py.
+
+DECIMAL vs FLOAT — CRITICAL:
+SQLAlchemy Numeric columns return Decimal objects, not float.
+In tests: NEVER assert price == 9.99 (float comparison fails)
+ALWAYS use: assert float(product.price) == 9.99
+OR use:     assert product.price == Decimal('9.99')
+OR use:     from decimal import Decimal
