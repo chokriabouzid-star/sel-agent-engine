@@ -114,6 +114,27 @@ impl PromptEngine {
                        Some older packages (passlib, crypt) \
                        are incompatible.".into(),
             },
+            // v7.2.1: Session iterator bug — اكتُشف في POS Test Task 2
+            Rule {
+                kind: RuleKind::Never,
+                text: "use next(get_session()) or next(get_db()). \
+                       SQLAlchemy sessions are NOT iterators. \
+                       Use: session = SessionLocal() directly, or \
+                       Depends(get_db) in FastAPI endpoints.".into(),
+            },
+            // v7.2.1: on_event deprecated
+            Rule {
+                kind: RuleKind::Never,
+                text: "use @app.on_event('startup'). \
+                       Use lifespan context manager instead.".into(),
+            },
+            // v7.2.1: hashpw must have salt
+            Rule {
+                kind: RuleKind::Always,
+                text: "pass TWO arguments to bcrypt.hashpw(): \
+                       bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()). \
+                       Never call hashpw() with only one argument.".into(),
+            },
         ]
     }
 
@@ -437,6 +458,32 @@ impl CodeGate {
         for (old, new) in replacements {
             if result.contains(old) {
                 result = result.replace(old, new);
+                fixes += 1;
+            }
+        }
+
+        // v7.2.1: Fix hashpw() missing salt argument
+        let hashpw_vars = ["password", "pwd", "pw", "raw_password", "plain_password"];
+        for var in &hashpw_vars {
+            let bad = format!("bcrypt.hashpw({})", var);
+            if result.contains(&bad) {
+                let good = format!(
+                    "bcrypt.hashpw({var}.encode(\'utf-8\') if isinstance({var}, str) else {var}, bcrypt.gensalt())"
+                );
+                result = result.replace(&bad, &good);
+                fixes += 1;
+            }
+        }
+
+        // v7.2.1: Fix checkpw() missing encode
+        let checkpw_vars = ["password", "pwd", "pw"];
+        for var in &checkpw_vars {
+            let bad = format!("bcrypt.checkpw({}, ", var);
+            if result.contains(&bad) {
+                let good = format!(
+                    "bcrypt.checkpw({var}.encode(\'utf-8\') if isinstance({var}, str) else {var}, "
+                );
+                result = result.replace(&bad, &good);
                 fixes += 1;
             }
         }
