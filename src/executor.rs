@@ -589,6 +589,144 @@ impl SafeExecutor {
                 .current_dir(&self.workspace)
                 .output().await;
         }
+
+        // ═══════════════════════════════════════════════════════════
+        // v7.2.2: Auto-install missing Python imports (ROOT FIX)
+        // يفحص كل ملفات .py ← يستخرج imports ← يثبّت الناقص
+        // هذا يحل: bcrypt, fastapi, httpx, pyjwt, أي مكتبة مستقبلية
+        // ═══════════════════════════════════════════════════════════
+        if self.workspace.join("venv/bin/pip").exists() {
+            let stdlib: std::collections::HashSet<&str> = [
+                "os", "sys", "json", "re", "math", "time", "datetime",
+                "pathlib", "typing", "collections", "functools", "itertools",
+                "hashlib", "hmac", "secrets", "uuid", "base64", "struct",
+                "io", "string", "copy", "enum", "abc", "dataclasses",
+                "contextlib", "asyncio", "logging", "unittest", "pytest",
+                "http", "urllib", "socket", "ssl", "email", "html", "xml",
+                "csv", "sqlite3", "subprocess", "shutil", "tempfile",
+                "threading", "multiprocessing", "queue", "signal",
+                "argparse", "configparser", "traceback", "inspect",
+                "importlib", "pkgutil", "types", "warnings", "decimal",
+                "fractions", "random", "statistics", "textwrap", "difflib",
+                "pprint", "glob", "fnmatch", "platform", "ctypes",
+                "numbers", "operator", "array", "bisect", "heapq",
+                "weakref", "gc", "dis", "ast", "token", "tokenize",
+                "calendar", "locale", "gettext", "zlib", "gzip", "bz2",
+                "lzma", "zipfile", "tarfile", "posixpath", "ntpath",
+                "linecache", "pickle", "shelve", "dbm", "codecs",
+                "unicodedata", "stringprep", "rlcompleter",
+            ].iter().cloned().collect();
+
+            // Map: import name → pip package name
+            let pip_map: std::collections::HashMap<&str, &str> = [
+                ("fastapi", "fastapi uvicorn[standard] python-multipart httpx"),
+                ("uvicorn", "uvicorn[standard]"),
+                ("httpx", "httpx"),
+                ("bcrypt", "bcrypt"),
+                ("jwt", "pyjwt"),
+                ("jose", "python-jose[cryptography]"),
+                ("passlib", "bcrypt"),
+                ("sqlalchemy", "sqlalchemy"),
+                ("pydantic", "pydantic"),
+                ("flask", "flask"),
+                ("requests", "requests"),
+                ("dotenv", "python-dotenv"),
+                ("PIL", "Pillow"),
+                ("cv2", "opencv-python"),
+                ("sklearn", "scikit-learn"),
+                ("yaml", "pyyaml"),
+                ("bs4", "beautifulsoup4"),
+                ("lxml", "lxml"),
+                ("aiohttp", "aiohttp"),
+                ("celery", "celery"),
+                ("redis", "redis"),
+                ("pymongo", "pymongo"),
+                ("motor", "motor"),
+                ("stripe", "stripe"),
+                ("boto3", "boto3"),
+                ("paramiko", "paramiko"),
+                ("cryptography", "cryptography"),
+                ("nacl", "pynacl"),
+                ("alembic", "alembic"),
+                ("marshmallow", "marshmallow"),
+                ("click", "click"),
+                ("rich", "rich"),
+                ("typer", "typer"),
+                ("pytest", "pytest"),
+                ("starlette", "starlette"),
+            ].iter().cloned().collect();
+
+            let mut needed: Vec<String> = Vec::new();
+
+            // اقرأ كل ملفات .py في workspace
+            let local_modules: std::collections::HashSet<String> = std::fs::read_dir(&self.workspace)
+                .into_iter()
+                .flat_map(|entries| entries.into_iter())
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("py"))
+                .map(|e| e.path().file_stem().unwrap().to_string_lossy().to_string())
+                .collect();
+
+            for entry in std::fs::read_dir(&self.workspace).into_iter().flat_map(|e| e) {
+                let entry = match entry { Ok(e) => e, Err(_) => continue };
+                let path = entry.path();
+                if path.extension().and_then(|x| x.to_str()) != Some("py") { continue; }
+
+                let content = match std::fs::read_to_string(&path) { Ok(c) => c, Err(_) => continue };
+
+                for line in content.lines() {
+                    let trimmed = line.trim();
+
+                    // import X  أو  import X.Y
+                    let module = if trimmed.starts_with("import ") && !trimmed.contains(" as ") || trimmed.starts_with("import ") {
+                        trimmed.strip_prefix("import ")
+                            .map(|s| s.split(|c: char| c == '.' || c == ',' || c == ' ').next().unwrap_or("").trim())
+                    }
+                    // from X import Y
+                    else if trimmed.starts_with("from ") {
+                        trimmed.strip_prefix("from ")
+                            .map(|s| s.split(|c: char| c == '.' || c == ' ').next().unwrap_or("").trim())
+                    } else { None };
+
+                    if let Some(m) = module {
+                        if m.is_empty() { continue; }
+                        if stdlib.contains(m) { continue; }
+                        if local_modules.contains(m) { continue; }
+                        if m.starts_with("_") { continue; }
+
+                        let pkg = pip_map.get(m).map(|s| s.to_string()).unwrap_or_else(|| m.to_string());
+                        for p in pkg.split_whitespace() {
+                            if !needed.contains(&p.to_string()) {
+                                needed.push(p.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !needed.is_empty() {
+                println!("   📦 Auto-installing missing deps: {}", needed.join(", "));
+                let mut args = vec!["install", "-q"];
+                let needed_refs: Vec<&str> = needed.iter().map(|s| s.as_str()).collect();
+                args.extend(needed_refs.iter());
+                let install_result = tokio::process::Command::new("venv/bin/pip")
+                    .args(&args)
+                    .current_dir(&self.workspace)
+                    .output().await;
+                match install_result {
+                    Ok(out) if out.status.success() => {
+                        println!("   ✅ Auto-installed: {}", needed.join(", "));
+                    }
+                    Ok(out) => {
+                        let stderr = String::from_utf8_lossy(&out.stderr);
+                        println!("   ⚠️  Some deps failed to install: {}", &stderr[..stderr.len().min(200)]);
+                    }
+                    Err(e) => println!("   ⚠️  pip install error: {}", e),
+                }
+            }
+        }
+        // ═══════════════════════════════════════════════════════════
+
         let pytest = if self.workspace.join("venv/bin/pytest").exists() {
             "venv/bin/pytest"
         } else { "pytest" };
