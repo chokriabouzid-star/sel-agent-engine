@@ -291,3 +291,10 @@ FASTAPI MAIN.PY RULES — CRITICAL:
 - Login endpoint: POST /auth/login must verify password with bcrypt.checkpw()
 - JWT secret key: ALWAYS use 32+ character secret key
 - Duplicate check MUST be inside try/except or explicit if block with proper indentation
+
+DATETIME IMPORT — MANDATORY PATTERN:
+Always write EXACTLY this at the top of every Python file that uses dates:
+  from datetime import datetime, timezone
+Then use ONLY: datetime.now(timezone.utc)
+NEVER use: datetime.UTC, datetime.timezone.utc, datetime.utcnow()
+These do NOT exist or are deprecated in Python 3.12.
