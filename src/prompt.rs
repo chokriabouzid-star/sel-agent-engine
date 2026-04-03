@@ -488,6 +488,127 @@ impl CodeGate {
             }
         }
 
+        // ─────────────────────────────────────────────────
+        // v7.2.3: Fix datetime.timezone.utc usage
+        // المشكلة: from datetime import datetime
+        //          ثم: datetime.now(datetime.timezone.utc)
+        //          هذا خطأ — datetime هنا class وليس module
+        // الحل:    استخدم timezone مستوردة مباشرة
+        // ─────────────────────────────────────────────────
+        let datetime_patterns = [
+            // Pattern 1: lambda في Column
+            (
+                "default=lambda: datetime.now(datetime.timezone.utc)",
+                "default=lambda: datetime.now(timezone.utc)",
+            ),
+            (
+                "default=lambda: datetime.now(datetime.UTC)",
+                "default=lambda: datetime.now(timezone.utc)",
+            ),
+            // Pattern 2: استدعاء مباشر
+            (
+                "datetime.now(datetime.timezone.utc)",
+                "datetime.now(timezone.utc)",
+            ),
+            (
+                "datetime.now(datetime.UTC)",
+                "datetime.now(timezone.utc)",
+            ),
+            // Pattern 3: utcnow deprecated
+            (
+                "datetime.utcnow()",
+                "datetime.now(timezone.utc)",
+            ),
+        ];
+
+        for (old_pat, new_pat) in &datetime_patterns {
+            if result.contains(old_pat) {
+                result = result.replace(old_pat, new_pat);
+                fixes += 1;
+            }
+        }
+
+        // تأكد أن timezone مستوردة
+        if result.contains("timezone.utc")
+            && !result.contains("from datetime import")
+            && !result.contains("import timezone")
+        {
+            // أضف الاستيراد في بداية الملف
+            if result.starts_with("from datetime import datetime") {
+                result = result.replacen(
+                    "from datetime import datetime",
+                    "from datetime import datetime, timezone",
+                    1,
+                );
+                fixes += 1;
+            } else if result.contains("from datetime import datetime") {
+                result = result.replacen(
+                    "from datetime import datetime",
+                    "from datetime import datetime, timezone",
+                    1,
+                );
+                fixes += 1;
+            } else if !result.contains("from datetime import") {
+                result = format!("from datetime import datetime, timezone
+{}", result);
+                fixes += 1;
+            }
+        }
+
+        // ─────────────────────────────────────────────────
+        // v7.2.3: Fix relative imports في scripts
+        // المشكلة: from . import models ← خطأ في script مباشر
+        // الحل:    import models
+        // ─────────────────────────────────────────────────
+        if result.contains("from . import ") {
+            result = result.replace("from . import ", "import ");
+            fixes += 1;
+        }
+        if result.contains("from .") && result.contains(" import ") {
+            // from .models import User → from models import User
+            let re_result = result.clone();
+            for line in re_result.lines() {
+                if line.trim().starts_with("from .") && line.contains(" import ") {
+                    let fixed = line.replacen("from .", "from ", 1);
+                    result = result.replace(line, &fixed);
+                    fixes += 1;
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────
+        // v7.2.3: Fix SQLAlchemy declarative_base warning
+        // ─────────────────────────────────────────────────
+        if result.contains("from sqlalchemy.ext.declarative import declarative_base") {
+            result = result.replace(
+                "from sqlalchemy.ext.declarative import declarative_base",
+                "from sqlalchemy.orm import declarative_base",
+            );
+            fixes += 1;
+        }
+
+        // ─────────────────────────────────────────────────
+        // v7.2.3: Fix FastAPI imports mixed with datetime
+        // المشكلة: from datetime import timedelta, Depends, HTTPException
+        // الحل:    فصل الاستيرادات
+        // ─────────────────────────────────────────────────
+        let bad_datetime_imports = [
+            "from datetime import timedelta, Depends",
+            "from datetime import datetime, Depends",
+            "from datetime import Depends",
+        ];
+        for bad in &bad_datetime_imports {
+            if result.contains(bad) {
+                // استبدل بالاستيرادات الصحيحة
+                result = result.replace(
+                    bad,
+                    "from datetime import datetime, timedelta, timezone
+from fastapi import Depends",
+                );
+                fixes += 1;
+            }
+        }
+
         if fixes > 0 {
             println!(
                 "   🔧 CodeGate: auto-fixed {} issue{} in {}",
