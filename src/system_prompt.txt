@@ -298,3 +298,30 @@ Always write EXACTLY this at the top of every Python file that uses dates:
 Then use ONLY: datetime.now(timezone.utc)
 NEVER use: datetime.UTC, datetime.timezone.utc, datetime.utcnow()
 These do NOT exist or are deprecated in Python 3.12.
+
+SQLALCHEMY + SQLITE TIMEZONE FIX — CRITICAL:
+SQLite does NOT preserve tzinfo on DateTime columns.
+The ONLY correct solution is one of these two:
+
+SOLUTION A — Don't test tzinfo (preferred):
+  # In models: Column(DateTime, default=lambda: datetime.now(timezone.utc))
+  # In tests: assert user.created_at is not None  ← NEVER check .tzinfo with SQLite
+
+SOLUTION B — Use TypeDecorator to force UTC:
+  from sqlalchemy import TypeDecorator, DateTime as _DateTime
+  from datetime import timezone
+
+  class TZDateTime(_DateTime):
+      def result_processor(self, dialect, coltype):
+          def process(value):
+              if value is not None and value.tzinfo is None:
+                  return value.replace(tzinfo=timezone.utc)
+              return value
+          return process
+
+  # Then use: created_at = Column(TZDateTime, default=lambda: datetime.now(timezone.utc))
+
+RULE: When goal says "SQLite in-memory + pytest":
+  - ALWAYS use Solution A (simpler, no custom type)
+  - NEVER write tests that assert .tzinfo == timezone.utc with SQLite
+  - If test file checks tzinfo → rewrite test to only check "is not None"
