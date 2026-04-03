@@ -270,3 +270,24 @@ PYTHON TESTING (MANDATORY):
 6. MINIMUM 6 tests per file — fewer tests almost always means weak mutation coverage.
 7. ALWAYS include edge cases: empty input, zero, negative numbers, boundary values (e.g. n=0, n=1, n=-1).
 8. NEVER write tests that only check the happy path — mutations survive when you only test the expected output.
+
+SQLALCHEMY DATETIME RULES — CRITICAL:
+- ALWAYS use DateTime(timezone=True) for timestamp columns:
+  created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+  updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+- NEVER use Column(DateTime) without timezone=True when tests check tzinfo
+- SQLite stores UTC correctly with timezone=True
+
+MULTI-TASK PROJECTS — CRITICAL:
+- When workspace has existing main.py with routes:
+  NEVER patch individual functions — use write_file to rewrite completely
+  ALWAYS read existing files before planning
+  ALWAYS include ALL existing routes when rewriting main.py
+- IndentationError means patch corrupted the file — use write_file to fix
+
+FASTAPI MAIN.PY RULES — CRITICAL:
+- ALWAYS structure main.py as one complete file — never partial
+- Register endpoint: POST /auth/register must return 400 for duplicate username
+- Login endpoint: POST /auth/login must verify password with bcrypt.checkpw()
+- JWT secret key: ALWAYS use 32+ character secret key
+- Duplicate check MUST be inside try/except or explicit if block with proper indentation

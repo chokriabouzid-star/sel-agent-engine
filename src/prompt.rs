@@ -496,7 +496,7 @@ impl CodeGate {
         // الحل:    استخدم timezone مستوردة مباشرة
         // ─────────────────────────────────────────────────
         let datetime_patterns = [
-            // Pattern 1: lambda في Column
+            // Pattern 1: lambda في Column — كل الأشكال
             (
                 "default=lambda: datetime.now(datetime.timezone.utc)",
                 "default=lambda: datetime.now(timezone.utc)",
@@ -505,7 +505,15 @@ impl CodeGate {
                 "default=lambda: datetime.now(datetime.UTC)",
                 "default=lambda: datetime.now(timezone.utc)",
             ),
-            // Pattern 2: استدعاء مباشر
+            (
+                "default=lambda: datetime.utcnow()",
+                "default=lambda: datetime.now(timezone.utc)",
+            ),
+            // Pattern 2: استدعاء مباشر — كل الأشكال
+            (
+                "datetime.now(datetime.UTC)",
+                "datetime.now(timezone.utc)",
+            ),
             (
                 "datetime.now(datetime.timezone.utc)",
                 "datetime.now(timezone.utc)",
@@ -528,27 +536,38 @@ impl CodeGate {
             }
         }
 
-        // تأكد أن timezone مستوردة
-        if result.contains("timezone.utc")
-            && !result.contains("from datetime import")
-            && !result.contains("import timezone")
-        {
-            // أضف الاستيراد في بداية الملف
-            if result.starts_with("from datetime import datetime") {
+        // تأكد أن timezone مستوردة — كل الحالات
+        if result.contains("timezone.utc") && !result.contains(", timezone") && !result.contains("import timezone") {
+            if result.contains("from datetime import datetime") {
+                // from datetime import datetime → from datetime import datetime, timezone
                 result = result.replacen(
                     "from datetime import datetime",
                     "from datetime import datetime, timezone",
                     1,
                 );
                 fixes += 1;
-            } else if result.contains("from datetime import datetime") {
+            } else if result.contains("from datetime import ") {
+                // from datetime import X, Y → أضف timezone
+                let old_line = result.lines()
+                    .find(|l| l.trim().starts_with("from datetime import "))
+                    .unwrap_or("")
+                    .to_string();
+                if !old_line.is_empty() && !old_line.contains("timezone") {
+                    let new_line = format!("{}, timezone", old_line.trim_end());
+                    result = result.replacen(&old_line, &new_line, 1);
+                    fixes += 1;
+                }
+            } else if result.contains("import datetime") {
+                // import datetime → import datetime + from datetime import timezone
                 result = result.replacen(
-                    "from datetime import datetime",
-                    "from datetime import datetime, timezone",
+                    "import datetime",
+                    "import datetime
+from datetime import timezone",
                     1,
                 );
                 fixes += 1;
-            } else if !result.contains("from datetime import") {
+            } else {
+                // لا يوجد أي import — أضف في البداية
                 result = format!("from datetime import datetime, timezone
 {}", result);
                 fixes += 1;
