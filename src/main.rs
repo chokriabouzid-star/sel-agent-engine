@@ -644,6 +644,38 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
     Ok(())
 }
 
+
+/// v7.3: جمع ملفات الـ workspace (بدون venv و node_modules)
+fn list_workspace_files(workspace: &std::path::Path) -> Vec<String> {
+    let supported = ["py", "ts", "js", "go", "rs", "toml"];
+    let mut files = Vec::new();
+
+    let walker = walkdir::WalkDir::new(workspace)
+        .max_depth(4)
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            !name.starts_with('.') &&
+            name != "venv" &&
+            name != "node_modules" &&
+            name != "target" &&
+            name != "__pycache__"
+        });
+
+    for entry in walker.filter_map(|e| e.ok()) {
+        if !entry.path().is_file() { continue; }
+        let ext = entry.path()
+            .extension()
+            .and_then(|x| x.to_str())
+            .unwrap_or("");
+        if !supported.contains(&ext) { continue; }
+        if let Ok(rel) = entry.path().strip_prefix(workspace) {
+            files.push(rel.to_string_lossy().to_string());
+        }
+    }
+    files
+}
+
 async fn run_plan(api_key: &str, workspace: &std::path::Path, plan_file: &std::path::Path, max_repairs: u8) -> Result<()> {
     let content = std::fs::read_to_string(plan_file)
         .map_err(|e| anyhow::anyhow!("Cannot read plan file: {}", e))?;
@@ -682,6 +714,9 @@ async fn run_plan(api_key: &str, workspace: &std::path::Path, plan_file: &std::p
     let mut passed = 0usize;
     let mut total_repairs = 0usize;
 
+    // v7.3: Plan Context — كل task تعرف ما قبلها
+    let mut plan_history: Vec<crate::prompt::TaskResult> = vec![];
+
     for (i, task) in tasks.iter().enumerate() {
         println!("\n── Task {}/{} ─────────────────────────────────", i+1, tasks.len());
         println!("   📋 {}", &task.chars().take(80).collect::<String>());
@@ -691,6 +726,10 @@ async fn run_plan(api_key: &str, workspace: &std::path::Path, plan_file: &std::p
             .template(&format!("{{spinner:.cyan}} ⚙️  Task [{}/{}]...", i+1, tasks.len())).unwrap());
         pb.enable_steady_tick(std::time::Duration::from_millis(80));
 
+        // جمع الملفات قبل تشغيل الـ task
+        let files_before: std::collections::HashSet<String> =
+            list_workspace_files(workspace).into_iter().collect();
+
         let mut ag = agent::Agent::new(
             api_key.to_string(),
             workspace.to_path_buf(),
@@ -698,11 +737,39 @@ async fn run_plan(api_key: &str, workspace: &std::path::Path, plan_file: &std::p
             max_repairs,
             types::ContextConfig::default(),
         );
-        let ok = ag.run().await.is_ok();
+
+        // v7.3: ← هنا القلب: أعطِ الـ agent تاريخ ما قبله
+        ag.plan_history = plan_history.clone();
+
+        let result = ag.run().await;
+        let ok = result.is_ok();
         pb.finish_and_clear();
 
         let repairs = ag.repair_count();
         total_repairs += repairs;
+
+        // جمع الملفات الجديدة التي أنشأها هذا الـ task
+        let files_after: std::collections::HashSet<String> =
+            list_workspace_files(workspace).into_iter().collect();
+        let new_files: Vec<String> = files_after
+            .difference(&files_before)
+            .cloned()
+            .collect();
+
+        // أضف نتيجة هذا الـ task للتاريخ
+        plan_history.push(crate::prompt::TaskResult {
+            index: i,
+            goal: task.clone(),
+            status: if ok {
+                crate::prompt::TaskStatus::Passed { repairs: repairs as u32 }
+            } else {
+                crate::prompt::TaskStatus::Failed {
+                    reason: format!("Failed after {} repairs", repairs)
+                        .chars().take(200).collect(),
+                }
+            },
+            files_created: new_files,
+        });
 
         if ok {
             passed += 1;

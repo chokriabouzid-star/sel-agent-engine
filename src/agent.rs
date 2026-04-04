@@ -21,6 +21,8 @@ pub struct Agent {
     context_config:      ContextConfig,
     failure_memory:       crate::memory::FailureMemory,  // v5.8
     pub accumulated_stats: crate::llm::LlmCallStats,      // v6.1
+    // v7.3: Plan Context — تاريخ المهام السابقة في نفس الـ plan
+    pub plan_history: Vec<crate::prompt::TaskResult>,
 }
 
 impl Agent {
@@ -37,6 +39,7 @@ impl Agent {
             context_config,
             failure_memory: crate::memory::FailureMemory::load(),
             accumulated_stats: crate::llm::LlmCallStats::default(),
+            plan_history: Vec::new(),
         }
     }
     pub fn new_with_model(api_key: String, model_alias: String, workspace: PathBuf, goal: String, max_repairs: u8, context_config: ContextConfig) -> Self {
@@ -52,6 +55,7 @@ impl Agent {
             context_config,
             failure_memory: crate::memory::FailureMemory::load(),
             accumulated_stats: crate::llm::LlmCallStats::default(),
+            plan_history: Vec::new(),
         }
     }
 
@@ -490,9 +494,17 @@ impl Agent {
 
                     // v7.2: إضافة القواعد من PromptEngine
                     let prompt_rules = crate::prompt::PromptEngine::default_rules_text();
+
+                    // v7.3: Plan Context
+                    let mut tmp_engine = crate::prompt::PromptEngine::new(
+                        std::env::var("SEL_MODEL").unwrap_or_else(|_| "default".to_string())
+                    );
+                    tmp_engine.set_history(self.plan_history.clone());
+                    let history_section = tmp_engine.history_section();
+
                     let prompt = format!(
-                        "{}{}{}{}\n{}\n{}\nGoal: {}\nProvide the complete execution plan.",
-                        prompt_rules, existing_files, ref_context, lang_hint,
+                        "{}{}{}{}{}\n{}\n{}\nGoal: {}\nProvide the complete execution plan.",
+                        prompt_rules, history_section, existing_files, ref_context, lang_hint,
                         env_context, constraints, self.goal
                     );
                     // Protocol Resilience v1.3

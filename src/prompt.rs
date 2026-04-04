@@ -252,7 +252,7 @@ impl PromptEngine {
         s
     }
 
-    fn history_section(&self) -> String {
+    pub fn history_section(&self) -> String {
         if self.history.is_empty() {
             return String::new();
         }
