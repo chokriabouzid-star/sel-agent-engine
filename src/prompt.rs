@@ -645,6 +645,288 @@ from fastapi import Depends",
 // Tests
 // ────────────────────────────────────────────────────────────────
 
+
+// ═══════════════════════════════════════════════════════════════
+// v7.3.1: Symbol + Signature Extractor
+// يعمل على: Python, TypeScript, Go, Rust
+// الهدف: Task N تعرف بالضبط ما أنشأته Task N-1
+// ═══════════════════════════════════════════════════════════════
+
+#[derive(Debug, Clone)]
+pub struct FileSymbols {
+    pub filename: String,
+    pub symbols:  Vec<Symbol>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Symbol {
+    pub name:      String,
+    pub kind:      SymbolKind,
+    pub signature: String,  // أول سطر كامل — يكفي لمعرفة كيف تستخدمه
+}
+
+#[derive(Debug, Clone)]
+pub enum SymbolKind {
+    Function,
+    Class,
+    Variable,
+    Route,     // FastAPI/Express routes
+}
+
+impl std::fmt::Display for SymbolKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            SymbolKind::Function => write!(f, "fn"),
+            SymbolKind::Class    => write!(f, "class"),
+            SymbolKind::Variable => write!(f, "var"),
+            SymbolKind::Route    => write!(f, "route"),
+        }
+    }
+}
+
+pub fn extract_file_symbols(filename: &str, content: &str) -> FileSymbols {
+    let symbols = match filename.split('.').last().unwrap_or("") {
+        "py"       => extract_python(content),
+        "ts" | "js" => extract_typescript(content),
+        "go"       => extract_go(content),
+        "rs"       => extract_rust(content),
+        _          => vec![],
+    };
+    FileSymbols { filename: filename.to_string(), symbols }
+}
+
+fn extract_python(content: &str) -> Vec<Symbol> {
+    let mut symbols = Vec::new();
+    let lines: Vec<&str> = content.lines().collect();
+
+    for (i, line) in lines.iter().enumerate() {
+        let t = line.trim();
+
+        // functions
+        if t.starts_with("def ") || t.starts_with("async def ") {
+            if let Some(name) = extract_py_name(t, "def ") {
+                symbols.push(Symbol {
+                    name,
+                    kind: SymbolKind::Function,
+                    signature: t.trim_end_matches(':').to_string(),
+                });
+            }
+        }
+
+        // classes
+        else if t.starts_with("class ") {
+            if let Some(name) = extract_py_name(t, "class ") {
+                symbols.push(Symbol {
+                    name,
+                    kind: SymbolKind::Class,
+                    signature: t.trim_end_matches(':').to_string(),
+                });
+            }
+        }
+
+        // FastAPI routes
+        else if t.starts_with("@app.") && (
+            t.contains(".get(") || t.contains(".post(") ||
+            t.contains(".put(") || t.contains(".delete(")
+        ) {
+            // السطر التالي هو اسم الـ function
+            let fn_name = lines.get(i + 1)
+                .map(|l| l.trim())
+                .and_then(|l| extract_py_name(l, "def "))
+                .unwrap_or_default();
+
+            let route = t.trim_start_matches('@');
+            symbols.push(Symbol {
+                name:      fn_name,
+                kind:      SymbolKind::Route,
+                signature: format!("{} → {}", route, lines.get(i+1).unwrap_or(&"").trim()),
+            });
+        }
+
+        // module-level variables (engine, SessionLocal, app, etc.)
+        else if !t.starts_with(' ') && t.contains(" = ") && !t.starts_with('#') {
+            let name = t.split(" = ").next().unwrap_or("").trim().to_string();
+            if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                symbols.push(Symbol {
+                    name,
+                    kind:      SymbolKind::Variable,
+                    signature: t.chars().take(80).collect(),
+                });
+            }
+        }
+    }
+    symbols
+}
+
+fn extract_py_name(line: &str, prefix: &str) -> Option<String> {
+    let after = line.find(prefix)? ;
+    let rest = &line[after + prefix.len()..];
+    let name: String = rest.chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    if name.is_empty() { None } else { Some(name) }
+}
+
+fn extract_typescript(content: &str) -> Vec<Symbol> {
+    let mut symbols = Vec::new();
+    for line in content.lines() {
+        let t = line.trim();
+
+        // export function / async function
+        if (t.starts_with("export function") || t.starts_with("export async function")
+            || t.starts_with("function ") || t.starts_with("async function "))
+        {
+            if let Some(name) = extract_ts_name(t) {
+                symbols.push(Symbol {
+                    name, kind: SymbolKind::Function,
+                    signature: t.chars().take(80).collect(),
+                });
+            }
+        }
+
+        // export class / class
+        else if t.starts_with("export class") || t.starts_with("class ") {
+            if let Some(name) = extract_ts_name(t) {
+                symbols.push(Symbol {
+                    name, kind: SymbolKind::Class,
+                    signature: t.chars().take(80).collect(),
+                });
+            }
+        }
+
+        // export const/let
+        else if t.starts_with("export const") || t.starts_with("export let") {
+            if let Some(name) = extract_ts_name(t) {
+                symbols.push(Symbol {
+                    name, kind: SymbolKind::Variable,
+                    signature: t.chars().take(80).collect(),
+                });
+            }
+        }
+
+        // Express routes
+        else if t.contains("router.get(") || t.contains("router.post(")
+            || t.contains("app.get(") || t.contains("app.post(")
+        {
+            symbols.push(Symbol {
+                name: t.chars().take(50).collect(),
+                kind: SymbolKind::Route,
+                signature: t.chars().take(80).collect(),
+            });
+        }
+    }
+    symbols
+}
+
+fn extract_ts_name(line: &str) -> Option<String> {
+    // بحث عن الكلمة بعد الـ keywords
+    let keywords = ["export async function ", "export function ", "async function ",
+                    "function ", "export class ", "class ", "export const ", "export let "];
+    for kw in &keywords {
+        if let Some(pos) = line.find(kw) {
+            let rest = &line[pos + kw.len()..];
+            let name: String = rest.chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if !name.is_empty() { return Some(name); }
+        }
+    }
+    None
+}
+
+fn extract_go(content: &str) -> Vec<Symbol> {
+    let mut symbols = Vec::new();
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with("func ") {
+            let name: String = t[5..].chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if !name.is_empty() {
+                symbols.push(Symbol {
+                    name, kind: SymbolKind::Function,
+                    signature: t.chars().take(80).collect(),
+                });
+            }
+        } else if t.starts_with("type ") && t.contains(" struct") {
+            let name: String = t[5..].chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if !name.is_empty() {
+                symbols.push(Symbol {
+                    name, kind: SymbolKind::Class,
+                    signature: t.chars().take(80).collect(),
+                });
+            }
+        }
+    }
+    symbols
+}
+
+fn extract_rust(content: &str) -> Vec<Symbol> {
+    let mut symbols = Vec::new();
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with("pub fn ") || t.starts_with("pub async fn ") || t.starts_with("fn ") {
+            let after = t.find("fn ").unwrap_or(0);
+            let name: String = t[after+3..].chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if !name.is_empty() {
+                symbols.push(Symbol {
+                    name, kind: SymbolKind::Function,
+                    signature: t.chars().take(80).collect(),
+                });
+            }
+        } else if t.starts_with("pub struct ") || t.starts_with("struct ") {
+            let after = t.find("struct ").unwrap_or(0);
+            let name: String = t[after+7..].chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if !name.is_empty() {
+                symbols.push(Symbol {
+                    name, kind: SymbolKind::Class,
+                    signature: t.chars().take(80).collect(),
+                });
+            }
+        }
+    }
+    symbols
+}
+
+/// بناء قسم الـ symbols للـ prompt
+pub fn build_symbols_section(files: &[(String, String)]) -> String {
+    if files.is_empty() { return String::new(); }
+
+    let mut section = String::from(
+        "=== SYMBOLS FROM PREVIOUS TASKS — USE EXACT NAMES ===
+"
+    );
+
+    let mut has_symbols = false;
+
+    for (filename, content) in files {
+        let file_symbols = extract_file_symbols(filename, content);
+        if file_symbols.symbols.is_empty() { continue; }
+
+        has_symbols = true;
+        section.push_str(&format!("\n{}:\n", filename));
+
+        for sym in &file_symbols.symbols {
+            section.push_str(&format!(
+                "  [{:5}] {}\n         {}\n",
+                sym.kind, sym.name, sym.signature
+            ));
+        }
+    }
+
+    if !has_symbols { return String::new(); }
+
+    section.push_str("\n=== DO NOT REDEFINE — IMPORT FROM ABOVE FILES ===\n\n");
+    section
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

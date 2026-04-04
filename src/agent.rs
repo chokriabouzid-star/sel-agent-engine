@@ -302,6 +302,41 @@ impl Agent {
         let mut total_chars = 0usize;
         let mut truncated = false;
 
+        // v7.3.1: Symbol extraction — Task N تعرف signatures من Task N-1
+        let mut file_contents: Vec<(String, String)> = Vec::new();
+        {
+            let mut sym_files: Vec<std::path::PathBuf> = walkdir::WalkDir::new(ws)
+                .max_depth(4)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .map(|e| e.path().to_path_buf())
+                .filter(|p| p.is_file())
+                .filter(|p| {
+                    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+                    ["py", "ts", "js", "go", "rs"].contains(&ext)
+                })
+                .filter(|p| {
+                    let s = p.to_string_lossy();
+                    !s.contains("node_modules") && !s.contains("/venv/")
+                        && !s.contains("/target/") && !s.contains("test_")
+                })
+                .collect();
+            sym_files.sort();
+
+            for path in &sym_files {
+                let rel = path.strip_prefix(ws).unwrap_or(path)
+                    .to_string_lossy().to_string();
+                if let Ok(src) = std::fs::read_to_string(path) {
+                    file_contents.push((rel, src));
+                }
+            }
+        }
+
+        let symbols_section = crate::prompt::build_symbols_section(&file_contents);
+        if !symbols_section.is_empty() {
+            ctx.push_str(&symbols_section);
+        }
+
         ctx.push_str("=== EXISTING WORKSPACE FILES (read carefully before planning) ===\n");
         ctx.push_str("CRITICAL: Use patch_file (NOT write_file) for ALL files listed below.\n\n");
 
