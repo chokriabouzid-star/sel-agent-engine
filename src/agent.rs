@@ -7,6 +7,10 @@ use crate::{
     llm::LlmClient,
     protocol::{self, Cmd},
     types::{AgentState, ContextConfig, ExecutionContext, FailedStep, FailureKind, Message},
+    data_recorder::{DataRecorder, LlmRecord, estimate_tokens, now_unix},
+    file_snapshot::FileSnapshot,
+    context_ledger::{ContextLedger, CompletedStep, StepStatus, FileIndex},
+    step_verifier::StepVerifier,
 };
 
 pub struct Agent {
@@ -23,6 +27,11 @@ pub struct Agent {
     pub accumulated_stats: crate::llm::LlmCallStats,      // v6.1
     // v7.3: Plan Context — تاريخ المهام السابقة في نفس الـ plan
     pub plan_history: Vec<crate::prompt::TaskResult>,
+    // Manifest Context — واجهات الملفات المقفلة
+    pub manifest_context: String,
+    // v8.0: المكونات الجديدة
+    recorder: DataRecorder,
+    ledger:   Option<ContextLedger>,
 }
 
 impl Agent {
@@ -40,6 +49,9 @@ impl Agent {
             failure_memory: crate::memory::FailureMemory::load(),
             accumulated_stats: crate::llm::LlmCallStats::default(),
             plan_history: Vec::new(),
+            manifest_context: String::new(),
+            recorder: DataRecorder::new(),
+            ledger:   None,
         }
     }
     pub fn new_with_model(api_key: String, model_alias: String, workspace: PathBuf, goal: String, max_repairs: u8, context_config: ContextConfig) -> Self {
@@ -56,6 +68,9 @@ impl Agent {
             failure_memory: crate::memory::FailureMemory::load(),
             accumulated_stats: crate::llm::LlmCallStats::default(),
             plan_history: Vec::new(),
+            manifest_context: String::new(),
+            recorder: DataRecorder::new(),
+            ledger:   None,
         }
     }
 
@@ -139,11 +154,28 @@ impl Agent {
                 )
             };
 
-            match self.llm.call(&[Message::user(prompt)]).await {
+            match self.llm.call(&[Message::user(prompt.clone())]).await {
                 Ok((response, call_stats)) => {
                     self.accumulated_stats.retries           += call_stats.retries;
                     self.accumulated_stats.connection_errors += call_stats.connection_errors;
                     self.accumulated_stats.rate_limits       += call_stats.rate_limits;
+                    // v8.0: DataRecorder
+                    self.recorder.record(&LlmRecord {
+                        call_type:        "plan".into(),
+                        input:            base_prompt[..base_prompt.len().min(2000)].to_string(),
+                        output:           response[..response.len().min(2000)].to_string(),
+                        success:          true,
+                        tokens_estimated: estimate_tokens(&prompt) + estimate_tokens(&response),
+                        latency_ms:       call_stats.total_latency_ms,
+                        model:            self.llm.model.clone(),
+                        language:         { let g = self.goal.to_lowercase(); if g.contains("rust") { "rust" } else if g.contains("node") || g.contains("javascript") { "node" } else if g.contains(" go ") || g.contains("golang") { "go" } else { "python" } }.to_string(),
+                        attempt_number:   (attempt + 1) as u8,
+                        prior_error:      String::new(),
+                        step_in_plan:     0,
+                        tests_passed:     None,
+                        quality_source:   "unknown".into(),
+                        timestamp:        now_unix(),
+                    });
                     self.accumulated_stats.timeouts          += call_stats.timeouts;
                     self.accumulated_stats.total_latency_ms  += call_stats.total_latency_ms;
                     match crate::protocol::parse(&response) {
@@ -287,9 +319,18 @@ impl Agent {
             .filter(|p| {
                 // تجاهل node_modules, venv, dist, target
                 let s = p.to_string_lossy();
+                let name = p.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
+                // استثناء ملفات scaffold الضخمة من السياق
+                let skip_scaffold = matches!(name,
+                    "package-lock.json" | "tsconfig.json" |
+                    "jest.config.js" | "jest.config.ts"
+                );
                 !s.contains("node_modules") && !s.contains("/venv/")
                     && !s.contains("/dist/") && !s.contains("/target/")
                     && !s.contains("/.") && !s.contains("package-lock")
+                    && !skip_scaffold
             })
             .take(50)
             .collect();
@@ -464,6 +505,24 @@ impl Agent {
         self.send_event("start", None, None, None, None);
         // v5.8.1: امسح الـ cache في بداية كل run — كل جلسة تبدأ نظيفة
         let ws = self.executor.workspace.clone();
+        // v8.0: FileSnapshot الأول — الحالة قبل أي شيء
+        let _initial_snapshot = FileSnapshot::take(&ws);
+        // v8.0: ContextLedger — حاول استعادة جلسة سابقة
+        let lang_guess = {
+            let g = self.goal.to_lowercase();
+            if g.contains("rust") || g.contains("cargo") { "rust" }
+            else if g.contains("node") || g.contains("javascript") || g.contains("js") { "node" }
+            else if g.contains("go ") || g.contains("golang") { "go" }
+            else { "python" }
+        };
+        self.ledger = ContextLedger::load(&ws).or_else(|| {
+            Some(ContextLedger::new(&self.goal, lang_guess))
+        });
+        if let Some(ref l) = self.ledger {
+            if l.current_step > 0 {
+                println!("   📖 Resuming from step {} ({})", l.current_step, l.goal.chars().take(40).collect::<String>());
+            }
+        }
         let cache_path = ws.join(".sel_hashes");
         if cache_path.exists() {
             let _ = std::fs::remove_file(&cache_path);
@@ -535,11 +594,16 @@ impl Agent {
                         std::env::var("SEL_MODEL").unwrap_or_else(|_| "default".to_string())
                     );
                     tmp_engine.set_history(self.plan_history.clone());
+                    tmp_engine.workspace = Some(self.executor.workspace.clone());
                     let history_section = tmp_engine.history_section();
 
                     let prompt = format!(
-                        "{}{}{}{}{}\n{}\n{}\nGoal: {}\nProvide the complete execution plan.",
-                        prompt_rules, history_section, existing_files, ref_context, lang_hint,
+                        "{}{}{}{}{}{}
+{}
+{}
+Goal: {}
+Provide the complete execution plan.",
+                        prompt_rules, history_section, self.manifest_context, existing_files, ref_context, lang_hint,
                         env_context, constraints, self.goal
                     );
                     // Protocol Resilience v1.3
@@ -689,6 +753,38 @@ impl Agent {
                                 }
                                 // تسجيل نجاح الاختبارات
                                 if cmd.is_run_tests() { self.ctx.tests_passed = true; }
+                                // v8.0: StepVerifier — تحقق من WriteFile
+                                if cmd.is_write_file() {
+                                    let snap_after = FileSnapshot::take(&self.executor.workspace);
+                                    let vr = StepVerifier::verify(
+                                        &_initial_snapshot, &snap_after,
+                                        &[], &[],
+                                        &self.executor.workspace,
+                                    );
+                                    if !vr.is_success() {
+                                        println!("   ⚠️  Verifier: {}", vr.description());
+                                    }
+                                }
+                                // v8.0: Ledger — سجّل الخطوة
+                                if let Some(ref mut ledger) = self.ledger {
+                                    let is_test = cmd.is_run_tests();
+                                    ledger.record_step(CompletedStep {
+                                        name:          cmd.label(),
+                                        status:        StepStatus::Done,
+                                        files_created: match cmd {
+                                            Cmd::WriteFile { path, .. } => vec![path.clone()],
+                                            _ => vec![],
+                                        },
+                                        exports:       std::collections::HashMap::new(),
+                                        test_result:   if is_test { Some(true) } else { None },
+                                        completed_at:  now_unix(),
+                                        repair_count:  0,
+                                    });
+                                    if is_test {
+                                        ledger.add_tokens(estimate_tokens(&cmd.label()) as u32);
+                                    }
+                                    let _ = ledger.save(&self.executor.workspace);
+                                }
                                 // v5.8.1: run: cargo test أيضاً يُعتبر نجاح اختبارات
                                 if let crate::protocol::Cmd::Run { command } = cmd {
                                     let lc = command.to_lowercase();
@@ -1242,7 +1338,7 @@ impl Agent {
 async fn report_run(goal: &str, success: bool, repairs: i64, duration_secs: u64, mutation_score: f64) -> Result<()> {
     let model = std::env::var("SEL_MODEL").unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string());
     let body = serde_json::json!({
-        "goal": &goal[..goal.len().min(200)],
+        "goal": &goal[..goal.char_indices().map(|(i,_)|i).take(200).last().unwrap_or(goal.len())],
         "success": success,
         "repairs": repairs,
         "duration_secs": duration_secs,

@@ -1,4 +1,9 @@
 mod prompt;
+mod data_recorder;
+mod file_snapshot;
+mod context_ledger;
+mod step_verifier;
+mod manifest;
 // src/main.rs — SEL Agent v6.4
 mod context;
 mod chunker;
@@ -717,6 +722,10 @@ async fn run_plan(api_key: &str, workspace: &std::path::Path, plan_file: &std::p
     // v7.3: Plan Context — كل task تعرف ما قبلها
     let mut plan_history: Vec<crate::prompt::TaskResult> = vec![];
 
+    // Manifest — يتراكم بين Tasks
+    let mut manifest = crate::manifest::ProjectManifest::load(workspace)
+        .unwrap_or_else(|_| crate::manifest::ProjectManifest::new("python"));
+
     for (i, task) in tasks.iter().enumerate() {
         println!("\n── Task {}/{} ─────────────────────────────────", i+1, tasks.len());
         println!("   📋 {}", &task.chars().take(80).collect::<String>());
@@ -740,6 +749,9 @@ async fn run_plan(api_key: &str, workspace: &std::path::Path, plan_file: &std::p
 
         // v7.3: ← هنا القلب: أعطِ الـ agent تاريخ ما قبله
         ag.plan_history = plan_history.clone();
+
+        // Manifest Context — أعطِ الـ agent معرفة ما بُني
+        ag.manifest_context = manifest.to_context_section();
 
         let result = ag.run().await;
         let ok = result.is_ok();
@@ -768,12 +780,35 @@ async fn run_plan(api_key: &str, workspace: &std::path::Path, plan_file: &std::p
                         .chars().take(200).collect(),
                 }
             },
-            files_created: new_files,
+            files_created: new_files.clone(),
         });
 
         if ok {
             passed += 1;
             println!("   ✅ Passed (repairs: {})", repairs);
+
+            // استخرج symbols من الملفات الجديدة وسجّلها في manifest
+            for file_name in &new_files {
+                let file_path = workspace.join(file_name);
+                let lang = match file_path.extension().and_then(|e| e.to_str()) {
+                    Some("py") => "python",
+                    Some("ts") => "typescript",
+                    Some("js") => "javascript",
+                    Some("go") => "go",
+                    Some("rs") => "rust",
+                    _          => continue,
+                };
+                let symbols = extract_python_symbols(&file_path);
+                if !symbols.is_empty() {
+                    manifest.register_file(file_name, symbols.clone(), lang, true);
+                    println!("   📌 Manifest: {} → {:?}",
+                        file_name,
+                        &symbols[..symbols.len().min(4)]);
+                }
+            }
+            manifest.task_count += 1;
+            manifest.save(workspace).ok();
+
         } else {
             println!("   ❌ Failed (repairs: {})", repairs);
         }
@@ -924,4 +959,10 @@ fn confidence_bar(c: f32) -> String {
     let filled = (c * 10.0).round() as usize;
     let empty  = 10 - filled.min(10);
     format!("[{}{}]", "█".repeat(filled), "░".repeat(empty))
+}
+
+/// استخراج symbols من أي ملف مدعوم — مباشرة بدون استدعاء Python خارجي
+/// استخراج symbols من أي ملف مدعوم — مباشرة بدون استدعاء Python خارجي
+fn extract_python_symbols(file_path: &std::path::Path) -> Vec<String> {
+    crate::manifest::extract_symbols_rust(file_path)
 }
