@@ -676,6 +676,16 @@ impl SafeExecutor {
                 .map(|e| e.path().file_stem().unwrap().to_string_lossy().to_string())
                 .collect();
 
+            // LOCAL DIRS — مجلدات محلية لا تُثبَّت من PyPI
+            let local_dirs: std::collections::HashSet<String> = std::fs::read_dir(&self.workspace)
+                .into_iter()
+                .flat_map(|entries| entries.into_iter())
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter(|name| !name.starts_with('.') && name != "venv" && name != "__pycache__")
+                .collect();
+
             for entry in std::fs::read_dir(&self.workspace).into_iter().flat_map(|e| e) {
                 let entry = match entry { Ok(e) => e, Err(_) => continue };
                 let path = entry.path();
@@ -701,6 +711,7 @@ impl SafeExecutor {
                         if m.is_empty() { continue; }
                         if stdlib.contains(m) { continue; }
                         if local_modules.contains(m) { continue; }
+                        if local_dirs.contains(m) { continue; }  // لا تثبّت مجلدات محلية
                         if m.starts_with("_") { continue; }
 
                         let pkg = pip_map.get(m).map(|s| s.to_string()).unwrap_or_else(|| m.to_string());

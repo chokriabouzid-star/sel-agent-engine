@@ -314,7 +314,7 @@ impl PromptEngine {
     fn workspace_chars_budget(&self) -> usize {
         // 60% من حد النموذج — محافظ وآمن
         let token_limit: usize = if self.model.contains("kimi-k2") {
-            4_500
+            8_000
         } else if self.model.contains("llama-3.3") {
             28_000
         } else if self.model.contains("gpt-4") {
@@ -984,8 +984,8 @@ mod tests {
     fn test_workspace_budget_kimi() {
         let engine = PromptEngine::new("kimi-k2-instruct".into());
         let budget = engine.workspace_chars_budget();
-        // 10000 * 60% * 4 = (نتحقق من القيمة الفعلية)
-        assert_eq!(budget, 10_800);
+        // 8000 * 60% * 4 = 19200
+        assert_eq!(budget, 19_200);
     }
 
     #[test]

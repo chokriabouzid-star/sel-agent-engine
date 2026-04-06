@@ -18,6 +18,10 @@ pub struct LlmCallStats {
 // ─── v7.0: Multi-Provider Support ─────────────────────────────────────────────
 /// Priority: SEL_API_KEY → OPENROUTER_API_KEY → GROQ_API_KEY
 pub fn resolve_api_key() -> String {
+    // NVIDIA NIM
+    if let Ok(k) = std::env::var("NVIDIA_API_KEY") {
+        if !k.is_empty() { return k; }
+    }
     if let Ok(k) = std::env::var("SEL_API_KEY") {
         if !k.trim().is_empty() { eprintln!("🔑 Using SEL_API_KEY"); return k; }
     }
@@ -67,6 +71,9 @@ pub fn resolve_base_url(model: &str) -> String {
     }
     if model.contains("openrouter") {
         return "https://openrouter.ai/api/v1/chat/completions".to_string();
+    }
+    if model.contains("nvidia") || model.contains("nim") || model.starts_with("meta/") || model.starts_with("mistralai/") {
+        return "https://integrate.api.nvidia.com/v1/chat/completions".to_string();
     }
     "https://api.groq.com/openai/v1/chat/completions".to_string()
 }
@@ -123,6 +130,12 @@ impl ModelConfig {
                 model_id: "llama-3.3-70b-versatile".to_string(),
                 base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
                 env_key:  "GROQ_API_KEY".to_string(),
+            },
+            "nvidia" | "nim" => ModelConfig {
+                provider: Provider::Custom,
+                model_id: "meta/llama-3.3-70b-instruct".to_string(),
+                base_url: "https://integrate.api.nvidia.com/v1/chat/completions".to_string(),
+                env_key:  "NVIDIA_API_KEY".to_string(),
             },
             "openrouter" | "or" => ModelConfig {
                 provider: Provider::OpenRouter,

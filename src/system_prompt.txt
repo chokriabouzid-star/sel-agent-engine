@@ -107,15 +107,33 @@ FASTAPI PROJECTS:
 - autouse fixture to reset in-memory state
 
 FASTAPI + SQLITE RULES — CRITICAL:
-- ALWAYS call Base.metadata.create_all(bind=engine) before tests run
-- Use :memory: SQLite in tests: SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
-- Add autouse fixture to create and drop tables:
+- ALWAYS use "sqlite://" (in-memory) for tests — NEVER "sqlite:///./test.db"
+- ALWAYS create a SEPARATE engine for tests — NEVER reuse the app engine
+- ALWAYS call Base.metadata.create_all() AND drop_all() in fixture:
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from models import Base
+    from main import app, get_db
+
+    TEST_URL = "sqlite://"
+
     @pytest.fixture(autouse=True)
     def setup_db():
-        Base.metadata.create_all(bind=engine)
-        yield
-        Base.metadata.drop_all(bind=engine)
+        engine = create_engine(TEST_URL, connect_args={"check_same_thread": False})
+        Base.metadata.create_all(engine)
+        TestSession = sessionmaker(bind=engine)
+        db = TestSession()
+        app.dependency_overrides[get_db] = lambda: db
+        yield db
+        db.close()
+        Base.metadata.drop_all(engine)
+        app.dependency_overrides.clear()
+
 - NEVER assume tables exist without creating them first
+- NEVER share engine or session between tests
+- UNIQUE constraint errors = missing drop_all/create_all cycle
+- "no such table" error = Base.metadata.create_all() not called
 - Use Pydantic v2 style: model_config = ConfigDict(...) not class Config
 - ALWAYS install sqlalchemy: pip install fastapi uvicorn pytest httpx sqlalchemy
 ASYNC PYTHON RULES — CRITICAL:
@@ -348,3 +366,55 @@ In tests: NEVER assert price == 9.99 (float comparison fails)
 ALWAYS use: assert float(product.price) == 9.99
 OR use:     assert product.price == Decimal('9.99')
 OR use:     from decimal import Decimal
+
+SQLALCHEMY SQLITE CONSTRAINTS RULES — CRITICAL:
+- SQLite does NOT enforce NOT NULL / UNIQUE at insert time in all cases
+- NEVER write tests that use pytest.raises(IntegrityError) with SQLite
+- NEVER test nullable constraints with: with pytest.raises(...): session.add(...)
+- INSTEAD test that valid data saves correctly
+- INSTEAD test relationships and cascade behavior with valid complete objects
+- Valid test: obj = Model(field=value); session.add(obj); session.commit(); assert obj.id
+- Invalid test: Model(required_field=None) expecting IntegrityError — SQLite may not raise
+
+SQLALCHEMY PROJECT STRUCTURE RULES — CRITICAL:
+- Base MUST be defined in models.py — NEVER in database.py
+- database.py contains ONLY: engine, SessionLocal, get_db
+- models.py contains: Base = declarative_base(), AND all model classes
+- Correct structure:
+    # models.py
+    from sqlalchemy.orm import declarative_base
+    Base = declarative_base()
+    class User(Base): ...
+
+    # database.py
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    engine = create_engine(...)
+    SessionLocal = sessionmaker(bind=engine)
+    def get_db(): ...
+
+    # main.py or any other file
+    from models import Base, User, Product
+    from database import engine, SessionLocal, get_db
+
+PYDANTIC V2 RULES — CRITICAL:
+- ALWAYS import ConfigDict explicitly: from pydantic import BaseModel, ConfigDict
+- NEVER use class Config — use model_config = ConfigDict(...)
+- ALWAYS add: from pydantic import BaseModel, ConfigDict at top of schemas file
+
+SCHEMAS RULES — CRITICAL:
+- ALWAYS define ALL Pydantic schemas in schemas.py before using them
+- schemas.py MUST contain ALL these classes for a typical auth+products project:
+    from pydantic import BaseModel, ConfigDict
+    from typing import Optional
+
+    class UserCreate(BaseModel): username: str; email: str; password: str
+    class UserResponse(BaseModel): id: int; username: str; email: str; model_config = ConfigDict(from_attributes=True)
+    class Token(BaseModel): access_token: str; token_type: str
+    class TokenData(BaseModel): username: Optional[str] = None
+    class LoginForm(BaseModel): username: str; password: str
+    class ProductCreate(BaseModel): name: str; description: str; price: float; stock: int
+    class ProductResponse(BaseModel): id: int; name: str; price: float; stock: int; model_config = ConfigDict(from_attributes=True)
+
+- NEVER import a schema that is not defined in schemas.py
+- ALWAYS write schemas.py FIRST before main.py
