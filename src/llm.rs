@@ -55,6 +55,10 @@ fn select_prompt(model: &str) -> &'static str {
     if model.contains(":free") {
         return SYSTEM_PROMPT_COMPACT;
     }
+    // Gemini free tier — استخدم المضغوط
+    if model.contains("flash-lite") || model.contains("gemini-2.0-flash") || model.contains("gemini-2.5-flash") {
+        return SYSTEM_PROMPT_COMPACT;
+    }
     // النماذج المدفوعة أو الكبيرة: النسخة الكاملة
     SYSTEM_PROMPT
 }
@@ -431,6 +435,15 @@ impl LlmClient {
             },
         };
 
+        // v8.1: فحص حجم المدخلات — قبل بناء request
+        let total_chars: usize = messages.iter().map(|m| m.content.len()).sum::<usize>()
+            + select_prompt(&self.model).len();
+        let estimated_tokens = total_chars / 4;
+        eprintln!("   📏 Gemini input: ~{} tokens", estimated_tokens);
+        if estimated_tokens > 12_000 {
+            eprintln!("   ⚠️  Large prompt ({} tokens) — may hit rate limits", estimated_tokens);
+        }
+
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
             .build()?;
@@ -505,6 +518,14 @@ impl LlmClient {
         let system_content = select_prompt(&self.model).to_string();
         let mut msgs = vec![ApiMsg { role: "system".into(), content: system_content }];
         for m in messages { msgs.push(ApiMsg { role: m.role.clone(), content: m.content.clone() }); }
+
+        // v8.1: فحص حجم المدخلات
+        let total_input_chars: usize = msgs.iter().map(|m| m.content.len()).sum();
+        let estimated_tokens = total_input_chars / 4;
+        eprintln!("   📏 Input: ~{} tokens", estimated_tokens);
+        if estimated_tokens > 12_000 {
+            eprintln!("   ⚠️  Large prompt ({} tokens) — may hit rate limits", estimated_tokens);
+        }
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))

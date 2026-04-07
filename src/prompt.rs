@@ -277,21 +277,9 @@ impl PromptEngine {
                         task.files_created.join(", ")
                     ));
                     // حقن محتوى الملفات الفعلي للـ Task التالية
+                    // v8.1: أسماء الملفات فقط — المحتوى موجود في workspace context
                     for file_name in &task.files_created {
-                        let file_path = self.workspace.as_ref()
-                            .map(|w: &std::path::PathBuf| w.join(file_name))
-                            .unwrap_or_else(|| std::path::PathBuf::from(file_name));
-                        if let Ok(file_content) = std::fs::read_to_string(&file_path) {
-                            let preview: String = file_content
-                                .lines()
-                                .take(30)
-                                .collect::<Vec<_>>()
-                                .join("\n");
-                            s.push_str(&format!(
-                                "  --- {} ---\n{}\n  --- end {} ---\n\n",
-                                file_name, preview, file_name
-                            ));
-                        }
+                        s.push_str(&format!("  - {}\n", file_name));
                     }
                 }
                 TaskStatus::Failed { reason } => {
@@ -312,22 +300,17 @@ impl PromptEngine {
     }
 
     fn workspace_chars_budget(&self) -> usize {
-        // 60% من حد النموذج — محافظ وآمن
-        let token_limit: usize = if self.model.contains("kimi-k2") {
-            4_500
-        } else if self.model.contains("llama-3.3") {
-            28_000
-        } else if self.model.contains("gpt-4") {
-            100_000
-        } else if self.model.contains("qwen") {
-            28_000
-        } else if self.model.contains("gemma") {
-            8_000
+        // v8.1: ميزانية موحدة وآمنة — تناسب النماذج المجانية
+        // الصيغة: token_limit * 50% * 4 chars/token
+        let token_limit: usize = if self.model.contains("gpt-4") {
+            60_000   // GPT-4: نافذة كبيرة
+        } else if self.model.contains("llama-3.3") || self.model.contains("qwen") {
+            16_000   // نماذج متوسطة
         } else {
-            6_000  // حد محافظ للنماذج غير المعروفة
+            8_000    // حد آمن للنماذج المجانية (gemini, kimi, gemma, etc.)
         };
 
-        (token_limit * 60 / 100) * 4  // tokens → chars (1 token ≈ 4 chars)
+        (token_limit * 50 / 100) * 4  // tokens → chars (1 token ≈ 4 chars)
     }
 
     fn workspace_section(
@@ -984,16 +967,16 @@ mod tests {
     fn test_workspace_budget_kimi() {
         let engine = PromptEngine::new("kimi-k2-instruct".into());
         let budget = engine.workspace_chars_budget();
-        // 10000 * 60% * 4 = (نتحقق من القيمة الفعلية)
-        assert_eq!(budget, 10_800);
+        // v8.1: 8_000 * 50% * 4 = 16_000
+        assert_eq!(budget, 16_000);
     }
 
     #[test]
     fn test_workspace_budget_llama() {
         let engine = PromptEngine::new("llama-3.3-70b".into());
         let budget = engine.workspace_chars_budget();
-        // 28000 * 60% * 4 = 67200
-        assert_eq!(budget, 67_200);
+        // v8.1: 16_000 * 50% * 4 = 32_000
+        assert_eq!(budget, 32_000);
     }
 
     #[test]

@@ -178,12 +178,6 @@ PYTHON CODE IN JSON — CRITICAL:
 - NEVER: with open(f, "r") — use: with open(f, 'r')
 - This prevents JSON string from breaking
 
-PYTHON CODE IN JSON — CRITICAL:
-- Inside "content" fields, ONLY use single quotes in Python
-- NEVER: print("hello") — use: print('hello')
-- NEVER: f"text {var}" — use: f'text {var}'
-- NEVER: with open(f, "r") — use: with open(f, 'r')
-- This prevents JSON string from breaking
 
 GO PROJECTS — CRITICAL:
 - go.mod: ALWAYS specify exact go version: "go 1.21"

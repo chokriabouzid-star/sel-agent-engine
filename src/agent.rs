@@ -1063,85 +1063,7 @@ Provide the complete execution plan.",
                         String::new()
                     };
 
-                    // v5.9: Patch Error Full Context
-                    // إذا كان الخطأ search block → أرسل الملف كاملاً
-                    let _patch_error_context: String = if all_stderr.contains("search block not found")
-                        || all_stderr.contains("search block found")
-                    {
-                        // استخرج اسم الملف من رسالة الخطأ
-                        let mut patch_ctx = String::new();
-                        for line in all_stderr.lines() {
-                            if line.contains("search block not found in '")
-                                || line.contains("search block found") && line.contains("times in '")
-                            {
-                                // استخرج المسار من بين علامتي '
-                                if let Some(start) = line.find("in '") {
-                                    let rest = &line[start+4..];
-                                    if let Some(end) = rest.find('\'') {
-                                        let file_path = &rest[..end];
-                                        let full_path = self.executor.workspace.join(file_path);
-                                        if let Ok(content) = std::fs::read_to_string(&full_path) {
-                                            patch_ctx.push_str(&format!(
-                                                "
 
-⚠️ v5.9 PATCH FIX — FULL FILE CONTENT of '{}':
-                                                 Copy search text EXACTLY from this content:
-```rust
-{}
-```
-                                                 RULES: search block must appear EXACTLY ONCE.",
-                                                file_path, content
-                                            ));
-                                            println!("   📖 v5.9: injecting full content of '{}' for patch fix", file_path);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        patch_ctx
-                    } else {
-                        String::new()
-                    };
-
-                    // v5.9: Patch Error Full Context
-                    // إذا كان الخطأ search block → أرسل الملف كاملاً
-                    let _patch_error_context: String = if all_stderr.contains("search block not found")
-                        || all_stderr.contains("search block found")
-                    {
-                        // استخرج اسم الملف من رسالة الخطأ
-                        let mut patch_ctx = String::new();
-                        for line in all_stderr.lines() {
-                            if line.contains("search block not found in '")
-                                || line.contains("search block found") && line.contains("times in '")
-                            {
-                                // استخرج المسار من بين علامتي '
-                                if let Some(start) = line.find("in '") {
-                                    let rest = &line[start+4..];
-                                    if let Some(end) = rest.find('\'') {
-                                        let file_path = &rest[..end];
-                                        let full_path = self.executor.workspace.join(file_path);
-                                        if let Ok(content) = std::fs::read_to_string(&full_path) {
-                                            patch_ctx.push_str(&format!(
-                                                "
-
-⚠️ v5.9 PATCH FIX — FULL FILE CONTENT of '{}':
-                                                 Copy search text EXACTLY from this content:
-```rust
-{}
-```
-                                                 RULES: search block must appear EXACTLY ONCE.",
-                                                file_path, content
-                                            ));
-                                            println!("   📖 v5.9: injecting full content of '{}' for patch fix", file_path);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        patch_ctx
-                    } else {
-                        String::new()
-                    };
 
                     let files_context: String = if dep_only {
                         // أرسل أسماء الملفات فقط — توفير tokens
@@ -1205,10 +1127,6 @@ Provide the complete execution plan.",
                         "\n\nNETWORK UNAVAILABLE: Use ONLY Python stdlib. NO pandas, NO requests."
                     } else { "" };
 
-                    // Mutation Enforcement v1.3
-                    let mutation_note = if errors.contains("WEAK TESTS") {
-                        "\n\n🧬 MUTATION ENFORCEMENT: Your tests are too weak.\nYOU MUST strengthen the test file:\n1. Add assert statements with EXACT expected values.\n2. Test edge cases: negative numbers, zero, empty input.\n3. Each function must have at least 2 independent assertions.\nDO NOT modify the source file."
-                    } else { "" };
                     // Mutation Enforcement v1.3
                     let mutation_note = if errors.contains("WEAK TESTS") {
                         "\n\nMUTATION ENFORCEMENT: Your tests are too weak — they passed on broken code.\n                         YOU MUST strengthen the test file:\n                         1. Add assert statements with EXACT expected values (e.g. assert result == 42).\n                         2. Test edge cases: negative numbers, zero, empty input.\n                         3. Each function must have at least 2 independent assertions.\n                         DO NOT modify the source file — only improve the test file."
