@@ -3,6 +3,61 @@ use serde::{Deserialize, Serialize};
 use crate::types::Message;
 
 const SYSTEM_PROMPT: &str = include_str!("system_prompt.txt");
+// ─── Gemini API Types ─────────────────────────────────────────────────────────
+#[derive(serde::Serialize)]
+struct GeminiRequest {
+    contents: Vec<GeminiContent>,
+    #[serde(rename = "systemInstruction", skip_serializing_if = "Option::is_none")]
+    system_instruction: Option<GeminiContent>,
+    #[serde(rename = "generationConfig")]
+    generation_config: GeminiConfig,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct GeminiContent {
+    parts: Vec<GeminiPart>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    role: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct GeminiPart {
+    text: String,
+}
+
+#[derive(serde::Serialize)]
+struct GeminiConfig {
+    temperature: f32,
+    #[serde(rename = "maxOutputTokens")]
+    max_output_tokens: u32,
+}
+
+#[derive(serde::Deserialize)]
+struct GeminiResponse {
+    candidates: Vec<GeminiCandidate>,
+}
+
+#[derive(serde::Deserialize)]
+struct GeminiCandidate {
+    content: GeminiContent,
+}
+
+
+const SYSTEM_PROMPT_COMPACT: &str = include_str!("system_prompt_compact.txt");
+
+fn select_prompt(model: &str) -> &'static str {
+    // نماذج Groq: TPM محدود — استخدم النسخة المضغوطة
+    let endpoint = std::env::var("SEL_API_BASE").unwrap_or_default();
+    if endpoint.contains("groq.com") {
+        return SYSTEM_PROMPT_COMPACT;
+    }
+    // نماذج OpenRouter المجانية: نافذة صغيرة
+    if model.contains(":free") {
+        return SYSTEM_PROMPT_COMPACT;
+    }
+    // النماذج المدفوعة أو الكبيرة: النسخة الكاملة
+    SYSTEM_PROMPT
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct LlmCallStats {
@@ -18,6 +73,10 @@ pub struct LlmCallStats {
 // ─── v7.0: Multi-Provider Support ─────────────────────────────────────────────
 /// Priority: SEL_API_KEY → OPENROUTER_API_KEY → GROQ_API_KEY
 pub fn resolve_api_key() -> String {
+    // v8.2: Gemini FIRST — free & high quality
+    if let Ok(k) = std::env::var("GEMINI_API_KEY") {
+        if !k.trim().is_empty() { eprintln!("🔑 Using GEMINI_API_KEY"); return k; }
+    }
     // NVIDIA NIM
     if let Ok(k) = std::env::var("NVIDIA_API_KEY") {
         if !k.is_empty() { return k; }
@@ -254,10 +313,123 @@ impl LlmClient {
         Self { model: config.model_id.clone(), endpoint: config.base_url.clone(), api_key, config }
     }
 
+    /// استدعاء Gemini API مباشرة
+    pub async fn gemini_call(&self, messages: &[Message]) -> Result<(String, LlmCallStats)> {
+        let mut stats = LlmCallStats::default();
+        let call_start = std::time::Instant::now();
+
+        let api_key = std::env::var("GEMINI_API_KEY")
+            .map_err(|_| anyhow::anyhow!("GEMINI_API_KEY not set"))?;
+
+        let model = std::env::var("GEMINI_MODEL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                if self.model.starts_with("gemini") {
+                    Some(self.model.clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| "gemini-2.0-flash-lite".to_string());
+
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+            model, api_key
+        );
+
+        let system_content = select_prompt(&self.model).to_string();
+        let system_instruction = GeminiContent {
+            parts: vec![GeminiPart { text: system_content }],
+            role: None,
+        };
+
+        let contents: Vec<GeminiContent> = messages.iter().map(|m| GeminiContent {
+            parts: vec![GeminiPart { text: m.content.clone() }],
+            role: Some(if m.role == "assistant" { "model".to_string() } else { "user".to_string() }),
+        }).collect();
+
+        let request = GeminiRequest {
+            contents,
+            system_instruction: Some(system_instruction),
+            generation_config: GeminiConfig {
+                temperature: 0.1,
+                max_output_tokens: 8192,
+            },
+        };
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()?;
+
+        let delays = [15u64, 45, 120];
+        for (attempt, &delay) in delays.iter().enumerate() {
+            if attempt > 0 {
+                stats.retries += 1;
+                tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+            }
+
+            let resp = match client.post(&url).json(&request).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    stats.connection_errors += 1;
+                    if attempt + 1 == delays.len() {
+                        stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
+                        return Err(anyhow::anyhow!("Gemini connection error: {}", e));
+                    }
+                    println!("   ⚠ Gemini connection error — retry in {}s...", delay);
+                    continue;
+                }
+            };
+
+            let status = resp.status();
+
+            if status.as_u16() == 429 {
+                stats.rate_limits += 1;
+                let body = resp.text().await.unwrap_or_default();
+                // Daily limit
+                if body.contains("limit: 0") || body.contains("RESOURCE_EXHAUSTED") {
+                    stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
+                    return Err(anyhow::anyhow!("Gemini daily limit reached"));
+                }
+                if attempt + 1 == delays.len() {
+                    return Err(anyhow::anyhow!("Gemini 429: {}", &body[..body.len().min(200)]));
+                }
+                println!("   ⚠ Gemini rate limit — retry in {}s...", delay);
+                continue;
+            }
+
+            if !status.is_success() {
+                let body = resp.text().await.unwrap_or_default();
+                return Err(anyhow::anyhow!("Gemini {} — {}", status, &body[..body.len().min(200)]));
+            }
+
+            let data: GeminiResponse = resp.json().await
+                .map_err(|e| anyhow::anyhow!("Gemini parse error: {}", e))?;
+
+            stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
+
+            let text = data.candidates.into_iter().next()
+                .and_then(|c| c.content.parts.into_iter().next())
+                .map(|p| p.text)
+                .ok_or_else(|| anyhow::anyhow!("Gemini empty response"))?;
+
+            return Ok((text, stats));
+        }
+
+        Err(anyhow::anyhow!("Gemini failed after all retries"))
+    }
+
     pub async fn call(&self, messages: &[Message]) -> Result<(String, LlmCallStats)> {
+        // v8.2: إذا كان api_key من Gemini — استخدم gemini_call
+        if std::env::var("GEMINI_API_KEY")
+            .map(|k| !k.is_empty() && self.api_key == k)
+            .unwrap_or(false) {
+            return self.gemini_call(messages).await;
+        }
         let mut stats      = LlmCallStats::default();
         let call_start     = std::time::Instant::now();
-        let system_content = SYSTEM_PROMPT.to_string();
+        let system_content = select_prompt(&self.model).to_string();
         let mut msgs = vec![ApiMsg { role: "system".into(), content: system_content }];
         for m in messages { msgs.push(ApiMsg { role: m.role.clone(), content: m.content.clone() }); }
 

@@ -154,7 +154,19 @@ impl Agent {
                 )
             };
 
-            match self.llm.call(&[Message::user(prompt.clone())]).await {
+            // v8.1: Gemini أولاً — Groq/OpenRouter احتياطي
+            let llm_result = if std::env::var("GEMINI_API_KEY").is_ok() {
+                match self.llm.gemini_call(&[Message::user(prompt.clone())]).await {
+                    Ok(r) => Ok(r),
+                    Err(e) => {
+                        println!("   ⚠ Gemini failed ({}) — fallback to secondary", e);
+                        self.llm.call(&[Message::user(prompt.clone())]).await
+                    }
+                }
+            } else {
+                self.llm.call(&[Message::user(prompt.clone())]).await
+            };
+            match llm_result {
                 Ok((response, call_stats)) => {
                     self.accumulated_stats.retries           += call_stats.retries;
                     self.accumulated_stats.connection_errors += call_stats.connection_errors;

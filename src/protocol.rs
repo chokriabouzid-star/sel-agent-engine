@@ -9,8 +9,13 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Plan {
+    #[serde(default = "default_version")]
     pub version:  String,
     pub commands: Vec<Cmd>,
+}
+
+fn default_version() -> String {
+    "1.0".to_string()
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
