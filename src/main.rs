@@ -43,6 +43,10 @@ enum Commands {
         #[arg(long, default_value = "false")] dry_run: bool,
         #[arg(long)] ref_file: Option<PathBuf>,
         #[arg(long, value_delimiter = ',')] focus: Vec<String>,
+        /// Provider: groq | openrouter | gemini
+        #[arg(long)] provider: Option<String>,
+        /// Model override
+        #[arg(long)] model: Option<String>,
     },
     Health,
     Stress {
@@ -52,6 +56,8 @@ enum Commands {
         #[arg(long, default_value = "all")] suite: String,
         #[arg(long, default_value = "3")]   max_repairs: u8,
         #[arg(long, default_value = "1")]   iterations: u8,
+        #[arg(long)] provider: Option<String>,
+        #[arg(long)] model: Option<String>,
     },
     Scan {
         /// مسار المشروع
@@ -835,7 +841,8 @@ async fn main() -> Result<()> {
             let api_key = crate::llm::resolve_api_key();
             run_health(&api_key).await?;
         }
-        Commands::Bench { suite, max_repairs, iterations } => {
+        Commands::Bench { suite, max_repairs, iterations, provider, model } => {
+            crate::llm::apply_provider(provider.as_deref(), model.as_deref());
             let api_key = crate::llm::resolve_api_key();
             run_bench(&api_key, &suite, max_repairs, iterations).await?;
         }
@@ -853,7 +860,8 @@ async fn main() -> Result<()> {
             let api_key = crate::llm::resolve_api_key();
             run_plan(&api_key, &workspace, &plan, max_repairs).await?;
         }
-        Commands::Run { workspace, goal, max_repairs, dry_run, ref_file, focus } => {
+        Commands::Run { workspace, goal, max_repairs, dry_run, ref_file, focus, provider, model } => {
+            crate::llm::apply_provider(provider.as_deref(), model.as_deref());
             println!("\n╔══════════════════════════════════════════╗");
             println!("║   SEL Agent v6.4 — State Machine Engine   ║");
             println!("╚══════════════════════════════════════════╝");

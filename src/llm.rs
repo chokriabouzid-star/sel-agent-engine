@@ -71,6 +71,60 @@ pub struct LlmCallStats {
 
 
 // ─── v7.0: Multi-Provider Support ─────────────────────────────────────────────
+
+/// v8.3: تطبيق --provider و --model مباشرة
+pub fn apply_provider(provider: Option<&str>, model: Option<&str>) {
+    // --model له أولوية قصوى
+    if let Some(m) = model {
+        std::env::set_var("SEL_MODEL", m);
+        eprintln!("🎯 Model: {}", m);
+    }
+
+    if let Some(p) = provider {
+        match p {
+            "gemini" => {
+                eprintln!("🔷 Provider: Gemini");
+                // GEMINI_API_KEY يجب أن يكون موجوداً
+                if std::env::var("GEMINI_API_KEY").is_err() {
+                    eprintln!("⚠️  GEMINI_API_KEY not set!");
+                }
+            }
+            "groq" => {
+                eprintln!("🟢 Provider: Groq");
+                // أوقف Gemini لإجبار استخدام Groq
+                std::env::remove_var("GEMINI_API_KEY");
+                std::env::set_var("SEL_API_BASE", "https://api.groq.com/openai/v1");
+                if model.is_none() {
+                    std::env::set_var("SEL_MODEL", "llama-3.3-70b-versatile");
+                }
+            }
+            "openrouter" | "or" => {
+                eprintln!("🔵 Provider: OpenRouter");
+                std::env::remove_var("GEMINI_API_KEY");
+                std::env::set_var("SEL_API_BASE", "https://openrouter.ai/api/v1");
+                if model.is_none() {
+                    std::env::set_var("SEL_MODEL", "qwen/qwen3.6-plus:free");
+                }
+            }
+            "deepseek" => {
+                eprintln!("🔴 Provider: DeepSeek (via OpenRouter)");
+                std::env::remove_var("GEMINI_API_KEY");
+                std::env::set_var("SEL_API_BASE", "https://openrouter.ai/api/v1");
+                std::env::set_var("SEL_MODEL", "deepseek/deepseek-chat-v3-0324");
+            }
+            "qwen" => {
+                eprintln!("🟡 Provider: Qwen (via OpenRouter)");
+                std::env::remove_var("GEMINI_API_KEY");
+                std::env::set_var("SEL_API_BASE", "https://openrouter.ai/api/v1");
+                std::env::set_var("SEL_MODEL", "qwen/qwen3.6-plus:free");
+            }
+            _ => {
+                eprintln!("⚠️  Unknown provider '{}'. Use: groq | openrouter | gemini | deepseek | qwen", p);
+            }
+        }
+    }
+}
+
 /// Priority: SEL_API_KEY → OPENROUTER_API_KEY → GROQ_API_KEY
 pub fn resolve_api_key() -> String {
     // v8.2: Gemini FIRST — free & high quality
@@ -98,10 +152,22 @@ pub fn resolve_api_key() -> String {
         }
     }
     if let Ok(k) = std::env::var("GROQ_API_KEY") {
-        if !k.trim().is_empty() { eprintln!("🔑 Using GROQ_API_KEY"); return k; }
+        if !k.trim().is_empty() { 
+            eprintln!("🔑 Using GROQ_API_KEY"); 
+            std::env::set_var("SEL_API_BASE", "https://api.groq.com/openai/v1");
+            return k; 
+        }
     }
     if let Ok(k) = std::env::var("OPENROUTER_API_KEY") {
-        if !k.trim().is_empty() { eprintln!("🔑 Using OPENROUTER_API_KEY"); return k; }
+        if !k.trim().is_empty() { 
+            eprintln!("🔑 Using OPENROUTER_API_KEY"); 
+            std::env::set_var("SEL_API_BASE", "https://openrouter.ai/api/v1");
+            // Use Qwen3.6 Plus (free, excellent for code & agents)
+            if std::env::var("SEL_MODEL").is_err() {
+                std::env::set_var("SEL_MODEL", "qwen/qwen3.6-plus:free");
+            }
+            return k; 
+        }
     }
     panic!("❌ No API key found. Set GROQ_API_KEY or OPENROUTER_API_KEY");
 }
@@ -110,6 +176,13 @@ pub fn resolve_api_key() -> String {
 pub fn resolve_model() -> String {
     if let Ok(m) = std::env::var("SEL_MODEL") {
         if !m.trim().is_empty() { return m; }
+    }
+    // Auto-select based on provider
+    if std::env::var("OPENROUTER_API_KEY").is_ok() {
+        return "deepseek/deepseek-chat".to_string();
+    }
+    if std::env::var("GROQ_API_KEY").is_ok() {
+        return "llama-3.3-70b-versatile".to_string();
     }
     "moonshotai/kimi-k2-instruct".to_string()
 }

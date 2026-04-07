@@ -155,11 +155,18 @@ impl Agent {
             };
 
             // v8.1: Gemini أولاً — Groq/OpenRouter احتياطي
+            // v8.2: Try Gemini first, auto-fallback to Groq/OpenRouter
             let llm_result = if std::env::var("GEMINI_API_KEY").is_ok() {
                 match self.llm.gemini_call(&[Message::user(prompt.clone())]).await {
                     Ok(r) => Ok(r),
+                    Err(e) if e.to_string().contains("daily limit") || e.to_string().contains("RESOURCE_EXHAUSTED") => {
+                        println!("   ⚠ Gemini daily limit — switching to Groq/OpenRouter");
+                        // أنشئ client جديد بدون Gemini
+                        let fallback_llm = crate::llm::LlmClient::from_env();
+                        fallback_llm.call(&[Message::user(prompt.clone())]).await
+                    }
                     Err(e) => {
-                        println!("   ⚠ Gemini failed ({}) — fallback to secondary", e);
+                        println!("   ⚠ Gemini error: {} — retry with Groq", e);
                         self.llm.call(&[Message::user(prompt.clone())]).await
                     }
                 }
