@@ -397,7 +397,11 @@ impl Agent {
             ctx.push_str(&symbols_section);
         }
 
-        ctx.push_str("=== EXISTING WORKSPACE FILES (read carefully before planning) ===\n");
+        ctx.push_str("=== EXISTING WORKSPACE FILES — DO NOT OVERWRITE ===\n");
+        ctx.push_str("CRITICAL: ALL files below ALREADY EXIST. Rules:\n");
+        ctx.push_str("  1. Use patch_file ONLY for any file listed below\n");
+        ctx.push_str("  2. write_file is FORBIDDEN for existing files\n");
+        ctx.push_str("  3. Import symbols from their source files directly\n\n");
         ctx.push_str("CRITICAL: Use patch_file (NOT write_file) for ALL files listed below.\n\n");
 
         for path in &files {

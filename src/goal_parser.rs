@@ -116,6 +116,20 @@ fn detect_extra_deps(kind: &ProjectKind, sub_kind: &SubKind, goal: &str) -> Vec<
                     deps.push("fastapi".into());
                     deps.push("uvicorn[standard]".into());
                     deps.push("httpx".into());       // TestClient يحتاجه
+                    deps.push("python-multipart".into());
+                    deps.push("pydantic".into());
+                    // v8.2: اكتشاف تلقائي من النص
+                    if g.contains("sqlalchemy") || g.contains("sqlite") || g.contains("model")
+                        || g.contains("database") || g.contains("sql") {
+                        deps.push("sqlalchemy".into());
+                    }
+                    if g.contains("bcrypt") || g.contains("password") || g.contains("auth")
+                        || g.contains("register") || g.contains("login") {
+                        deps.push("bcrypt".into());
+                    }
+                    if g.contains("jwt") || g.contains("token") || g.contains("auth") {
+                        deps.push("python-jose[cryptography]".into());
+                    }
                 }
                 SubKind::Flask => {
                     deps.push("flask".into());

@@ -1,0 +1,35 @@
+🔑 Using OPENROUTER_API_KEY
+
+╔══════════════════════════════════════════╗
+║   SEL Bench v1.8 — suite: all           ║
+╚══════════════════════════════════════════╝
+
+   🏗  Scaffold: Python environment
+   📦 Creating venv...
+   ✅ venv created
+   ✅ pytest installed (pinned)
+   🏗  Scaffold ready: Python (1 files)
+
+🧠 Planning...
+   🔍 Environment: python=python3 node=✓ rust=✓
+   ❌ Plan parse failed: API 404 Not Found — {"error":{"message":"No endpoints found for deepseek/deepseek-chat-v3-0324:free.","code":404},"user_id":"user_3BowtLntRLqu8NKa5jvJdC8iylg"}
+
+❌ Agent failed: API 404 Not Found — {"error":{"message":"No endpoints found for deepseek/deepseek-chat-v3-0324:free.","code":404},"user_id":"user_3BowtLntRLqu8NKa5jvJdC8iylg"}
+SEL_FAILED: API 404 Not Found — {"error":{"message":"No endpoints found for deepseek/deepseek-chat-v3-0324:free.","code":404},"user_id":"user_3BowtLntRLqu8NKa5jvJdC8iylg"}
+   ❌ broken import        repairs:0 mutation:—
+   🏗  Scaffold: Python environment
+   📦 Creating venv...
+   ✅ venv created
+   ✅ pytest installed (pinned)
+   🏗  Scaffold ready: Python (1 files)
+
+🧠 Planning...
+   🔍 Environment: python=python3 node=✓ rust=✓
+   ❌ Plan parse failed: API 404 Not Found — {"error":{"message":"No endpoints found for deepseek/deepseek-chat-v3-0324:free.","code":404},"user_id":"user_3BowtLntRLqu8NKa5jvJdC8iylg"}
+
+❌ Agent failed: API 404 Not Found — {"error":{"message":"No endpoints found for deepseek/deepseek-chat-v3-0324:free.","code":404},"user_id":"user_3BowtLntRLqu8NKa5jvJdC8iylg"}
+SEL_FAILED: API 404 Not Found — {"error":{"message":"No endpoints found for deepseek/deepseek-chat-v3-0324:free.","code":404},"user_id":"user_3BowtLntRLqu8NKa5jvJdC8iylg"}
+   ❌ wrong assertion      repairs:0 mutation:—
+   🏗  Scaffold: Python environment
+   📦 Creating venv...
+   ✅ venv created

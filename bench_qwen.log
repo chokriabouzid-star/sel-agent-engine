@@ -1,0 +1,16 @@
+🔑 Using OPENROUTER_API_KEY
+
+╔══════════════════════════════════════════╗
+║   SEL Bench v1.8 — suite: all           ║
+╚══════════════════════════════════════════╝
+
+   🏗  Scaffold: Python environment
+   📦 Creating venv...
+   ✅ venv created
+   ✅ pytest installed (pinned)
+   🏗  Scaffold ready: Python (1 files)
+
+🧠 Planning...
+   🔍 Environment: python=python3 node=✓ rust=✓
+   ⚠ Rate limit (429 Too Many Requests) — retry in 15s...
+   ⏳ Rate limit — retry in 45s...

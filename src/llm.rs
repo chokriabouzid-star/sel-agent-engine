@@ -122,6 +122,18 @@ pub fn apply_provider(provider: Option<&str>, model: Option<&str>) {
                 std::env::set_var("SEL_API_BASE", "https://openrouter.ai/api/v1");
                 std::env::set_var("SEL_MODEL", "qwen/qwen3.6-plus:free");
             }
+            "nemotron" | "nvidia" => {
+                eprintln!("🟢 Provider: Nvidia Nemotron (via OpenRouter)");
+                std::env::remove_var("GEMINI_API_KEY");
+                std::env::set_var("SEL_API_BASE", "https://openrouter.ai/api/v1");
+                std::env::set_var("SEL_MODEL", "nvidia/nemotron-3-nano-30b-a3b:free");
+            }
+            "gemma" => {
+                eprintln!("🔵 Provider: Google Gemma (via OpenRouter)");
+                std::env::remove_var("GEMINI_API_KEY");
+                std::env::set_var("SEL_API_BASE", "https://openrouter.ai/api/v1");
+                std::env::set_var("SEL_MODEL", "google/gemma-3-12b-it:free");
+            }
             _ => {
                 eprintln!("⚠️  Unknown provider '{}'. Use: groq | openrouter | gemini | deepseek | qwen", p);
             }
@@ -131,9 +143,14 @@ pub fn apply_provider(provider: Option<&str>, model: Option<&str>) {
 
 /// Priority: SEL_API_KEY → OPENROUTER_API_KEY → GROQ_API_KEY
 pub fn resolve_api_key() -> String {
-    // v8.2: Gemini FIRST — free & high quality
-    if let Ok(k) = std::env::var("GEMINI_API_KEY") {
-        if !k.trim().is_empty() { eprintln!("🔑 Using GEMINI_API_KEY"); return k; }
+    // v8.2: Gemini فقط إذا لم يكن SEL_API_BASE مضبوطاً (SEL_MODEL له الأولوية)
+    let has_explicit_provider = std::env::var("SEL_API_BASE")
+        .map(|b| !b.trim().is_empty())
+        .unwrap_or(false);
+    if !has_explicit_provider {
+        if let Ok(k) = std::env::var("GEMINI_API_KEY") {
+            if !k.trim().is_empty() { eprintln!("🔑 Using GEMINI_API_KEY"); return k; }
+        }
     }
     // NVIDIA NIM
     if let Ok(k) = std::env::var("NVIDIA_API_KEY") {
@@ -166,9 +183,9 @@ pub fn resolve_api_key() -> String {
         if !k.trim().is_empty() { 
             eprintln!("🔑 Using OPENROUTER_API_KEY"); 
             std::env::set_var("SEL_API_BASE", "https://openrouter.ai/api/v1");
-            // Use Qwen3.6 Plus (free, excellent for code & agents)
+            // Use Nemotron (free, available)
             if std::env::var("SEL_MODEL").is_err() {
-                std::env::set_var("SEL_MODEL", "qwen/qwen3.6-plus:free");
+                std::env::set_var("SEL_MODEL", "nvidia/nemotron-3-nano-30b-a3b:free");
             }
             return k; 
         }
@@ -242,9 +259,7 @@ impl ModelConfig {
     pub fn from_env() -> Self {
         let model    = resolve_model();
         let url      = resolve_base_url(&model);
-        let model_id = if model.starts_with("openrouter/") {
-            model["openrouter/".len()..].to_string()
-        } else { model.clone() };
+        let model_id = model.clone();
         let provider = if url.contains("openrouter.ai")  { Provider::OpenRouter }
                        else if url.contains("groq.com")  { Provider::Groq }
                        else if url.contains("moonshot.ai") { Provider::Moonshot }
@@ -361,7 +376,10 @@ struct ApiMsg { role: String, content: String }
 struct Response { choices: Vec<Choice> }
 
 #[derive(Deserialize)]
-struct Choice { message: ApiMsg }
+struct Choice { message: RespMsg }
+
+#[derive(Deserialize)]
+struct RespMsg { role: Option<String>, content: Option<String> }
 
 impl LlmClient {
     pub fn from_env() -> Self {
@@ -374,9 +392,7 @@ impl LlmClient {
         let key     = if api_key.is_empty() { resolve_api_key() } else { api_key };
         let model   = resolve_model();
         let url     = resolve_base_url(&model);
-        let model_id = if model.starts_with("openrouter/") {
-            model["openrouter/".len()..].to_string()
-        } else { model.clone() };
+        let model_id = model.clone();
         let provider = if url.contains("openrouter.ai") { Provider::OpenRouter }
                        else if url.contains("groq.com") { Provider::Groq }
                        else { Provider::Custom };
@@ -608,12 +624,20 @@ impl LlmClient {
                 return Err(anyhow!("API {} — {}", status, &body[..body.len().min(200)]));
             }
 
-            let data: Response = resp.json().await?;
+            let body_text = resp.text().await.unwrap_or_default();
+            let data: Response = match serde_json::from_str(&body_text) {
+                Ok(d) => d,
+                Err(e) => {
+                    stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
+                    let snippet = if body_text.len() > 1000 { &body_text[..1000] } else { &body_text };
+                    return Err(anyhow!("JSON Parse Error: {} — Body: {}", e, snippet));
+                }
+            };
             stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
             let result = data.choices.into_iter().next()
                 .map(|c| c.message.content)
                 .ok_or_else(|| anyhow!("Empty response"));
-            return result.map(|text| (text, stats));
+            return result.map(|text| (text.unwrap_or_default(), stats));
         }
         stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
         Err(anyhow!("LLM failed after all retries"))

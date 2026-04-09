@@ -301,7 +301,7 @@ impl SafeExecutor {
         let new_lines = patched.lines().count();
         let diff = (new_lines as i32 - orig_lines as i32).abs();
         
-        if diff > 20 {
+        if diff > 80 {
             return Err(format!("Patch changed too many lines: {} → {} lines", orig_lines, new_lines));
         }
         
@@ -768,6 +768,51 @@ impl SafeExecutor {
         }
         let t = if target.is_empty() || target == "." { String::new() } else { format!(" {}", target) };
         let cmd = format!("{}{} -v --tb=short", pytest, t);
+
+        // ═══════════════════════════════════════════════════════════
+        // v8.2: Pre-flight syntax check — catch IndentationError/SyntaxError
+        // before wasting time on pytest collection
+        // ═══════════════════════════════════════════════════════════
+        {
+            let py_cmd = if self.workspace.join("venv/bin/python3").exists() {
+                "venv/bin/python3"
+            } else {
+                "python3"
+            };
+            for entry in std::fs::read_dir(&self.workspace).into_iter().flat_map(|e| e) {
+                let entry = match entry { Ok(e) => e, Err(_) => continue };
+                let path = entry.path();
+                if path.extension().and_then(|x| x.to_str()) != Some("py") { continue; }
+                let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                let check = std::process::Command::new(py_cmd)
+                    .args(["-c", &format!(
+                        "compile(open('{}').read(), '{}', 'exec')",
+                        fname, fname
+                    )])
+                    .current_dir(&self.workspace)
+                    .output();
+                if let Ok(out) = check {
+                    if !out.status.success() {
+                        let err = String::from_utf8_lossy(&out.stderr).to_string();
+                        // Filter only real syntax errors
+                        if err.contains("SyntaxError") || err.contains("IndentationError") {
+                            println!("   ⚠️  Pre-flight: syntax error in {}", fname);
+                            return Ok(ExecResult {
+                                success: false,
+                                exit_code: 2,
+                                stdout: String::new(),
+                                stderr: format!(
+                                    "Pre-flight syntax check FAILED for '{}':\n{}",
+                                    fname, err
+                                ),
+                                duration_ms: 0,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
         println!("   🧪 {}", cmd);
 
         let out = tokio::time::timeout(

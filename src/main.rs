@@ -75,7 +75,9 @@ enum Commands {
     Plan {
         #[arg(long)] workspace: PathBuf,
         #[arg(long)] plan: PathBuf,
-        #[arg(long, default_value = "3")] max_repairs: u8,
+        #[arg(long, default_value = "5")] max_repairs: u8,
+        #[arg(long)] provider: Option<String>,
+        #[arg(long)] model: Option<String>,
     },
 }
 
@@ -856,7 +858,8 @@ async fn main() -> Result<()> {
         Commands::Compare { models, suite, max_repairs } => {
             run_compare(&models, &suite, max_repairs).await?;
         }
-        Commands::Plan { workspace, plan, max_repairs } => {
+        Commands::Plan { workspace, plan, max_repairs, provider, model } => {
+            crate::llm::apply_provider(provider.as_deref(), model.as_deref());
             let api_key = crate::llm::resolve_api_key();
             run_plan(&api_key, &workspace, &plan, max_repairs).await?;
         }

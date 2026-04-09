@@ -38,6 +38,15 @@ TEST RULES (sqlite in-memory):
 - Floats: pytest.approx(x, rel=1e-6)
 - Min 6 tests per file, test edge cases
 
+FASTAPI+SQLITE TEST FIXTURE (copy exactly):
+- engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+- Base.metadata.create_all(engine) BEFORE yield
+- Base.metadata.drop_all(engine) AFTER yield
+- app.dependency_overrides[get_db] = lambda: db
+- app.dependency_overrides.clear() at teardown
+- NEVER import get_db/models/database from main — import from their own files
+- from database import get_db; from models import Base, User, Product
+
 NAMING: NEVER name files: math.py string.py os.py json.py types.py
 
 PYTHON IN JSON: use single quotes only inside content strings

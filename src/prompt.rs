@@ -137,6 +137,32 @@ impl PromptEngine {
                        bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()). \
                        Never call hashpw() with only one argument.".into(),
             },
+            // v8.2: SQLite threading — اكتُشف في POS Test
+            Rule {
+                kind: RuleKind::Always,
+                text: "use connect_args={\"check_same_thread\": False} \
+                       when creating SQLite engine with create_engine().".into(),
+            },
+            // v8.2: Table creation — اكتُشف في POS Test Task 2
+            Rule {
+                kind: RuleKind::Always,
+                text: "call Base.metadata.create_all(bind=engine) in database.py \
+                       or in the test fixture BEFORE any query. \
+                       Missing this causes 'no such table' errors.".into(),
+            },
+            // v8.2: Import pattern — اكتُشف في POS Test Tasks 1-3
+            Rule {
+                kind: RuleKind::Never,
+                text: "import get_db, models, or database FROM main.py. \
+                       Import each from its OWN file: \
+                       from database import get_db; from models import User; etc.".into(),
+            },
+            // v8.2: Pydantic V2 style — اكتُشف في POS Test
+            Rule {
+                kind: RuleKind::Never,
+                text: "use class Config with orm_mode in Pydantic models. \
+                       Use model_config = ConfigDict(from_attributes=True) instead.".into(),
+            },
         ]
     }
 
@@ -626,6 +652,58 @@ from datetime import timezone",
                     "from datetime import datetime, timedelta, timezone
 from fastapi import Depends",
                 );
+                fixes += 1;
+            }
+        }
+
+        // ─────────────────────────────────────────────────
+        // v8.2: Fix Pydantic V2 — orm_mode → from_attributes
+        // ─────────────────────────────────────────────────
+        let pydantic_replacements: &[(&str, &str)] = &[
+            // class Config → model_config
+            (
+                "    class Config:
+        orm_mode = True",
+                "    model_config = ConfigDict(from_attributes=True)",
+            ),
+            (
+                "    class Config:
+        orm_mode = True
+",
+                "    model_config = ConfigDict(from_attributes=True)
+",
+            ),
+            // orm_mode standalone
+            ("orm_mode = True", "from_attributes = True"),
+            // .dict() → .model_dump()
+            (".dict()", ".model_dump()"),
+            // schema deprecated warning
+            ("class Config:", "# model_config = ConfigDict(from_attributes=True)  # v8.2"),
+        ];
+
+        for (old_p, new_p) in pydantic_replacements {
+            if result.contains(old_p) {
+                result = result.replace(old_p, new_p);
+                fixes += 1;
+            }
+        }
+
+        // أضف import ConfigDict إذا استخدمنا from_attributes
+        if result.contains("ConfigDict") && !result.contains("from pydantic import") {
+            if result.contains("from pydantic") {
+                // أضف ConfigDict للـ import الموجود
+                let old_line = result.lines()
+                    .find(|l| l.trim().starts_with("from pydantic import"))
+                    .unwrap_or("")
+                    .to_string();
+                if !old_line.is_empty() && !old_line.contains("ConfigDict") {
+                    let new_line = format!("{}, ConfigDict", old_line.trim_end());
+                    result = result.replacen(&old_line, &new_line, 1);
+                    fixes += 1;
+                }
+            } else {
+                result = format!("from pydantic import BaseModel, ConfigDict
+{}", result);
                 fixes += 1;
             }
         }
