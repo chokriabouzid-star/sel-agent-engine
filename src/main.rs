@@ -1,17 +1,18 @@
+mod llm_engine;
 // src/main.rs — SEL Agent v6.4
-mod context;
-mod chunker;
-mod types;
-mod protocol;
-mod executor;
-mod llm;
 mod agent;
-mod memory;
-mod scanner;
-mod scaffold_engine;
-mod goal_parser;
-mod evaluator;
+mod chunker;
+mod context;
 mod environment;
+mod evaluator;
+mod executor;
+mod goal_parser;
+mod llm;
+mod memory;
+mod protocol;
+mod scaffold_engine;
+mod scanner;
+mod types;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -30,21 +31,31 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Run {
-        #[arg(long)] workspace:   PathBuf,
-        #[arg(long)] goal:        String,
-        #[arg(long, default_value = "3")] max_repairs: u8,
-        #[arg(long, default_value = "false")] dry_run: bool,
-        #[arg(long)] ref_file: Option<PathBuf>,
-        #[arg(long, value_delimiter = ',')] focus: Vec<String>,
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        goal: String,
+        #[arg(long, default_value = "3")]
+        max_repairs: u8,
+        #[arg(long, default_value = "false")]
+        dry_run: bool,
+        #[arg(long)]
+        ref_file: Option<PathBuf>,
+        #[arg(long, value_delimiter = ',')]
+        focus: Vec<String>,
     },
     Health,
     Stress {
-        #[arg(long, default_value = "3")] max_repairs: u8,
+        #[arg(long, default_value = "3")]
+        max_repairs: u8,
     },
     Bench {
-        #[arg(long, default_value = "all")] suite: String,
-        #[arg(long, default_value = "3")]   max_repairs: u8,
-        #[arg(long, default_value = "1")]   iterations: u8,
+        #[arg(long, default_value = "all")]
+        suite: String,
+        #[arg(long, default_value = "3")]
+        max_repairs: u8,
+        #[arg(long, default_value = "1")]
+        iterations: u8,
     },
     Scan {
         /// مسار المشروع
@@ -55,14 +66,20 @@ enum Commands {
         json: bool,
     },
     Compare {
-        #[arg(long, value_delimiter = ',')] models: Vec<String>,
-        #[arg(long, default_value = "python")] suite: String,
-        #[arg(long, default_value = "3")]   max_repairs: u8,
+        #[arg(long, value_delimiter = ',')]
+        models: Vec<String>,
+        #[arg(long, default_value = "python")]
+        suite: String,
+        #[arg(long, default_value = "3")]
+        max_repairs: u8,
     },
     Plan {
-        #[arg(long)] workspace: PathBuf,
-        #[arg(long)] plan: PathBuf,
-        #[arg(long, default_value = "3")] max_repairs: u8,
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long, default_value = "3")]
+        max_repairs: u8,
     },
 }
 
@@ -72,54 +89,70 @@ async fn run_health(api_key: &str) -> Result<()> {
     println!("╚══════════════════════════════════════════╝\n");
     // Provider info في الـ bench
     {
-        let mdl = std::env::var("SEL_MODEL")
-            .unwrap_or_else(|_| "kimi".to_string());
+        let mdl = std::env::var("SEL_MODEL").unwrap_or_else(|_| "kimi".to_string());
         let (ep, key) = if let Ok(base) = std::env::var("SEL_API_BASE") {
             let k = std::env::var("SEL_API_KEY").unwrap_or_default();
             (base, k)
         } else if mdl.contains("gemini") || mdl.starts_with("models/") {
             let k = std::env::var("GEMINI_API_KEY").unwrap_or_default();
-            ("https://generativelanguage.googleapis.com/v1beta/openai".to_string(), k)
+            (
+                "https://generativelanguage.googleapis.com/v1beta/openai".to_string(),
+                k,
+            )
         } else {
             let k = std::env::var("GROQ_API_KEY").unwrap_or_default();
             ("https://api.groq.com/openai/v1".to_string(), k)
         };
-        crate::llm::print_provider_info(&ep, &mdl, &key);
+        // print_provider_info removed(&ep, &mdl, &key);
         println!();
     }
 
     let internet = reqwest::Client::new()
         .get("https://1.1.1.1")
         .timeout(Duration::from_secs(5))
-        .send().await;
+        .send()
+        .await;
     match internet {
-        Ok(_)  => println!("🌐 Internet:     {}", "✅ Connected".green()),
+        Ok(_) => println!("🌐 Internet:     {}", "✅ Connected".green()),
         Err(_) => println!("🌐 Internet:     {}", "❌ No connection".red()),
     }
 
     let groq = reqwest::Client::new()
         .get("https://api.groq.com")
         .timeout(Duration::from_secs(5))
-        .send().await;
+        .send()
+        .await;
     match groq {
-        Ok(_)  => println!("🔌 Groq Server:  {}", "✅ Reachable".green()),
+        Ok(_) => println!("🔌 Groq Server:  {}", "✅ Reachable".green()),
         Err(_) => println!("🔌 Groq Server:  {}", "❌ Unreachable".red()),
     }
 
+    let api_key_str = if api_key.is_empty() {
+        std::env::var("OPENROUTER_API_KEY")
+            .or_else(|_| std::env::var("GEMINI_API_KEY"))
+            .or_else(|_| std::env::var("GROQ_API_KEY"))
+            .unwrap_or_default()
+    } else { api_key.to_string() };
+    let api_key = api_key_str.as_str();
     let key_preview = if api_key.len() > 8 {
         format!("{}...", &api_key[..8])
-    } else { "???".to_string() };
+    } else {
+        "???".to_string()
+    };
     println!("🔑 API Key:      {} ({})", "✅ Set".green(), key_preview);
 
     let pb = ProgressBar::new_spinner();
-    pb.set_style(ProgressStyle::default_spinner()
-        .template("{spinner:.cyan} 🤖 Model:        Testing response...").unwrap());
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.cyan} 🤖 Model:        Testing response...")
+            .unwrap(),
+    );
     pb.enable_steady_tick(Duration::from_millis(100));
 
-    let llm = llm::LlmClient::new(api_key.to_string());
+    let mut llm = llm_engine::LlmEngine::from_env();
     let test_msg = types::Message::user("Reply with exactly: PONG".to_string());
     match llm.call(&[test_msg]).await {
-        Ok((resp, _stats)) => {
+        Ok(resp) => {
             pb.finish_and_clear();
             if !resp.is_empty() {
                 println!("🤖 Model:        {}", "✅ Responding".green());
@@ -134,11 +167,14 @@ async fn run_health(api_key: &str) -> Result<()> {
     }
 
     let binary = std::env::current_exe().unwrap_or_default();
-    println!("⚙️  SEL Binary:   {} ({})", "✅ Built".green(), binary.display());
+    println!(
+        "⚙️  SEL Binary:   {} ({})",
+        "✅ Built".green(),
+        binary.display()
+    );
     println!();
     Ok(())
 }
-
 
 async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8) -> Result<()> {
     let all_cases: &[(&str, &str, &str)] = &[
@@ -184,17 +220,21 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8) 
         ("typescript", "ts express", "Create TypeScript Express app. Write app.ts exporting express app with GET /health route returning JSON {status:\"ok\"}. Create package.json with ts-jest jest typescript express @types/express supertest @types/supertest. Create tsconfig.json. Write app.test.ts using supertest: assert status 200 and body.status===\"ok\". Run npm test."),
     ];
 
-    let cases: Vec<_> = all_cases.iter().filter(|(lang, _, _)| {
-        suite == "all" || *lang == suite
-    }).collect();
+    let cases: Vec<_> = all_cases
+        .iter()
+        .filter(|(lang, _, _)| suite == "all" || *lang == suite)
+        .collect();
 
     // v5.7: integration suite له دالة منفصلة
     if suite == "integration" {
-        return run_integration_bench(api_key, max_repairs).await;
+        return run_integration_bench("", max_repairs).await;
     }
 
     if cases.is_empty() {
-        println!("❌ Unknown suite '{}'. Use: python, go, node, rust, typescript, integration, all", suite);
+        println!(
+            "❌ Unknown suite '{}'. Use: python, go, node, rust, typescript, integration, all",
+            suite
+        );
         return Ok(());
     }
 
@@ -207,25 +247,39 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8) 
     let mut passed = 0usize;
     let mut total_repairs = 0usize;
     let mut mutation_killed = 0u32;
-    let mut mutation_total  = 0u32;
+    let mut mutation_total = 0u32;
     let tmpdir = std::env::temp_dir();
 
     for iter in 0..iterations {
         if iterations > 1 {
-            println!("\n── Iteration {}/{} ──────────────────────────", iter+1, iterations);
+            println!(
+                "\n── Iteration {}/{} ──────────────────────────",
+                iter + 1,
+                iterations
+            );
         }
         for (i, (_lang, name, goal)) in cases.iter().enumerate() {
             let workspace = tmpdir.join(format!("sel-bench-{}-{}", iter, i));
             let _ = std::fs::remove_dir_all(&workspace);
             std::fs::create_dir_all(&workspace).ok();
             let pb = ProgressBar::new_spinner();
-            pb.set_style(ProgressStyle::default_spinner()
-                .template(&format!("{{spinner:.cyan}} 🔬 [{}/{}] {}...", iter+1, iterations, name)).unwrap());
+            pb.set_style(
+                ProgressStyle::default_spinner()
+                    .template(&format!(
+                        "{{spinner:.cyan}} 🔬 [{}/{}] {}...",
+                        iter + 1,
+                        iterations,
+                        name
+                    ))
+                    .unwrap(),
+            );
             pb.enable_steady_tick(Duration::from_millis(80));
 
             let mut agent = crate::agent::Agent::new(
-                api_key.to_string(), workspace.clone(),
-                goal.to_string(), max_repairs,
+                api_key.to_string(),
+                workspace.clone(),
+                goal.to_string(),
+                max_repairs,
                 types::ContextConfig::default(),
             );
             let ok = agent.run().await.is_ok();
@@ -234,35 +288,70 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8) 
             let repairs = agent.repair_count();
             total_repairs += repairs;
             let ms = agent.mutation_score();
-            if ms >= 0.0 { mutation_total += 1; if ms >= 1.0 { mutation_killed += 1; } }
+            if ms >= 0.0 {
+                mutation_total += 1;
+                if ms >= 1.0 {
+                    mutation_killed += 1;
+                }
+            }
 
             let status = if ok { "✅" } else { "❌" };
-            let ms_str = if ms >= 0.0 { format!("{:.0}%", ms * 100.0) } else { "—".to_string() };
-            println!("   {} {:20} repairs:{} mutation:{}", status, name, repairs, ms_str);
-            if ok { passed += 1; }
+            let ms_str = if ms >= 0.0 {
+                format!("{:.0}%", ms * 100.0)
+            } else {
+                "—".to_string()
+            };
+            println!(
+                "   {} {:20} repairs:{} mutation:{}",
+                status, name, repairs, ms_str
+            );
+            if ok {
+                passed += 1;
+            }
         }
     }
 
     let success_rate = passed as f64 / total_runs as f64;
-    let avg_repairs  = total_repairs as f64 / total_runs as f64;
-    let mut_score    = if mutation_total > 0 { mutation_killed as f64 / mutation_total as f64 } else { -1.0 };
-    let quality      = if mut_score >= 0.0 { success_rate * mut_score } else { success_rate };
+    let avg_repairs = total_repairs as f64 / total_runs as f64;
+    let mut_score = if mutation_total > 0 {
+        mutation_killed as f64 / mutation_total as f64
+    } else {
+        -1.0
+    };
+    let quality = if mut_score >= 0.0 {
+        success_rate * mut_score
+    } else {
+        success_rate
+    };
 
     println!("\n╔══════════════════════════════════════════╗");
     println!("║   SEL Bench Results                      ║");
     println!("╠══════════════════════════════════════════╣");
     println!("║  Suite:          {:<23}║", suite);
     println!("║  Iterations:     {:<23}║", iterations);
-    println!("║  Passed:         {:<23}║", format!("{}/{}", passed, total_runs));
-    println!("║  Success Rate:   {:<23}║", format!("{:.1}%", success_rate * 100.0));
+    println!(
+        "║  Passed:         {:<23}║",
+        format!("{}/{}", passed, total_runs)
+    );
+    println!(
+        "║  Success Rate:   {:<23}║",
+        format!("{:.1}%", success_rate * 100.0)
+    );
     println!("║  Avg Repairs:    {:<23}║", format!("{:.1}", avg_repairs));
-    println!("║  Mutation Score: {:<23}║", if mut_score >= 0.0 { format!("{:.0}%", mut_score * 100.0) } else { "N/A".to_string() });
+    println!(
+        "║  Mutation Score: {:<23}║",
+        if mut_score >= 0.0 {
+            format!("{:.0}%", mut_score * 100.0)
+        } else {
+            "N/A".to_string()
+        }
+    );
     println!("║  Quality Index:  {:<23}║", format!("{:.2}", quality));
     println!("╚══════════════════════════════════════════╝\n");
 
     // POST to Observatory
-    let model = std::env::var("SEL_MODEL")
-        .unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string());
+    let model =
+        std::env::var("SEL_MODEL").unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string());
     let version = std::env::var("SEL_VERSION").unwrap_or_else(|_| "v1.9".to_string());
     let body = serde_json::json!({
         "version": version,
@@ -331,8 +420,11 @@ async fn run_stress(api_key: &str, max_repairs: u8) -> Result<()> {
         let _ = std::fs::remove_dir_all(&workspace);
 
         let pb = ProgressBar::new_spinner();
-        pb.set_style(ProgressStyle::default_spinner()
-            .template(&format!("{{spinner:.yellow}} ⏳ Running: {}...", name)).unwrap());
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .template(&format!("{{spinner:.yellow}} ⏳ Running: {}...", name))
+                .unwrap(),
+        );
         pb.enable_steady_tick(Duration::from_millis(80));
 
         let mut ag = agent::Agent::new(
@@ -360,11 +452,17 @@ async fn run_stress(api_key: &str, max_repairs: u8) -> Result<()> {
         }
     }
 
-    let avg = if passed > 0 { total_repairs as f64 / passed as f64 } else { 0.0 };
-    println!("\n=== Stress Results: {}/{} passed | avg repairs: {:.1} ===\n", passed, total, avg);
+    let avg = if passed > 0 {
+        total_repairs as f64 / passed as f64
+    } else {
+        0.0
+    };
+    println!(
+        "\n=== Stress Results: {}/{} passed | avg repairs: {:.1} ===\n",
+        passed, total, avg
+    );
     Ok(())
 }
-
 
 async fn run_integration_bench(api_key: &str, max_repairs: u8) -> Result<()> {
     println!("\n╔══════════════════════════════════════════╗");
@@ -425,7 +523,12 @@ async fn run_integration_bench(api_key: &str, max_repairs: u8) -> Result<()> {
     let tmpdir = std::env::temp_dir();
 
     for (i, (name, goal1, goal2, ref_hint)) in cases.iter().enumerate() {
-        println!("\n── Test {}/{}: {} ──────────────────────", i+1, total, name);
+        println!(
+            "\n── Test {}/{}: {} ──────────────────────",
+            i + 1,
+            total,
+            name
+        );
 
         // Phase 1: Build
         let workspace = tmpdir.join(format!("sel-integration-{}", i));
@@ -433,13 +536,18 @@ async fn run_integration_bench(api_key: &str, max_repairs: u8) -> Result<()> {
         std::fs::create_dir_all(&workspace).ok();
 
         let pb = ProgressBar::new_spinner();
-        pb.set_style(ProgressStyle::default_spinner()
-            .template(&format!("{{spinner:.cyan}} Phase1 [{}]...", name)).unwrap());
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .template(&format!("{{spinner:.cyan}} Phase1 [{}]...", name))
+                .unwrap(),
+        );
         pb.enable_steady_tick(Duration::from_millis(80));
 
         let mut agent1 = crate::agent::Agent::new(
-            api_key.to_string(), workspace.clone(),
-            goal1.to_string(), max_repairs,
+            api_key.to_string(),
+            workspace.clone(),
+            goal1.to_string(),
+            max_repairs,
             types::ContextConfig::default(),
         );
         let ok1 = agent1.run().await.is_ok();
@@ -450,7 +558,10 @@ async fn run_integration_bench(api_key: &str, max_repairs: u8) -> Result<()> {
             phase1_passed += 1;
             println!("   ✅ Phase1 passed (repairs: {})", repairs1);
         } else {
-            println!("   ❌ Phase1 FAILED (repairs: {}) — skipping Phase2", repairs1);
+            println!(
+                "   ❌ Phase1 FAILED (repairs: {}) — skipping Phase2",
+                repairs1
+            );
             total_repairs += repairs1;
             continue;
         }
@@ -458,19 +569,28 @@ async fn run_integration_bench(api_key: &str, max_repairs: u8) -> Result<()> {
         // Phase 2: Patch
         let ref_file_path = workspace.join(ref_hint);
         let ctx_config = types::ContextConfig {
-            ref_file: if ref_file_path.exists() { Some(ref_file_path) } else { None },
+            ref_file: if ref_file_path.exists() {
+                Some(ref_file_path)
+            } else {
+                None
+            },
             focus_paths: vec!["src/".to_string()],
             ..Default::default()
         };
 
         let pb2 = ProgressBar::new_spinner();
-        pb2.set_style(ProgressStyle::default_spinner()
-            .template(&format!("{{spinner:.green}} Phase2 [{}]...", name)).unwrap());
+        pb2.set_style(
+            ProgressStyle::default_spinner()
+                .template(&format!("{{spinner:.green}} Phase2 [{}]...", name))
+                .unwrap(),
+        );
         pb2.enable_steady_tick(Duration::from_millis(80));
 
         let mut agent2 = crate::agent::Agent::new(
-            api_key.to_string(), workspace.clone(),
-            goal2.to_string(), max_repairs,
+            api_key.to_string(),
+            workspace.clone(),
+            goal2.to_string(),
+            max_repairs,
             ctx_config,
         );
         let ok2 = agent2.run().await.is_ok();
@@ -490,14 +610,30 @@ async fn run_integration_bench(api_key: &str, max_repairs: u8) -> Result<()> {
         let _ = std::fs::remove_dir_all(&workspace);
     }
 
-    let avg_repairs = if total > 0 { total_repairs as f64 / total as f64 } else { 0.0 };
+    let avg_repairs = if total > 0 {
+        total_repairs as f64 / total as f64
+    } else {
+        0.0
+    };
     println!("\n╔══════════════════════════════════════════╗");
     println!("║   Integration Bench Results               ║");
     println!("╠══════════════════════════════════════════╣");
-    println!("║  Tests:          {:<23}║", format!("{} cases x 2 phases", total));
-    println!("║  Phase1 passed:  {:<23}║", format!("{}/{}", phase1_passed, total));
-    println!("║  Phase2 passed:  {:<23}║", format!("{}/{}", phase2_passed, total));
-    println!("║  Full passed:    {:<23}║", format!("{}/{}", passed, total));
+    println!(
+        "║  Tests:          {:<23}║",
+        format!("{} cases x 2 phases", total)
+    );
+    println!(
+        "║  Phase1 passed:  {:<23}║",
+        format!("{}/{}", phase1_passed, total)
+    );
+    println!(
+        "║  Phase2 passed:  {:<23}║",
+        format!("{}/{}", phase2_passed, total)
+    );
+    println!(
+        "║  Full passed:    {:<23}║",
+        format!("{}/{}", passed, total)
+    );
     println!("║  Avg Repairs:    {:<23}║", format!("{:.1}", avg_repairs));
     println!("╚══════════════════════════════════════════╝\n");
 
@@ -514,17 +650,17 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
 
     #[derive(Debug)]
     struct ModelResult {
-        model:        String,
-        passed:       usize,
-        total:        usize,
-        avg_repairs:  f64,
-        mut_score:    f64,
-        quality:      f64,
+        model: String,
+        passed: usize,
+        total: usize,
+        avg_repairs: f64,
+        mut_score: f64,
+        quality: f64,
         elapsed_secs: u64,
-        retries:           u32,
+        retries: u32,
         connection_errors: u32,
-        rate_limits:       u32,
-        timeouts:          u32,
+        rate_limits: u32,
+        timeouts: u32,
     }
 
     let all_cases: &[(&str, &str, &str)] = &[
@@ -536,12 +672,16 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
         ("node",   "node add",        "Create Node.js CommonJS module math.js exporting add(a,b). Create package.json with jest. Write math.test.js testing add(2,3)===5 and add(-1,1)===0. Run npm test."),
     ];
 
-    let cases: Vec<_> = all_cases.iter().filter(|(lang, _, _)| {
-        suite == "all" || *lang == suite
-    }).collect();
+    let cases: Vec<_> = all_cases
+        .iter()
+        .filter(|(lang, _, _)| suite == "all" || *lang == suite)
+        .collect();
 
     if cases.is_empty() {
-        println!("❌ Unknown suite '{}'. Use: python, go, node, rust, typescript, all", suite);
+        println!(
+            "❌ Unknown suite '{}'. Use: python, go, node, rust, typescript, all",
+            suite
+        );
         return Ok(());
     }
 
@@ -549,21 +689,28 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
     let mut results: Vec<ModelResult> = Vec::new();
 
     for model_alias in models {
-        println!("\n🤖 Testing model: {} ──────────────────────────", model_alias);
+        println!(
+            "\n🤖 Testing model: {} ──────────────────────────",
+            model_alias
+        );
 
         let model_cfg = llm::ModelConfig::from_alias(model_alias);
-        let api_key = std::env::var(&model_cfg.env_key)
-            .unwrap_or_else(|_| {
-                println!("   ⚠ {} غير موجود — تخطي النموذج {}", model_cfg.env_key, model_alias);
-                String::new()
-            });
+        let api_key = std::env::var(&model_cfg.env_key).unwrap_or_else(|_| {
+            println!(
+                "   ⚠ {} غير موجود — تخطي النموذج {}",
+                model_cfg.env_key, model_alias
+            );
+            String::new()
+        });
 
-        if api_key.is_empty() { continue; }
+        if api_key.is_empty() {
+            continue;
+        }
 
         let mut passed = 0usize;
         let mut total_repairs = 0usize;
         let mut mutation_killed = 0u32;
-        let mut mutation_total  = 0u32;
+        let mut mutation_total = 0u32;
         let mut total_retries = 0usize;
         let mut total_connection_errors = 0usize;
         let mut total_rate_limits = 0usize;
@@ -577,8 +724,16 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
             std::fs::create_dir_all(&workspace).expect("failed to create workspace");
 
             let pb = ProgressBar::new_spinner();
-            pb.set_style(ProgressStyle::default_spinner()
-                .template(&format!("{{spinner:.cyan}} [{}/{}] {}...", i+1, total, name)).unwrap());
+            pb.set_style(
+                ProgressStyle::default_spinner()
+                    .template(&format!(
+                        "{{spinner:.cyan}} [{}/{}] {}...",
+                        i + 1,
+                        total,
+                        name
+                    ))
+                    .unwrap(),
+            );
             pb.enable_steady_tick(Duration::from_millis(80));
 
             let mut agent = crate::agent::Agent::new_with_model(
@@ -594,7 +749,11 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
             pb.finish_and_clear();
 
             if let Err(ref e) = run_result {
-                println!("   ❌ {:20} FAILED: {}", name, &e.to_string()[..e.to_string().len().min(80)]);
+                println!(
+                    "   ❌ {:20} FAILED: {}",
+                    name,
+                    &e.to_string()[..e.to_string().len().min(80)]
+                );
                 let _ = std::fs::remove_dir_all(&workspace);
                 continue;
             }
@@ -603,60 +762,92 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
             total_repairs += repairs;
             // v6.1: تراكم إحصائيات الاتصال
             let cstats = agent.call_stats();
-            total_retries           += cstats.retries as usize;
+            total_retries += cstats.retries as usize;
             total_connection_errors += cstats.connection_errors as usize;
-            total_rate_limits       += cstats.rate_limits as usize;
-            total_timeouts          += cstats.timeouts as usize;
+            total_rate_limits += cstats.rate_limits as usize;
+            total_timeouts += cstats.timeouts as usize;
             let ms = agent.mutation_score();
-            if ms >= 0.0 { mutation_total += 1; if ms >= 1.0 { mutation_killed += 1; } }
+            if ms >= 0.0 {
+                mutation_total += 1;
+                if ms >= 1.0 {
+                    mutation_killed += 1;
+                }
+            }
 
             let status = if ok { "✅" } else { "❌" };
-            let ms_str = if ms >= 0.0 { format!("{:.0}%", ms * 100.0) } else { "—".to_string() };
-            println!("   {} {:20} repairs:{} mutation:{}", status, name, repairs, ms_str);
-            if ok { passed += 1; }
+            let ms_str = if ms >= 0.0 {
+                format!("{:.0}%", ms * 100.0)
+            } else {
+                "—".to_string()
+            };
+            println!(
+                "   {} {:20} repairs:{} mutation:{}",
+                status, name, repairs, ms_str
+            );
+            if ok {
+                passed += 1;
+            }
             let _ = std::fs::remove_dir_all(&workspace);
         }
 
         let elapsed = start.elapsed().as_secs();
         let success_rate = passed as f64 / total as f64;
-        let avg_repairs  = total_repairs as f64 / total as f64;
-        let mut_score    = if mutation_total > 0 { mutation_killed as f64 / mutation_total as f64 } else { -1.0 };
-        let quality      = if mut_score >= 0.0 { success_rate * mut_score } else { success_rate };
+        let avg_repairs = total_repairs as f64 / total as f64;
+        let mut_score = if mutation_total > 0 {
+            mutation_killed as f64 / mutation_total as f64
+        } else {
+            -1.0
+        };
+        let quality = if mut_score >= 0.0 {
+            success_rate * mut_score
+        } else {
+            success_rate
+        };
 
         results.push(ModelResult {
             model: model_cfg.model_id.clone(),
-            passed, total, avg_repairs, mut_score, quality,
+            passed,
+            total,
+            avg_repairs,
+            mut_score,
+            quality,
             elapsed_secs: elapsed,
-            retries:           total_retries as u32,
+            retries: total_retries as u32,
             connection_errors: total_connection_errors as u32,
-            rate_limits:       total_rate_limits as u32,
-            timeouts:          total_timeouts as u32,
+            rate_limits: total_rate_limits as u32,
+            timeouts: total_timeouts as u32,
         });
     }
 
     // ── v6.1: RAS + DTO ──
     let max_time = results.iter().map(|r| r.elapsed_secs).max().unwrap_or(1);
-    let mut scores: Vec<evaluator::ModelScore> = results.iter().enumerate().map(|(i, r)| {
-        let raw = evaluator::RawMetrics {
-            tests_passed:      r.passed as u32,
-            tests_total:       r.total as u32,
-            mutation_score:    if r.mut_score >= 0.0 { r.mut_score } else { 0.0 },
-            repairs:           (r.avg_repairs * r.total as f64).round() as u32,
-            retries:           r.retries,
-            connection_errors: r.connection_errors,
-            rate_limits:       r.rate_limits,
-            timeouts:          r.timeouts,
-            elapsed_secs:      r.elapsed_secs,
-        };
-        evaluator::ModelScore::from_metrics(&r.model, &format!("run-{}", i), &raw, max_time)
-    }).collect();
+    let mut scores: Vec<evaluator::ModelScore> = results
+        .iter()
+        .enumerate()
+        .map(|(i, r)| {
+            let raw = evaluator::RawMetrics {
+                tests_passed: r.passed as u32,
+                tests_total: r.total as u32,
+                mutation_score: if r.mut_score >= 0.0 { r.mut_score } else { 0.0 },
+                repairs: (r.avg_repairs * r.total as f64).round() as u32,
+                retries: r.retries,
+                connection_errors: r.connection_errors,
+                rate_limits: r.rate_limits,
+                timeouts: r.timeouts,
+                elapsed_secs: r.elapsed_secs,
+            };
+            evaluator::ModelScore::from_metrics(&r.model, &format!("run-{}", i), &raw, max_time)
+        })
+        .collect();
 
     scores = evaluator::rank_models(scores);
     evaluator::print_comparison_table(&scores);
 
     if let Some(best) = scores.iter().find(|s| !s.unstable) {
-        println!("🏆 أفضل نموذج: {} (Composite: {:.3} | Correct: {:.2} | Reliable: {:.2})\n",
-            best.model, best.composite, best.correctness, best.reliability);
+        println!(
+            "🏆 أفضل نموذج: {} (Composite: {:.3} | Correct: {:.2} | Reliable: {:.2})\n",
+            best.model, best.composite, best.correctness, best.reliability
+        );
     } else {
         println!("⚠ جميع النماذج غير مستقرة — لا يوجد فائز\n");
     }
@@ -664,12 +855,17 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
     Ok(())
 }
 
-async fn run_plan(api_key: &str, workspace: &std::path::Path, plan_file: &std::path::Path, max_repairs: u8) -> Result<()> {
+async fn run_plan(api_key: &str,
+    workspace: &std::path::Path,
+    plan_file: &std::path::Path,
+    max_repairs: u8,
+) -> Result<()> {
     let content = std::fs::read_to_string(plan_file)
         .map_err(|e| anyhow::anyhow!("Cannot read plan file: {}", e))?;
 
     // parse lines: "- [ ] goal text" or "- [x] done"
-    let tasks: Vec<String> = content.lines()
+    let tasks: Vec<String> = content
+        .lines()
         .filter_map(|line| {
             let t = line.trim();
             if t.starts_with("- [ ]") {
@@ -692,9 +888,20 @@ async fn run_plan(api_key: &str, workspace: &std::path::Path, plan_file: &std::p
     println!("\n╔══════════════════════════════════════════╗");
     println!("║   SEL Agent — Markdown Plan Runner        ║");
     println!("╠══════════════════════════════════════════╣");
-    println!("║  Plan:       {:<27}║", plan_file.file_name().unwrap_or_default().to_string_lossy());
+    println!(
+        "║  Plan:       {:<27}║",
+        plan_file.file_name().unwrap_or_default().to_string_lossy()
+    );
     println!("║  Tasks:      {:<27}║", tasks.len());
-    println!("║  Workspace:  {:<27}║", workspace.display().to_string().chars().take(27).collect::<String>());
+    println!(
+        "║  Workspace:  {:<27}║",
+        workspace
+            .display()
+            .to_string()
+            .chars()
+            .take(27)
+            .collect::<String>()
+    );
     println!("╚══════════════════════════════════════════╝\n");
 
     std::fs::create_dir_all(workspace).ok();
@@ -703,12 +910,23 @@ async fn run_plan(api_key: &str, workspace: &std::path::Path, plan_file: &std::p
     let mut total_repairs = 0usize;
 
     for (i, task) in tasks.iter().enumerate() {
-        println!("\n── Task {}/{} ─────────────────────────────────", i+1, tasks.len());
+        println!(
+            "\n── Task {}/{} ─────────────────────────────────",
+            i + 1,
+            tasks.len()
+        );
         println!("   📋 {}", &task.chars().take(80).collect::<String>());
 
         let pb = indicatif::ProgressBar::new_spinner();
-        pb.set_style(indicatif::ProgressStyle::default_spinner()
-            .template(&format!("{{spinner:.cyan}} ⚙️  Task [{}/{}]...", i+1, tasks.len())).unwrap());
+        pb.set_style(
+            indicatif::ProgressStyle::default_spinner()
+                .template(&format!(
+                    "{{spinner:.cyan}} ⚙️  Task [{}/{}]...",
+                    i + 1,
+                    tasks.len()
+                ))
+                .unwrap(),
+        );
         pb.enable_steady_tick(std::time::Duration::from_millis(80));
 
         let mut ag = agent::Agent::new(
@@ -732,13 +950,20 @@ async fn run_plan(api_key: &str, workspace: &std::path::Path, plan_file: &std::p
         }
     }
 
-    let avg_repairs = if tasks.len() > 0 { total_repairs as f64 / tasks.len() as f64 } else { 0.0 };
+    let avg_repairs = if tasks.len() > 0 {
+        total_repairs as f64 / tasks.len() as f64
+    } else {
+        0.0
+    };
 
     println!("\n╔══════════════════════════════════════════╗");
     println!("║   Plan Results                            ║");
     println!("╠══════════════════════════════════════════╣");
     println!("║  Tasks:      {:<27}║", tasks.len());
-    println!("║  Passed:     {:<27}║", format!("{}/{}", passed, tasks.len()));
+    println!(
+        "║  Passed:     {:<27}║",
+        format!("{}/{}", passed, tasks.len())
+    );
     println!("║  Avg Repairs:{:<27}║", format!("{:.1}", avg_repairs));
     println!("╚══════════════════════════════════════════╝\n");
 
@@ -750,48 +975,51 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Health => {
-            let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
-            run_health(&api_key).await?;
+            run_health(&crate::llm_engine::LlmEngine::from_env().primary_name()).await?;
         }
-        Commands::Bench { suite, max_repairs, iterations } => {
-            let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
-            run_bench(&api_key, &suite, max_repairs, iterations).await?;
+        Commands::Bench {
+            suite,
+            max_repairs,
+            iterations,
+        } => {
+            run_bench("", &suite, max_repairs, iterations).await?;
         }
         Commands::Stress { max_repairs } => {
-            let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
-            run_stress(&api_key, max_repairs).await?;
+            run_stress("", max_repairs).await?;
         }
         Commands::Scan { workspace, json } => {
             cmd_scan(&workspace, json);
         }
-        Commands::Compare { models, suite, max_repairs } => {
+        Commands::Compare {
+            models,
+            suite,
+            max_repairs,
+        } => {
             run_compare(&models, &suite, max_repairs).await?;
         }
-        Commands::Plan { workspace, plan, max_repairs } => {
-            let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
-            run_plan(&api_key, &workspace, &plan, max_repairs).await?;
+        Commands::Plan {
+            workspace,
+            plan,
+            max_repairs,
+        } => {
+            run_plan("", &workspace, &plan, max_repairs).await?;
         }
-        Commands::Run { workspace, goal, max_repairs, dry_run, ref_file, focus } => {
+        Commands::Run {
+            workspace,
+            goal,
+            max_repairs,
+            dry_run,
+            ref_file,
+            focus,
+        } => {
             println!("\n╔══════════════════════════════════════════╗");
             println!("║   SEL Agent v6.4 — State Machine Engine   ║");
             println!("╚══════════════════════════════════════════╝");
             println!("\n📋 Goal: \"{}\"", goal);
             // Provider info
             {
-                let mdl = std::env::var("SEL_MODEL")
-                    .unwrap_or_else(|_| "kimi".to_string());
-                // اكتشف الـ endpoint والمفتاح الحقيقيين
-                let (ep, key) = if let Ok(base) = std::env::var("SEL_API_BASE") {
-                    let k = std::env::var("SEL_API_KEY").unwrap_or_default();
-                    (base, k)
-                } else if mdl.contains("gemini") || mdl.starts_with("models/") {
-                    let k = std::env::var("GEMINI_API_KEY").unwrap_or_default();
-                    ("https://generativelanguage.googleapis.com/v1beta/openai".to_string(), k)
-                } else {
-                    let k = std::env::var("GROQ_API_KEY").unwrap_or_default();
-                    ("https://api.groq.com/openai/v1".to_string(), k)
-                };
-                crate::llm::print_provider_info(&ep, &mdl, &key);
+                let engine = crate::llm_engine::LlmEngine::from_env();
+                engine.print_info();
             }
             println!("   Workspace:   {}", workspace.display());
             println!("   Max repairs: {}", max_repairs);
@@ -802,18 +1030,16 @@ async fn main() -> Result<()> {
                 println!("   Focus:       {:?}", focus);
             }
 
-            let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY not set");
-
             if dry_run {
                 println!("   Mode:         🔍 DRY RUN\n");
-                let llm = llm::LlmClient::new(api_key);
+                let mut llm = llm_engine::LlmEngine::from_env();
                 let prompt = format!("Goal: {}\n\nProvide the complete execution plan.", goal);
                 match llm.call(&[types::Message::user(prompt)]).await {
-                    Ok((response, _stats)) => match protocol::parse(&response) {
+                    Ok(response) => match protocol::parse(&response) {
                         Ok(plan) => {
                             println!("📋 Plan preview ({} commands):\n", plan.commands.len());
                             for (i, cmd) in plan.commands.iter().enumerate() {
-                                println!("  [{}/{}] {}", i+1, plan.commands.len(), cmd.label());
+                                println!("  [{}/{}] {}", i + 1, plan.commands.len(), cmd.label());
                             }
                             println!("\n✅ DRY RUN complete.");
                         }
@@ -840,7 +1066,7 @@ async fn main() -> Result<()> {
                 focus_paths: focus.clone(),
                 ..Default::default()
             };
-            let mut ag = agent::Agent::new(api_key, workspace, goal, max_repairs, ctx_config);
+            let mut ag = agent::Agent::new(String::new(), workspace, goal, max_repairs, ctx_config);
             ag.run().await?;
         }
     }
@@ -871,27 +1097,50 @@ fn cmd_scan(workspace: &str, json: bool) {
     println!();
     println!("📁 Project  : {}", profile.project_name);
     println!("🔤 Language : {}", profile.language);
-    println!("📦 Manifest : {}", profile.dependency_file
-        .as_ref().map(|p: &std::path::PathBuf| p.display().to_string())
-        .unwrap_or_else(|| "—".to_string()));
-    println!("📍 Entry    : {}", if profile.entry_points.is_empty() {
-        "—".to_string()
-    } else {
-        profile.entry_points.iter()
+    println!(
+        "📦 Manifest : {}",
+        profile
+            .dependency_file
+            .as_ref()
             .map(|p: &std::path::PathBuf| p.display().to_string())
-            .collect::<Vec<_>>().join(", ")
-    });
-    println!("🧪 Tests    : {} {}",
+            .unwrap_or_else(|| "—".to_string())
+    );
+    println!(
+        "📍 Entry    : {}",
+        if profile.entry_points.is_empty() {
+            "—".to_string()
+        } else {
+            profile
+                .entry_points
+                .iter()
+                .map(|p: &std::path::PathBuf| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+    );
+    println!(
+        "🧪 Tests    : {} {}",
         if profile.has_tests { "✅" } else { "❌" },
-        profile.test_framework.as_deref().unwrap_or(""));
-    println!("🏗  Build    : {}", profile.build_cmd.as_deref().unwrap_or("—"));
-    println!("✅ Test cmd : {}", profile.test_cmd.as_deref().unwrap_or("—"));
-    println!("🎯 Confid.  : {:.0}%  {}", profile.confidence * 100.0, conf_bar);
+        profile.test_framework.as_deref().unwrap_or("")
+    );
+    println!(
+        "🏗  Build    : {}",
+        profile.build_cmd.as_deref().unwrap_or("—")
+    );
+    println!(
+        "✅ Test cmd : {}",
+        profile.test_cmd.as_deref().unwrap_or("—")
+    );
+    println!(
+        "🎯 Confid.  : {:.0}%  {}",
+        profile.confidence * 100.0,
+        conf_bar
+    );
     println!();
 }
 
 fn confidence_bar(c: f32) -> String {
     let filled = (c * 10.0).round() as usize;
-    let empty  = 10 - filled.min(10);
+    let empty = 10 - filled.min(10);
     format!("[{}{}]", "█".repeat(filled), "░".repeat(empty))
 }
