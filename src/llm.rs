@@ -30,11 +30,16 @@ CRITICAL RULES:
   run_tests target MUST be "cargo" → {"type":"run_tests","target":"cargo"}
 - Go: go.mod required, Test prefix, _test.go suffix, t.Errorf for assertions
   run_tests target MUST be "go" → {"type":"run_tests","target":"go"}
-  ALWAYS import "fmt" if using fmt.Sprintf or fmt.Errorf
+  ALWAYS add import "fmt" at top if using fmt.Sprintf, fmt.Errorf, or fmt.Println
+  Go imports example: import (
+    "fmt"
+    "errors"
+  )
   ALWAYS import "errors" if using errors.New
   String literals in Go use double quotes: "hello" not 'hello'
   Test helper: t.Errorf("got %v, want %v", got, want)
 - Node/TS: ALWAYS use {"type":"run_tests","target":"npm test"} — NEVER "node file.ts"
+  NEVER use {"type":"run","command":"npm test"} — MUST be run_tests not run
   TypeScript files need Jest via npm test, not direct node execution
 - NEVER repeat workspace path in file paths
 - ALWAYS include type field in every command
