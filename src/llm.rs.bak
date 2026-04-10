@@ -292,13 +292,13 @@ impl ModelConfig {
     pub fn from_alias(alias: &str) -> Self {
         match alias {
             "kimi" | "kimi-k2" | "kimi-k2-instruct" => ModelConfig {
-                provider: Provider::Cerebras,
+                provider: Provider::Groq,
                 model_id: "moonshotai/kimi-k2-instruct-0905".to_string(),
                 base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
                 env_key: "GROQ_API_KEY".to_string(),
             },
             "llama" | "llama-70b" => ModelConfig {
-                provider: Provider::Cerebras,
+                provider: Provider::Groq,
                 model_id: "llama-3.3-70b-versatile".to_string(),
                 base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
                 env_key: "GROQ_API_KEY".to_string(),
@@ -315,38 +315,8 @@ impl ModelConfig {
                 base_url: "https://api.siliconflow.cn/v1/chat/completions".to_string(),
                 env_key: "SILICONFLOW_API_KEY".to_string(),
             },
-            "cerebras" | "cerebras-llama" => ModelConfig {
-                provider: Provider::Cerebras,
-                model_id: "llama-3.3-70b".to_string(),
-                base_url: "https://api.cerebras.ai/v1/chat/completions".to_string(),
-                env_key: "CEREBRAS_API_KEY".to_string(),
-            },
-            "openrouter" | "or" | "openrouter/free" => ModelConfig {
-                provider: Provider::OpenRouter,
-                model_id: "openrouter/free".to_string(),
-                base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
-                env_key: "OPENROUTER_API_KEY".to_string(),
-            },
-            "cerebras/llama" | "cerebras-llama" => ModelConfig {
-                provider: Provider::OpenRouter,
-                model_id: "cerebras/llama-3.3-70b".to_string(),
-                base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
-                env_key: "OPENROUTER_API_KEY".to_string(),
-            },
-            "mistral/small" | "mistral-small" => ModelConfig {
-                provider: Provider::OpenRouter,
-                model_id: "mistralai/mistral-small-3.1-24b-instruct:free".to_string(),
-                base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
-                env_key: "OPENROUTER_API_KEY".to_string(),
-            },
-            "google/gemini-flash" | "gemini-flash" => ModelConfig {
-                provider: Provider::OpenRouter,
-                model_id: "google/gemini-2.5-flash:free".to_string(),
-                base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
-                env_key: "OPENROUTER_API_KEY".to_string(),
-            },
             _ => ModelConfig {
-                provider: Provider::Cerebras,
+                provider: Provider::Groq,
                 model_id: alias.to_string(),
                 base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
                 env_key: "GROQ_API_KEY".to_string(),
@@ -461,61 +431,4 @@ impl LlmClient {
         stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
         Err(anyhow!("LLM failed"))
     }
-}
-
-// دعم Cerebras API (متوافق مع OpenAI)
-pub struct CerebrasClient {
-    client: reqwest::Client,
-    api_key: String,
-    model: String,
-}
-
-impl CerebrasClient {
-    pub fn new(api_key: String) -> Self {
-        Self {
-            client: reqwest::Client::new(),
-            api_key,
-            model: "llama-3.3-70b".to_string(), // أو qwen3-235b
-        }
-    }
-    
-    pub async fn call(&self, messages: &[Message]) -> Result<String> {
-        let url = "https://api.cerebras.ai/v1/chat/completions";
-        
-        let request = serde_json::json!({
-            "model": self.model,
-            "messages": messages,
-            "temperature": 0.7,
-            "max_tokens": 4096,
-        });
-        
-        let response = self.client
-            .post(url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&request)
-            .send()
-            .await?
-            .json::<serde_json::Value>()
-            .await?;
-        
-        Ok(response["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string())
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum Provider {
-    Groq,
-    Moonshot,
-    Cerebras,  // جديد
-}
-
-#[derive(Debug, Clone)]
-pub enum Provider {
-    Groq,
-    Moonshot,
-    Cerebras,
-    OpenRouter,  // جديد
 }

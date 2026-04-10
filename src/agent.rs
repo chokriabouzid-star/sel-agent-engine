@@ -293,31 +293,44 @@ impl Agent {
 
         if files.is_empty() { return String::new(); }
 
-        ctx.push_str("=== EXISTING WORKSPACE FILES (read carefully before planning) ===
-");
-        ctx.push_str("CRITICAL: Use patch_file (NOT write_file) for ALL files listed below.
+        ctx.push_str("=== EXISTING WORKSPACE FILES (read carefully before planning) ===\n");
+        ctx.push_str("CRITICAL: Use patch_file (NOT write_file) for ALL files listed below.\n\n");
 
-");
+        // سقف صارم: 4000 token إجمالي للـ context (حوالي 16000 حرف)
+        const MAX_CONTEXT_CHARS: usize = 16_000;
+        let mut total_chars = 0usize;
 
         for path in &files {
+            if total_chars >= MAX_CONTEXT_CHARS {
+                ctx.push_str("... (remaining files omitted — context limit reached)\n");
+                break;
+            }
             let rel = path.strip_prefix(ws).unwrap_or(path).to_string_lossy();
             if let Ok(src) = std::fs::read_to_string(path) {
                 let lines: Vec<&str> = src.lines().collect();
-                let preview: Vec<&str> = lines.iter().take(300).cloned().collect();
-                ctx.push_str(&format!("--- FILE: {} ({} lines) ---
-", rel, lines.len()));
-                ctx.push_str(&preview.join("\n"));
-                ctx.push('\n');
-                if lines.len() > 300 {
-                    ctx.push_str(&format!("... ({} more lines)\n", lines.len() - 300));
+                // حد 60 سطر لكل ملف بدل 300
+                let max_lines = 60usize;
+                let preview: Vec<&str> = lines.iter().take(max_lines).cloned().collect();
+                let file_content = format!(
+                    "--- FILE: {} ({} lines) ---\n{}\n{}\n",
+                    rel,
+                    lines.len(),
+                    preview.join("\n"),
+                    if lines.len() > max_lines {
+                        format!("... ({} more lines)", lines.len() - max_lines)
+                    } else { String::new() }
+                );
+                // لا تضف إذا سيتجاوز الحد
+                if total_chars + file_content.len() > MAX_CONTEXT_CHARS {
+                    ctx.push_str(&format!("--- FILE: {} (skipped — context limit) ---\n\n", rel));
+                    break;
                 }
-                ctx.push('\n');
+                total_chars += file_content.len();
+                ctx.push_str(&file_content);
             }
         }
 
-        ctx.push_str("=== END OF EXISTING FILES ===
-
-");
+        ctx.push_str("=== END OF EXISTING FILES ===\n\n");
         ctx
     }
 
