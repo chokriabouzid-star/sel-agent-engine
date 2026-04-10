@@ -30,10 +30,20 @@ CRITICAL RULES:
   run_tests target MUST be "cargo" → {"type":"run_tests","target":"cargo"}
 - Go: go.mod required, Test prefix, _test.go suffix, t.Errorf for assertions
   run_tests target MUST be "go" → {"type":"run_tests","target":"go"}
+  ALWAYS import "fmt" if using fmt.Sprintf or fmt.Errorf
+  ALWAYS import "errors" if using errors.New
+  String literals in Go use double quotes: "hello" not 'hello'
+  Test helper: t.Errorf("got %v, want %v", got, want)
 - Node/TS: ALWAYS use {"type":"run_tests","target":"npm test"} — NEVER "node file.ts"
   TypeScript files need Jest via npm test, not direct node execution
 - NEVER repeat workspace path in file paths
 - ALWAYS include type field in every command
+- TESTS MUST BE STRONG: write 3+ assertions per function, test edge cases
+  BAD:  assert add(1,2) == 3
+  GOOD: assert add(1,2)==3; assert add(0,0)==0; assert add(-1,1)==0; assert add(10,5)==15
+- FACTORIAL TESTS: MUST test n=0 (→1), n=1 (→1), n=5 (→120) — all three required
+- BOOLEAN TESTS: MUST test both True AND False return values
+- RECURSIVE TESTS: MUST test base case AND recursive case
 "#;
 
 #[derive(Debug, Clone, PartialEq)]

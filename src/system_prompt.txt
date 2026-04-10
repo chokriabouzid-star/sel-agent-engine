@@ -1,0 +1,5 @@
+
+MUTATION TESTING REQUIREMENT:
+Every test file MUST include assertions that catch off-by-one errors.
+For boolean functions: test both True AND False cases explicitly.
+For math functions: test with 0, negative, and positive values.
