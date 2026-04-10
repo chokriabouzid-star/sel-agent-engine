@@ -11,6 +11,131 @@ pub struct LlmCallStats {
     pub total_latency_ms: u64,
 }
 
+/// معلومات Provider للعرض
+pub fn provider_display_name(endpoint: &str, model: &str) -> String {
+    if endpoint.contains("generativelanguage") {
+        "Gemini".to_string()
+    } else if endpoint.contains("groq") {
+        if model.contains("kimi") { "Groq/Kimi".to_string() }
+        else { "Groq/Llama".to_string() }
+    } else if endpoint.contains("openrouter") {
+        "OpenRouter".to_string()
+    } else if endpoint.contains("nvidia") {
+        "NVIDIA".to_string()
+    } else if endpoint.contains("localhost") || endpoint.contains("11434") {
+        "Ollama (Local)".to_string()
+    } else {
+        "Custom".to_string()
+    }
+}
+
+/// وقت التجديد (UTC midnight)
+pub fn time_to_reset() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let secs_to_reset = 86400 - (now % 86400);
+    let hours = secs_to_reset / 3600;
+    let mins  = (secs_to_reset % 3600) / 60;
+    format!("{}h {}m", hours, mins)
+}
+
+/// حد tokens اليومي حسب Provider
+pub fn daily_limit(endpoint: &str, model: &str) -> String {
+    if endpoint.contains("generativelanguage") {
+        "1,000,000 tokens/day (free)".to_string()
+    } else if endpoint.contains("groq") {
+        if model.contains("kimi") {
+            "300,000 tokens/day".to_string()
+        } else {
+            "500,000 tokens/day".to_string()
+        }
+    } else if endpoint.contains("openrouter") {
+        "مدفوع — بلا حد يومي".to_string()
+    } else if endpoint.contains("localhost") {
+        "محلي — بلا حد".to_string()
+    } else {
+        "غير معروف".to_string()
+    }
+}
+
+/// رسالة خطأ API واضحة
+pub fn classify_api_error(status: u16, body: &str, provider: &str) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let secs_to_reset = 86400 - (now % 86400);
+    let h = secs_to_reset / 3600;
+    let m = (secs_to_reset % 3600) / 60;
+
+    match status {
+        429 if body.contains("tokens per day") || body.contains("TPD") =>
+            format!("❌ [{}] نفد الحد اليومي — يتجدد بعد {}h {}m", provider, h, m),
+        429 if body.contains("tokens per minute") || body.contains("TPM") =>
+            format!("⚠️  [{}] حد الطلبات/دقيقة وصل", provider),
+        429 =>
+            format!("⚠️  [{}] حد الطلبات وصل (429)", provider),
+        402 =>
+            format!("❌ [{}] رصيد منتهٍ — openrouter.ai/credits", provider),
+        413 =>
+            format!("❌ [{}] الطلب كبير جداً (413) — context ضخم", provider),
+        503 | 502 | 500 =>
+            format!("⚠️  [{}] الخادم مشغول مؤقتاً ({})", provider, status),
+        401 =>
+            format!("❌ [{}] مفتاح API خاطئ (401)", provider),
+        403 =>
+            format!("❌ [{}] لا صلاحية لهذا النموذج (403)", provider),
+        _ =>
+            format!("❌ [{}] خطأ HTTP {} — {}", provider, status, &body[..body.len().min(60)]),
+    }
+}
+
+/// رسالة خطأ شبكة واضحة
+pub fn classify_network_error(err: &str) -> String {
+    if err.contains("timed out") || err.contains("timeout") {
+        "⚠️  [الشبكة] انتهت مهلة الاتصال".to_string()
+    } else if err.contains("connection refused") {
+        "❌ [الشبكة] رُفض الاتصال — هل الخادم يعمل؟".to_string()
+    } else if err.contains("dns") || err.contains("resolve") {
+        "❌ [الشبكة] فشل DNS — تحقق من الإنترنت".to_string()
+    } else {
+        format!("⚠️  [الشبكة] انقطع الاتصال — {}", &err[..err.len().min(50)])
+    }
+}
+
+/// رسالة خطأ JSON واضحة
+pub fn classify_json_error(reason: &str) -> String {
+    if reason.contains("No ```json") || reason.contains("json block") {
+        "⚠️  [النموذج] رد بنص بدل JSON — إعادة بـ prompt مبسط".to_string()
+    } else if reason.contains("missing field") {
+        "⚠️  [النموذج] JSON ناقص حقل مطلوب".to_string()
+    } else {
+        format!("⚠️  [النموذج] فشل تحليل JSON — {}", &reason[..reason.len().min(50)])
+    }
+}
+
+/// طباعة معلومات Provider
+pub fn print_provider_info(endpoint: &str, model: &str, api_key: &str) {
+    let provider = provider_display_name(endpoint, model);
+    let key_short = if api_key.len() > 12 {
+        format!("{}...{}", &api_key[..8], &api_key[api_key.len()-4..])
+    } else {
+        "****".to_string()
+    };
+    let limit = daily_limit(endpoint, model);
+    let reset = time_to_reset();
+
+    println!("   🔌 Provider:  {}", provider);
+    println!("   🤖 Model:     {}", model);
+    println!("   🔑 Key:       {}", key_short);
+    println!("   📊 Limit:     {}", limit);
+    println!("   ⏰ Resets in: {} (UTC midnight)", reset);
+}
+
+
+
 const SYSTEM_PROMPT: &str = r#"You are SEL Agent — a deterministic software execution agent.
 OUTPUT: Respond ONLY with a single json code block. No text outside it.
 
@@ -154,7 +279,7 @@ impl LlmClient {
         for (attempt, &delay) in delays.iter().enumerate() {
             if attempt > 0 {
                 stats.retries += 1;
-                println!("   ⏳ Rate limit — retry in {}s...", delay);
+                println!("   ⏳ retry in {}s...", delay);
                 tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
             }
 
@@ -175,7 +300,7 @@ impl LlmClient {
                             stats.total_latency_ms = call_start.elapsed().as_millis() as u64;
                             return Err(anyhow!("Connection error: {}", e));
                         }
-                        println!("   ⚠ Connection error: {} — retry in {}s...", e, delay);
+                        println!("   {} — retry in {}s...", classify_network_error(&e.to_string()), delay);
                         continue;
                     }
                 };

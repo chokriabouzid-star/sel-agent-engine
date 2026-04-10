@@ -70,6 +70,23 @@ async fn run_health(api_key: &str) -> Result<()> {
     println!("\n╔══════════════════════════════════════════╗");
     println!("║   SEL Agent v6.4 — Health Check                   ║");
     println!("╚══════════════════════════════════════════╝\n");
+    // Provider info في الـ bench
+    {
+        let mdl = std::env::var("SEL_MODEL")
+            .unwrap_or_else(|_| "kimi".to_string());
+        let (ep, key) = if let Ok(base) = std::env::var("SEL_API_BASE") {
+            let k = std::env::var("SEL_API_KEY").unwrap_or_default();
+            (base, k)
+        } else if mdl.contains("gemini") || mdl.starts_with("models/") {
+            let k = std::env::var("GEMINI_API_KEY").unwrap_or_default();
+            ("https://generativelanguage.googleapis.com/v1beta/openai".to_string(), k)
+        } else {
+            let k = std::env::var("GROQ_API_KEY").unwrap_or_default();
+            ("https://api.groq.com/openai/v1".to_string(), k)
+        };
+        crate::llm::print_provider_info(&ep, &mdl, &key);
+        println!();
+    }
 
     let internet = reqwest::Client::new()
         .get("https://1.1.1.1")
@@ -759,6 +776,23 @@ async fn main() -> Result<()> {
             println!("║   SEL Agent v6.4 — State Machine Engine   ║");
             println!("╚══════════════════════════════════════════╝");
             println!("\n📋 Goal: \"{}\"", goal);
+            // Provider info
+            {
+                let mdl = std::env::var("SEL_MODEL")
+                    .unwrap_or_else(|_| "kimi".to_string());
+                // اكتشف الـ endpoint والمفتاح الحقيقيين
+                let (ep, key) = if let Ok(base) = std::env::var("SEL_API_BASE") {
+                    let k = std::env::var("SEL_API_KEY").unwrap_or_default();
+                    (base, k)
+                } else if mdl.contains("gemini") || mdl.starts_with("models/") {
+                    let k = std::env::var("GEMINI_API_KEY").unwrap_or_default();
+                    ("https://generativelanguage.googleapis.com/v1beta/openai".to_string(), k)
+                } else {
+                    let k = std::env::var("GROQ_API_KEY").unwrap_or_default();
+                    ("https://api.groq.com/openai/v1".to_string(), k)
+                };
+                crate::llm::print_provider_info(&ep, &mdl, &key);
+            }
             println!("   Workspace:   {}", workspace.display());
             println!("   Max repairs: {}", max_repairs);
             if let Some(ref rf) = ref_file {

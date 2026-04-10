@@ -151,11 +151,12 @@ impl Agent {
                     }
                     Err(e) => {
                         if attempt < MAX_RETRIES {
+                            let err_msg = e.to_string();
                             println!(
-                                "   ⚠ JSON parse failed (attempt {}/{}) — retrying with simplified prompt...",
+                                "   {} (attempt {}/{})",
+                                crate::llm::classify_json_error(&err_msg),
                                 attempt + 1, MAX_RETRIES + 1
                             );
-                            println!("     Reason: {}", e.to_string().lines().next().unwrap_or("?"));
                         } else {
                             return Err(format!(
                                 "JSON parse failed after {} attempts: {}",
