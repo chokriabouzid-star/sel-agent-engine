@@ -5,3 +5,8 @@ flask_repo/
 sel_run.log
 */venv/
 **/venv/
+*.bak
+*.bak2
+*.backup
+{
+*.log

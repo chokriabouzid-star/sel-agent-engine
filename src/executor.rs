@@ -337,6 +337,14 @@ impl SafeExecutor {
         }
         let p = self.safe_path(path)?;
         
+        // v7.3.3: Pre-flight check for BUG-PATCH-01
+        if !p.exists() {
+            return Ok(ExecResult::fail(format!(
+                "PREFLIGHT_FAIL: '{}' does not exist. Use write_file to create it first, then patch.",
+                path
+            )));
+        }
+
         // v5.2: Fallback to write_file after 2 failed patch attempts
         {
             let mut attempts = self.patch_attempts.borrow_mut();
@@ -370,10 +378,6 @@ impl SafeExecutor {
                     path
                 )));
             }
-        }
-        
-        if !p.exists() {
-            return Ok(ExecResult::fail(format!("patch_file: '{}' not found — use write_file to create it first", path)));
         }
         if search.trim().is_empty() {
             return Ok(ExecResult::fail("patch_file: search block is empty".to_string()));
