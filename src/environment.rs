@@ -17,20 +17,20 @@ pub struct ToolInfo {
 #[derive(Debug, Clone, Default)]
 pub struct EnvironmentCapabilities {
     pub python: Option<PythonInfo>,
-    pub node:   Option<ToolInfo>,
-    pub rust:   Option<ToolInfo>,
-    pub go:     Option<ToolInfo>,
-    pub git:    Option<ToolInfo>,
+    pub node: Option<ToolInfo>,
+    pub rust: Option<ToolInfo>,
+    pub go: Option<ToolInfo>,
+    pub git: Option<ToolInfo>,
 }
 
 impl EnvironmentCapabilities {
     pub fn probe() -> Self {
         Self {
             python: probe_python(),
-            node:   probe_tool("node",  &["--version"]),
-            rust:   probe_tool("cargo", &["--version"]),
-            go:     probe_tool("go",    &["version"]),
-            git:    probe_tool("git",   &["--version"]),
+            node: probe_tool("node", &["--version"]),
+            rust: probe_tool("cargo", &["--version"]),
+            go: probe_tool("go", &["version"]),
+            git: probe_tool("git", &["--version"]),
         }
     }
 
@@ -38,25 +38,26 @@ impl EnvironmentCapabilities {
         let mut lines = vec!["[ENVIRONMENT CAPABILITIES]".to_string()];
         match &self.python {
             Some(p) => lines.push(format!(
-                "- Python: {} ({}) | venv:{} pip:{}", p.cmd, p.version, p.venv, p.pip
+                "- Python: {} ({}) | venv:{} pip:{}",
+                p.cmd, p.version, p.venv, p.pip
             )),
             None => lines.push("- Python: NOT AVAILABLE".to_string()),
         }
         match &self.node {
             Some(t) => lines.push(format!("- Node.js: available ({})", t.version)),
-            None    => lines.push("- Node.js: NOT AVAILABLE".to_string()),
+            None => lines.push("- Node.js: NOT AVAILABLE".to_string()),
         }
         match &self.rust {
             Some(t) => lines.push(format!("- Rust/cargo: available ({})", t.version)),
-            None    => lines.push("- Rust/cargo: NOT AVAILABLE".to_string()),
+            None => lines.push("- Rust/cargo: NOT AVAILABLE".to_string()),
         }
         match &self.go {
             Some(t) => lines.push(format!("- Go: available ({})", t.version)),
-            None    => lines.push("- Go: NOT AVAILABLE".to_string()),
+            None => lines.push("- Go: NOT AVAILABLE".to_string()),
         }
         match &self.git {
             Some(t) => lines.push(format!("- Git: available ({})", t.version)),
-            None    => lines.push("- Git: NOT AVAILABLE".to_string()),
+            None => lines.push("- Git: NOT AVAILABLE".to_string()),
         }
         lines.join("\n")
     }
@@ -66,19 +67,21 @@ impl EnvironmentCapabilities {
         match &self.python {
             Some(p) => {
                 lines.push(format!(
-                    "- Use \"{}\" for Python commands (confirmed available)", p.cmd
+                    "- Use \"{}\" for Python commands (confirmed available)",
+                    p.cmd
                 ));
                 if p.venv {
                     lines.push(format!(
-                        "- Use \"{} -m venv venv\" directly — venv module confirmed", p.cmd
+                        "- Use \"{} -m venv venv\" directly — venv module confirmed",
+                        p.cmd
                     ));
                 } else {
                     lines.push("- venv NOT available — do not plan venv commands".to_string());
                 }
             }
-            None => lines.push(
-                "- Python NOT available — do not plan any python commands".to_string()
-            ),
+            None => {
+                lines.push("- Python NOT available — do not plan any python commands".to_string())
+            }
         }
         if self.node.is_none() {
             lines.push("- Node.js NOT available — do not plan npm/node commands".to_string());
@@ -123,7 +126,10 @@ fn probe_tool(cmd: &str, args: &[&str]) -> Option<ToolInfo> {
         if out.status.success() {
             let raw = String::from_utf8_lossy(&out.stdout);
             let version = raw.lines().next().unwrap_or("?").trim().to_string();
-            Some(ToolInfo { cmd: cmd.to_string(), version })
+            Some(ToolInfo {
+                cmd: cmd.to_string(),
+                version,
+            })
         } else {
             None
         }

@@ -6,11 +6,11 @@ const MEMORY_FILE: &str = ".sel_memory.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryEntry {
-    pub failure_kind:    String,
-    pub error_signature: String,
-    pub normalized_hash: u64,
-    pub successful_fix:  String,
-    pub count:           u32,
+    pub failure_kind:    String, // "BuildError", "ModuleNotFound", etc.
+    pub error_signature: String, // نص مطبَّع (normalized)
+    pub normalized_hash: u64,    // تجزئة النص المطبَّع
+    pub successful_fix:  String, // وصف الإصلاح الناجح
+    pub count:           u32,    // عدد مرات التكرار
     pub last_seen:       String,
 }
 
@@ -19,35 +19,103 @@ pub struct FailureMemory {
     pub entries: Vec<MemoryEntry>,
 }
 
-/// تطبيع نص الخطأ — يجرّد التفاصيل المتغيرة
+// ─── تطبيع نص الخطأ ─────────────────────────────────────────────────────────
+/// يجرّد الخطأ من التفاصيل المتغيرة:
+/// أرقام الأسطر، أسماء المتغيرات، مسارات الملفات
 pub fn normalize_error(error: &str) -> String {
-    let first_line = error.lines().next().unwrap_or(error);
-    let s = first_line.to_lowercase();
+    let mut s = error.to_lowercase();
 
-    // استبدل أرقام بـ N
-    let mut out = String::new();
-    let mut in_num = false;
-    for c in s.chars() {
-        if c.is_ascii_digit() {
-            if !in_num {
-                out.push('N');
-                in_num = true;
+    // أسماء متغيرات بين apostrophes أو backticks: 'x', `foo` → VAR
+    let mut result = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == ''' || c == '`' {
+            result.push_str("VAR");
+            // ابتلع حتى نهاية الـ quote
+            while let Some(&nc) = chars.peek() {
+                chars.next();
+                if nc == c { break; }
             }
         } else {
-            in_num = false;
-            // استبدل single quotes بـ Q
-            if c == '\'' || c == '`' {
-                out.push('Q');
+            result.push(c);
+        }
+    }
+    s = result;
+
+    // أرقام السطور: "line 12", "line 5" → "line N"
+    s = regex_replace_simple(&s, "line \d+", "line N");
+    // أرقام الأعمدة
+    s = regex_replace_simple(&s, "column \d+", "col N");
+    // مسارات الملفات: /tmp/sel-bench-0-12/main.py → FILE
+    s = regex_replace_simple(&s, r"/[^\s]+\.(py|go|rs|ts|js)", "FILE");
+    // أرقام عامة متبقية
+    s = regex_replace_simple(&s, "\b\d+\b", "N");
+
+    // خذ السطر الأول فقط (أكثر استقراراً)
+    s.lines().next().unwrap_or(&s).trim().to_string()
+}
+
+/// استبدال بسيط بدون regex crate — كافٍ لحالاتنا
+fn regex_replace_simple(input: &str, _pattern: &str, replacement: &str) -> String {
+    // تطبيق يدوي للأنماط الشائعة
+    let mut s = input.to_string();
+
+    // "line N" أو "line 123"
+    if _pattern.contains("line") && _pattern.contains("\d") {
+        let mut out = String::new();
+        let mut i = 0;
+        let bytes = s.as_bytes();
+        while i < bytes.len() {
+            if s[i..].starts_with("line ") {
+                out.push_str("line N");
+                i += 5;
+                while i < bytes.len() && bytes[i].is_ascii_digit() { i += 1; }
             } else {
+                out.push(s.chars().nth(i).unwrap_or(' '));
+                i += 1;
+            }
+        }
+        s = out;
+    }
+
+    // "column N"
+    if _pattern.contains("column") {
+        let mut out = String::new();
+        let mut i = 0;
+        let bytes = s.as_bytes();
+        while i < bytes.len() {
+            if s[i..].starts_with("column ") {
+                out.push_str("col N");
+                i += 7;
+                while i < bytes.len() && bytes[i].is_ascii_digit() { i += 1; }
+            } else {
+                out.push(s.chars().nth(i).unwrap_or(' '));
+                i += 1;
+            }
+        }
+        s = out;
+    }
+
+    // أرقام مستقلة
+    if _pattern == "\\b\\d+\\b" || _pattern.ends_with("\d+\b") {
+        let mut out = String::new();
+        let mut in_num = false;
+        for c in s.chars() {
+            if c.is_ascii_digit() {
+                if !in_num { out.push('N'); in_num = true; }
+            } else {
+                in_num = false;
                 out.push(c);
             }
         }
+        s = out;
     }
 
-    out.trim().to_string()
+    let _ = replacement; // مستخدم في الأنماط أعلاه مباشرة
+    s
 }
 
-/// تجزئة FNV للنص المطبَّع
+/// تجزئة بسيطة للنص المطبَّع
 pub fn hash_normalized(s: &str) -> u64 {
     s.bytes().fold(0xcbf29ce484222325u64, |acc, b| {
         acc.wrapping_mul(0x100000001b3).wrapping_add(b as u64)
@@ -55,18 +123,17 @@ pub fn hash_normalized(s: &str) -> u64 {
 }
 
 // ─── QuickFix ────────────────────────────────────────────────────────────────
-
 #[derive(Debug, Clone)]
 pub enum QuickFix {
     InstallPackage { command: String },
-    AddGoImport    { symbol:  String },
+    AddGoImport    { symbol: String  },
 }
 
-/// إصلاح فوري بدون LLM
+/// إصلاح فوري بدون LLM — للحالات المعروفة
 pub fn quick_fix(error: &str) -> Option<QuickFix> {
     let lower = error.to_lowercase();
 
-    // Python: ModuleNotFoundError
+    // Python: ModuleNotFoundError / ImportError
     if lower.contains("modulenotfounderror") || lower.contains("no module named") {
         let module = extract_module_name(error)?;
         let pkg = match module.as_str() {
@@ -81,6 +148,7 @@ pub fn quick_fix(error: &str) -> Option<QuickFix> {
             "pytest"     => "pytest",
             "requests"   => "requests",
             "flask"      => "flask",
+            "aiohttp"    => "aiohttp",
             _            => return None,
         };
         return Some(QuickFix::InstallPackage {
@@ -91,11 +159,9 @@ pub fn quick_fix(error: &str) -> Option<QuickFix> {
     // Go: undefined: fmt
     if lower.contains("undefined:") {
         let sym = extract_go_undefined(error)?;
-        let go_std = [
-            "fmt","errors","strings","strconv","sort",
-            "math","os","io","log","time","sync",
-            "context","bytes","bufio",
-        ];
+        let go_std = ["fmt","errors","strings","strconv","sort",
+                      "math","os","io","log","time","sync",
+                      "context","net","http","json","bytes","bufio"];
         if go_std.contains(&sym.as_str()) {
             return Some(QuickFix::AddGoImport { symbol: sym });
         }
@@ -105,34 +171,31 @@ pub fn quick_fix(error: &str) -> Option<QuickFix> {
 }
 
 fn extract_module_name(error: &str) -> Option<String> {
-    let lower = error.to_lowercase();
+    // "No module named 'fastapi'" → "fastapi"
+    // "ModuleNotFoundError: No module named 'x.y'" → "x"
     for prefix in &["no module named '", "no module named \""] {
-        if let Some(idx) = lower.find(prefix) {
+        if let Some(idx) = error.to_lowercase().find(prefix) {
             let after = &error[idx + prefix.len()..];
-            let name = after.split(['.', '\'', '"']).next()?.trim();
-            if !name.is_empty() {
-                return Some(name.to_lowercase());
-            }
+            let name = after.split([''', '"', '.']).next()?.trim();
+            if !name.is_empty() { return Some(name.to_string()); }
         }
     }
     None
 }
 
 fn extract_go_undefined(error: &str) -> Option<String> {
+    // "undefined: fmt" → "fmt"
     for line in error.lines() {
         if line.contains("undefined:") {
             let after = line.split("undefined:").nth(1)?;
             let sym = after.split_whitespace().next()?.trim();
-            if !sym.is_empty() {
-                return Some(sym.to_string());
-            }
+            if !sym.is_empty() { return Some(sym.to_string()); }
         }
     }
     None
 }
 
 // ─── FailureMemory ───────────────────────────────────────────────────────────
-
 fn memory_path() -> PathBuf {
     if let Ok(home) = std::env::var("HOME") {
         PathBuf::from(home).join(MEMORY_FILE)
@@ -174,8 +237,9 @@ impl FailureMemory {
         fix_summary: &str,
     ) {
         let normalized = normalize_error(error_sig);
-        let hash = hash_normalized(&normalized);
+        let hash      = hash_normalized(&normalized);
 
+        // هل موجود بنفس الـ hash؟
         if let Some(entry) = self.entries.iter_mut()
             .find(|e| e.normalized_hash == hash)
         {
@@ -193,6 +257,7 @@ impl FailureMemory {
             });
         }
 
+        // احتفظ بالأكثر تكراراً — 100 entry
         if self.entries.len() > 100 {
             self.entries.sort_by(|a, b| b.count.cmp(&a.count));
             self.entries.truncate(100);
@@ -200,19 +265,21 @@ impl FailureMemory {
         self.save();
     }
 
-    /// جلب hints بالـ normalized_hash
+    /// جلب hints — يقارن normalized_hash
     pub fn get_hints(&self, failure_kind: &str, error_sig: &str) -> String {
-        let hash = hash_normalized(&normalize_error(error_sig));
+        let normalized = normalize_error(error_sig);
+        let hash      = hash_normalized(&normalized);
 
         let relevant: Vec<&MemoryEntry> = self.entries.iter()
-            .filter(|e| e.normalized_hash == hash || e.failure_kind == failure_kind)
+            .filter(|e| {
+                e.normalized_hash == hash
+                    || e.failure_kind == failure_kind
+            })
             .collect();
 
-        if relevant.is_empty() {
-            return String::new();
-        }
+        if relevant.is_empty() { return String::new(); }
 
-        let mut hints = String::from("\n\nFAILURE MEMORY:\n");
+        let mut hints = String::from("\n\nFAILURE MEMORY (learned from past repairs):\n");
         for entry in relevant.iter().take(3) {
             hints.push_str(&format!(
                 "- [{}x] {}: {}\n",

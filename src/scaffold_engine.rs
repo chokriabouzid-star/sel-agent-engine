@@ -2,8 +2,8 @@
 // Phase 1: يُجهّز البيئة قبل LLM — حتمي 100%
 // Pipeline: ScaffoldEngine::prepare() → LLM::plan_logic_only() → Executor::run()
 
-use std::path::Path;
 use crate::goal_parser;
+use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProjectKind {
@@ -16,15 +16,14 @@ pub enum ProjectKind {
 
 #[derive(Debug)]
 pub struct ScaffoldResult {
-    pub kind:         ProjectKind,
-    pub ready:        bool,
-    pub logic_hint:   String,  // يُرسَل للـ LLM بدلاً من تعليمات البيئة
+    pub kind: ProjectKind,
+    pub ready: bool,
+    pub logic_hint: String, // يُرسَل للـ LLM بدلاً من تعليمات البيئة
     pub files_created: Vec<String>,
 }
 
 // ─── Pinned Stacks ────────────────────────────────────────
-const TS_JEST_DEPS: &str =
-    "typescript@5.3.3 ts-jest@29.1.1 jest@29.7.0 @types/jest@29.5.11";
+const TS_JEST_DEPS: &str = "typescript@5.3.3 ts-jest@29.1.1 jest@29.7.0 @types/jest@29.5.11";
 
 const PACKAGE_JSON_TS: &str = r#"{
   "name": "sel-project",
@@ -67,8 +66,8 @@ pub async fn prepare(workspace: &Path, goal: &str) -> ScaffoldResult {
 
     match &kind {
         ProjectKind::TypeScript => scaffold_typescript(workspace, &parsed.extra_deps).await,
-        ProjectKind::Python     => scaffold_python(workspace, &parsed.extra_deps).await,
-        ProjectKind::Unknown    => ScaffoldResult {
+        ProjectKind::Python => scaffold_python(workspace, &parsed.extra_deps).await,
+        ProjectKind::Unknown => ScaffoldResult {
             kind,
             ready: false,
             logic_hint: String::new(),
@@ -118,7 +117,10 @@ async fn scaffold_typescript(workspace: &Path, extra_deps: &[String]) -> Scaffol
     for cfg in [&jest_cfg, &jest_cfg_ts] {
         if cfg.exists() {
             std::fs::remove_file(cfg).ok();
-            println!("   🗑  Removed {:?} — config in package.json only", cfg.file_name().unwrap_or_default());
+            println!(
+                "   🗑  Removed {:?} — config in package.json only",
+                cfg.file_name().unwrap_or_default()
+            );
         }
     }
 
@@ -147,9 +149,25 @@ async fn scaffold_typescript(workspace: &Path, extra_deps: &[String]) -> Scaffol
             }
             Ok(o) => {
                 let err = String::from_utf8_lossy(&o.stderr);
-                println!("   ⚠️  npm install warning: {}", &err[..err.len().min(200)]);
+                eprintln!("   ❌ TypeScript Scaffold FATAL: npm install failed with status {}", o.status);
+                eprintln!("   💡 Details: {}", &err[..err.len().min(200)]);
+                return ScaffoldResult {
+                    kind: ProjectKind::TypeScript,
+                    ready: false,
+                    logic_hint: format!("npm install failed: {}", err),
+                    files_created: created,
+                };
             }
-            Err(e) => println!("   ⚠️  npm install failed: {}", e),
+            Err(e) => {
+                eprintln!("   ❌ TypeScript Scaffold FATAL: npm install failed: {}", e);
+                eprintln!("   💡 Fix: ensure node/npm are installed and workspace is writable");
+                return ScaffoldResult {
+                    kind: ProjectKind::TypeScript,
+                    ready: false,
+                    logic_hint: format!("npm install error: {}", e),
+                    files_created: created,
+                };
+            }
         }
     } else {
         println!("   ⏭  node_modules exists — skip install");
@@ -203,7 +221,13 @@ async fn scaffold_python(workspace: &Path, extra_deps: &[String]) -> ScaffoldRes
                     .await;
                 match pip_out {
                     Ok(o) if o.status.success() => println!("   ✅ Extra deps installed"),
-                    Ok(o) => println!("   ⚠️  Extra deps warning: {}", String::from_utf8_lossy(&o.stderr).chars().take(200).collect::<String>()),
+                    Ok(o) => println!(
+                        "   ⚠️  Extra deps warning: {}",
+                        String::from_utf8_lossy(&o.stderr)
+                            .chars()
+                            .take(200)
+                            .collect::<String>()
+                    ),
                     Err(e) => println!("   ⚠️  Extra deps failed: {}", e),
                 }
             }
@@ -252,10 +276,12 @@ fn normalize_existing_package_json(path: &Path) -> String {
 // ─── Logic Hints للـ LLM ──────────────────────────────────
 fn build_ts_logic_hint(workspace: &Path) -> String {
     let files: Vec<String> = std::fs::read_dir(workspace)
-        .map(|rd| rd.filter_map(|e| e.ok())
-            .filter_map(|e| e.file_name().into_string().ok())
-            .filter(|n| n.ends_with(".ts") && !n.ends_with(".test.ts"))
-            .collect())
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter(|n| n.ends_with(".ts") && !n.ends_with(".test.ts"))
+                .collect()
+        })
         .unwrap_or_default();
 
     let existing = if files.is_empty() {

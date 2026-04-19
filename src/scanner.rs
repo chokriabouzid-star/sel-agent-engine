@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use serde::{Serialize, Deserialize};
 
 // ─────────────────────────────────────────
 // Types
@@ -19,27 +19,27 @@ pub enum Language {
 impl std::fmt::Display for Language {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Language::Rust       => write!(f, "Rust"),
-            Language::Python     => write!(f, "Python"),
-            Language::Go         => write!(f, "Go"),
-            Language::Node       => write!(f, "Node.js"),
+            Language::Rust => write!(f, "Rust"),
+            Language::Python => write!(f, "Python"),
+            Language::Go => write!(f, "Go"),
+            Language::Node => write!(f, "Node.js"),
             Language::TypeScript => write!(f, "TypeScript"),
-            Language::Unknown    => write!(f, "Unknown"),
+            Language::Unknown => write!(f, "Unknown"),
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectProfile {
-    pub project_name:    String,
-    pub language:        Language,
+    pub project_name: String,
+    pub language: Language,
     pub dependency_file: Option<PathBuf>,
-    pub entry_points:    Vec<PathBuf>,
-    pub test_framework:  Option<String>,
-    pub has_tests:       bool,
-    pub build_cmd:       Option<String>,
-    pub test_cmd:        Option<String>,
-    pub confidence:      f32,
+    pub entry_points: Vec<PathBuf>,
+    pub test_framework: Option<String>,
+    pub has_tests: bool,
+    pub build_cmd: Option<String>,
+    pub test_cmd: Option<String>,
+    pub confidence: f32,
 }
 
 // ─────────────────────────────────────────
@@ -62,12 +62,11 @@ pub fn scan_project(workspace: &Path) -> ProjectProfile {
 
     // 3. tests
     let (has_tests, test_framework) = detect_tests(workspace, &language);
-    let test_bonus: f32     = if has_tests { 0.2 } else { 0.0 };
+    let test_bonus: f32 = if has_tests { 0.2 } else { 0.0 };
     let framework_bonus: f32 = if test_framework.is_some() { 0.1 } else { 0.0 };
 
     // 4. confidence
-    let confidence = (base_confidence + entry_bonus + test_bonus + framework_bonus)
-        .min(1.0_f32);
+    let confidence = (base_confidence + entry_bonus + test_bonus + framework_bonus).min(1.0_f32);
 
     // 5. commands
     let (build_cmd, test_cmd) = infer_commands(&language, &test_framework);
@@ -93,9 +92,9 @@ pub fn scan_project(workspace: &Path) -> ProjectProfile {
 fn detect_language(workspace: &Path) -> (Language, Option<PathBuf>, f32) {
     // manifest قاطع → base 0.5
     let manifests: &[(&str, Language, f32)] = &[
-        ("Cargo.toml",    Language::Rust,   0.5),
-        ("go.mod",        Language::Go,     0.5),
-        ("package.json",  Language::Node,   0.5),
+        ("Cargo.toml", Language::Rust, 0.5),
+        ("go.mod", Language::Go, 0.5),
+        ("package.json", Language::Node, 0.5),
         ("tsconfig.json", Language::TypeScript, 0.5),
     ];
 
@@ -120,7 +119,12 @@ fn detect_language(workspace: &Path) -> (Language, Option<PathBuf>, f32) {
     }
 
     // Python — heuristic (ليس manifest قاطع)
-    let py_manifests = ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"];
+    let py_manifests = [
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "requirements.txt",
+    ];
     for name in &py_manifests {
         let p = workspace.join(name);
         if p.exists() {
@@ -142,15 +146,16 @@ fn detect_language(workspace: &Path) -> (Language, Option<PathBuf>, f32) {
 
 fn detect_entry_points(workspace: &Path, language: &Language) -> Vec<PathBuf> {
     let candidates: &[&str] = match language {
-        Language::Rust       => &["src/main.rs", "src/lib.rs"],
-        Language::Python     => &["main.py", "app.py", "__main__.py", "src/main.py"],
-        Language::Go         => &["main.go", "cmd/main.go"],
-        Language::Node       => &["index.js", "src/index.js", "app.js"],
+        Language::Rust => &["src/main.rs", "src/lib.rs"],
+        Language::Python => &["main.py", "app.py", "__main__.py", "src/main.py"],
+        Language::Go => &["main.go", "cmd/main.go"],
+        Language::Node => &["index.js", "src/index.js", "app.js"],
         Language::TypeScript => &["index.ts", "src/index.ts", "src/main.ts"],
-        Language::Unknown    => &[],
+        Language::Unknown => &[],
     };
 
-    candidates.iter()
+    candidates
+        .iter()
         .map(|c| workspace.join(c))
         .filter(|p| p.exists())
         .collect()
@@ -165,19 +170,21 @@ fn detect_tests(workspace: &Path, language: &Language) -> (bool, Option<String>)
         Language::Rust => {
             // Rust: tests داخل src/ أو مجلد tests/
             let tests_dir = workspace.join("tests");
-            let has = tests_dir.exists()
-                || dir_contains_pattern(workspace.join("src"), "#[test]");
-            let framework = if has { Some("cargo test".to_string()) } else { None };
+            let has = tests_dir.exists() || dir_contains_pattern(workspace.join("src"), "#[test]");
+            let framework = if has {
+                Some("cargo test".to_string())
+            } else {
+                None
+            };
             (has, framework)
         }
         Language::Python => {
             let pytest_ini = ["pytest.ini", "pyproject.toml", "setup.cfg"]
                 .iter()
                 .any(|f| workspace.join(f).exists());
-            let tests_dir = workspace.join("tests").exists()
-                || workspace.join("test").exists();
-            let has_test_files = has_files_matching(workspace, "test_")
-                || has_files_matching(workspace, "_test.py");
+            let tests_dir = workspace.join("tests").exists() || workspace.join("test").exists();
+            let has_test_files =
+                has_files_matching(workspace, "test_") || has_files_matching(workspace, "_test.py");
 
             if pytest_ini || tests_dir || has_test_files {
                 let framework = if pytest_ini {
@@ -192,7 +199,11 @@ fn detect_tests(workspace: &Path, language: &Language) -> (bool, Option<String>)
         }
         Language::Go => {
             let has = has_files_matching(workspace, "_test.go");
-            let framework = if has { Some("go test".to_string()) } else { None };
+            let framework = if has {
+                Some("go test".to_string())
+            } else {
+                None
+            };
             (has, framework)
         }
         Language::Node | Language::TypeScript => {
@@ -233,7 +244,10 @@ fn infer_commands(
         ),
         Language::Python => (
             None,
-            test_framework.clone().or_else(|| Some("pytest".to_string())).into(),
+            test_framework
+                .clone()
+                .or_else(|| Some("pytest".to_string()))
+                .into(),
         ),
         Language::Go => (
             Some("go build ./...".to_string()),
@@ -241,11 +255,19 @@ fn infer_commands(
         ),
         Language::Node => (
             Some("npm install && npm run build".to_string()),
-            Some(test_framework.clone().unwrap_or_else(|| "npm test".to_string())),
+            Some(
+                test_framework
+                    .clone()
+                    .unwrap_or_else(|| "npm test".to_string()),
+            ),
         ),
         Language::TypeScript => (
             Some("npm install && npm run build".to_string()),
-            Some(test_framework.clone().unwrap_or_else(|| "npm test".to_string())),
+            Some(
+                test_framework
+                    .clone()
+                    .unwrap_or_else(|| "npm test".to_string()),
+            ),
         ),
         Language::Unknown => (None, None),
     }
@@ -258,7 +280,8 @@ fn infer_commands(
 fn has_files_with_ext(dir: &Path, ext: &str) -> bool {
     fs::read_dir(dir).ok().map_or(false, |entries| {
         entries.filter_map(|e| e.ok()).any(|e| {
-            e.path().extension()
+            e.path()
+                .extension()
                 .and_then(|x| x.to_str())
                 .map_or(false, |x| x == ext)
         })
@@ -274,10 +297,9 @@ fn has_files_matching(dir: &Path, pattern: &str) -> bool {
 }
 
 fn dir_contains_pattern(dir: PathBuf, pattern: &str) -> bool {
-    walk_dir(&dir, 2).iter().any(|p| {
-        fs::read_to_string(p)
-            .map_or(false, |content| content.contains(pattern))
-    })
+    walk_dir(&dir, 2)
+        .iter()
+        .any(|p| fs::read_to_string(p).map_or(false, |content| content.contains(pattern)))
 }
 
 /// walk directory up to max_depth, returns all files
@@ -293,9 +315,7 @@ fn walk_dir(dir: &Path, max_depth: usize) -> Vec<PathBuf> {
                 results.push(path);
             } else if path.is_dir() {
                 // تجاهل مجلدات البناء والـ deps
-                let name = path.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("");
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                 if !matches!(name, "target" | "node_modules" | ".git" | "__pycache__") {
                     results.extend(walk_dir(&path, max_depth - 1));
                 }

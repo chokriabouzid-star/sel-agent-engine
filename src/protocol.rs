@@ -9,36 +9,60 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Plan {
-    pub version:  String,
+    pub version: String,
     pub commands: Vec<Cmd>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Cmd {
-    Run       { command: String },
-    WriteFile { path: String, content: String },
-    AppendFile{ path: String, content: String },
-    DeleteFile{ path: String },
-    PatchFile { path: String, search: String, replace: String },
-    ReadFile  { path: String },
-    Mkdir     { path: String },
-    RunTests  { target: String },
-    Done      { #[serde(default)] message: String },
+    Run {
+        command: String,
+    },
+    WriteFile {
+        path: String,
+        content: String,
+    },
+    AppendFile {
+        path: String,
+        content: String,
+    },
+    DeleteFile {
+        path: String,
+    },
+    PatchFile {
+        path: String,
+        #[serde(default)]
+        search: String,
+        replace: String,
+    },
+    ReadFile {
+        path: String,
+    },
+    Mkdir {
+        path: String,
+    },
+    RunTests {
+        target: String,
+    },
+    Done {
+        #[serde(default)]
+        message: String,
+    },
 }
 
 impl Cmd {
     pub fn label(&self) -> String {
         match self {
-            Cmd::Run       { command }    => format!("run: {}", &command[..command.len().min(60)]),
-            Cmd::WriteFile { path, .. }   => format!("write_file: {}", path),
-            Cmd::AppendFile{ path, .. }   => format!("append_file: {}", path),
-            Cmd::DeleteFile{ path }        => format!("delete_file: {}", path),
-            Cmd::PatchFile { path, .. }     => format!("patch_file: {}", path),
-            Cmd::ReadFile  { path }       => format!("read_file: {}", path),
-            Cmd::Mkdir     { path }       => format!("mkdir: {}", path),
-            Cmd::RunTests  { target }     => format!("run_tests: {}", target),
-            Cmd::Done      { message }    => format!("done: {}", message),
+            Cmd::Run { command } => format!("run: {}", &command[..command.len().min(60)]),
+            Cmd::WriteFile { path, .. } => format!("write_file: {}", path),
+            Cmd::AppendFile { path, .. } => format!("append_file: {}", path),
+            Cmd::DeleteFile { path } => format!("delete_file: {}", path),
+            Cmd::PatchFile { path, .. } => format!("patch_file: {}", path),
+            Cmd::ReadFile { path } => format!("read_file: {}", path),
+            Cmd::Mkdir { path } => format!("mkdir: {}", path),
+            Cmd::RunTests { target } => format!("run_tests: {}", target),
+            Cmd::Done { message } => format!("done: {}", message),
         }
     }
     pub fn hash(&self) -> String {
@@ -46,38 +70,91 @@ impl Cmd {
         use std::hash::{Hash, Hasher};
         let mut h = DefaultHasher::new();
         match self {
-            Cmd::Run       { command }         => { "run".hash(&mut h);        command.hash(&mut h); }
-            Cmd::WriteFile { path, content }   => { "write_file".hash(&mut h); path.hash(&mut h); content.hash(&mut h); }
-            Cmd::AppendFile{ path, content }   => { "append_file".hash(&mut h);path.hash(&mut h); content.hash(&mut h); }
-            Cmd::DeleteFile{ path }              => { "delete_file".hash(&mut h); path.hash(&mut h); }
-            Cmd::PatchFile { path, search, replace } => { "patch_file".hash(&mut h); path.hash(&mut h); search.hash(&mut h); replace.hash(&mut h); }
-            Cmd::ReadFile  { path }            => { "read_file".hash(&mut h);  path.hash(&mut h); }
-            Cmd::Mkdir     { path }            => { "mkdir".hash(&mut h);      path.hash(&mut h); }
-            Cmd::RunTests  { target }          => { "run_tests".hash(&mut h);  target.hash(&mut h); }
-            Cmd::Done      { .. }              => { "done".hash(&mut h); }
+            Cmd::Run { command } => {
+                "run".hash(&mut h);
+                command.hash(&mut h);
+            }
+            Cmd::WriteFile { path, content } => {
+                "write_file".hash(&mut h);
+                path.hash(&mut h);
+                content.hash(&mut h);
+            }
+            Cmd::AppendFile { path, content } => {
+                "append_file".hash(&mut h);
+                path.hash(&mut h);
+                content.hash(&mut h);
+            }
+            Cmd::DeleteFile { path } => {
+                "delete_file".hash(&mut h);
+                path.hash(&mut h);
+            }
+            Cmd::PatchFile {
+                path,
+                search,
+                replace,
+            } => {
+                "patch_file".hash(&mut h);
+                path.hash(&mut h);
+                search.hash(&mut h);
+                replace.hash(&mut h);
+            }
+            Cmd::ReadFile { path } => {
+                "read_file".hash(&mut h);
+                path.hash(&mut h);
+            }
+            Cmd::Mkdir { path } => {
+                "mkdir".hash(&mut h);
+                path.hash(&mut h);
+            }
+            Cmd::RunTests { target } => {
+                "run_tests".hash(&mut h);
+                target.hash(&mut h);
+            }
+            Cmd::Done { .. } => {
+                "done".hash(&mut h);
+            }
         }
         format!("{:x}", h.finish())
     }
-    pub fn is_done(&self)     -> bool { matches!(self, Cmd::Done { .. }) }
-    pub fn is_run_tests(&self)-> bool { matches!(self, Cmd::RunTests { .. }) }
-    pub fn is_write_file(&self) -> bool { matches!(self, Cmd::WriteFile { .. } | Cmd::AppendFile { .. }) }
-    pub fn is_delete_file(&self) -> bool { matches!(self, Cmd::DeleteFile { .. }) }
-    pub fn is_patch_file(&self)  -> bool { matches!(self, Cmd::PatchFile  { .. }) }
+    pub fn is_done(&self) -> bool {
+        matches!(self, Cmd::Done { .. })
+    }
+    pub fn is_run_tests(&self) -> bool {
+        matches!(self, Cmd::RunTests { .. })
+    }
+    pub fn is_write_file(&self) -> bool {
+        matches!(self, Cmd::WriteFile { .. } | Cmd::AppendFile { .. })
+    }
+    pub fn is_delete_file(&self) -> bool {
+        matches!(self, Cmd::DeleteFile { .. })
+    }
+    pub fn is_patch_file(&self) -> bool {
+        matches!(self, Cmd::PatchFile { .. })
+    }
 }
 
 // ══════════════════════════════════════════════════════
 // Parser
 // ══════════════════════════════════════════════════════
 
-/// استخرج ```json block من رد LLM
 pub fn extract_json(text: &str) -> Option<&str> {
     let marker = "```json";
-    let s = text.find(marker)? + marker.len();
-    let rest = text[s..].trim_start_matches('\n');
-    let e = rest.find("```")?;
-    Some(rest[..e].trim())
+    if let Some(s) = text.find(marker) {
+        let rest = text[s + marker.len()..].trim_start_matches('\n');
+        if let Some(e) = rest.find("```") {
+            return Some(rest[..e].trim());
+        }
+    }
+    // Fallback: try finding outermost brackets if markdown tags are omitted
+    if let Some(start) = text.find('{') {
+        if let Some(end) = text.rfind('}') {
+            if end > start {
+                return Some(&text[start..=end]);
+            }
+        }
+    }
+    None
 }
-
 
 /// يصلح escape sequences غير الصالحة في JSON التي يولدها LLM
 /// مثال: \' → ' و \` → `
@@ -109,17 +186,24 @@ fn fix_json_escapes(s: &str) -> String {
                     }
                 }
             } else if c == '\n' {
-                result.push('\\'); result.push('n');
+                result.push('\\');
+                result.push('n');
             } else if c == '\r' {
-                result.push('\\'); result.push('r');
+                result.push('\\');
+                result.push('r');
             } else if c == '\t' {
-                result.push('\\'); result.push('t');
+                result.push('\\');
+                result.push('t');
             } else {
-                if c == '"' { in_string = false; }
+                if c == '"' {
+                    in_string = false;
+                }
                 result.push(c);
             }
         } else {
-            if c == '"' { in_string = true; }
+            if c == '"' {
+                in_string = true;
+            }
             result.push(c);
         }
 
@@ -129,11 +213,16 @@ fn fix_json_escapes(s: &str) -> String {
 }
 
 pub fn parse(response: &str) -> Result<Plan> {
-    let json = extract_json(response)
-        .ok_or_else(|| anyhow!("No ```json block found in response"))?;
+    let json =
+        extract_json(response).ok_or_else(|| anyhow!("No ```json block found in response"))?;
     let cleaned = fix_json_escapes(json);
-    serde_json::from_str(&cleaned)
-        .map_err(|e| anyhow!("JSON parse error: {}\n---\n{}", e, { let start = json.len().min(600).saturating_sub(50); let end = json.len().min(800); &json[start..end] }))
+    serde_json::from_str(&cleaned).map_err(|e| {
+        anyhow!("JSON parse error: {}\n---\n{}", e, {
+            let start = json.len().min(600).saturating_sub(50);
+            let end = json.len().min(800);
+            &json[start..end]
+        })
+    })
 }
 
 #[cfg(test)]
@@ -166,17 +255,22 @@ Some text
 
 /// Ensures test files are written before RunTests is called.
 pub fn validate_test_order(plan: &Plan) -> Result<(), String> {
-    let has_run_tests = plan.commands.iter()
+    let has_run_tests = plan
+        .commands
+        .iter()
         .any(|c| matches!(c, Cmd::RunTests { .. }));
-    if !has_run_tests { return Ok(()); }
+    if !has_run_tests {
+        return Ok(());
+    }
 
     let test_pos = plan.commands.iter().position(|c| match c {
         Cmd::WriteFile { path, .. } => path.contains("test"),
         _ => false,
     });
-    let run_pos = plan.commands.iter().position(|c|
-        matches!(c, Cmd::RunTests { .. })
-    );
+    let run_pos = plan
+        .commands
+        .iter()
+        .position(|c| matches!(c, Cmd::RunTests { .. }));
 
     match (test_pos, run_pos) {
         (Some(t), Some(r)) if t < r => Ok(()),
@@ -184,4 +278,3 @@ pub fn validate_test_order(plan: &Plan) -> Result<(), String> {
         _ => Err("Test file must be written before RunTests".into()),
     }
 }
-

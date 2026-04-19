@@ -9,18 +9,18 @@
 //   3. أضف أرقام الأسطر في المحتوى المُرسل للـ LLM
 //   4. أضف context_hint في الـ prompt يخبر اللغوي أنه يرى جزءاً من الملف
 // ============================================================
- 
+
 use std::fs;
 use std::path::Path;
- 
+
 // ─── ثوابت ───────────────────────────────────────────────────
-pub const MAX_FILE_LINES: usize = 400;   // فوق هذا → نستخدم chunking
-pub const CHUNK_RADIUS: usize = 60;      // ±60 سطر حول الخطأ
-pub const CHARS_PER_TOKEN: usize = 4;    // تقدير: 1 token ≈ 4 حرف
+pub const MAX_FILE_LINES: usize = 400; // فوق هذا → نستخدم chunking
+pub const CHUNK_RADIUS: usize = 60; // ±60 سطر حول الخطأ
+pub const CHARS_PER_TOKEN: usize = 4; // تقدير: 1 token ≈ 4 حرف
 pub const MAX_TOKENS_PER_FILE: usize = 3_000; // ~12K حرف كحد أقصى لملف واحد
- 
+
 // ─── البنى ───────────────────────────────────────────────────
- 
+
 /// موقع خطأ مستخرج من مخرجات الاختبار
 #[derive(Debug, Clone)]
 pub struct ErrorLocation {
@@ -29,7 +29,7 @@ pub struct ErrorLocation {
     /// رقم السطر (1-indexed)
     pub line: usize,
 }
- 
+
 /// نتيجة قراءة chunk من ملف كبير
 #[derive(Debug)]
 pub struct FileChunk {
@@ -42,9 +42,9 @@ pub struct FileChunk {
     /// إجمالي أسطر الملف الأصلي
     pub total_lines: usize,
 }
- 
+
 // ─── استخراج مواقع الأخطاء ────────────────────────────────────
- 
+
 /// يستخرج مواقع الأخطاء من مخرجات الاختبارات
 ///
 /// يدعم صياغات:
@@ -54,7 +54,7 @@ pub struct FileChunk {
 /// - Node:   `src/main.js:42`
 pub fn extract_error_locations(test_output: &str) -> Vec<ErrorLocation> {
     let mut locations: Vec<ErrorLocation> = Vec::new();
- 
+
     for line in test_output.lines() {
         if let Some(loc) = parse_rust_location(line) {
             if !is_duplicate(&locations, &loc) {
@@ -62,28 +62,28 @@ pub fn extract_error_locations(test_output: &str) -> Vec<ErrorLocation> {
             }
             continue;
         }
- 
+
         if let Some(loc) = parse_python_location(line) {
             if !is_duplicate(&locations, &loc) {
                 locations.push(loc);
             }
             continue;
         }
- 
+
         if let Some(loc) = parse_generic_location(line) {
             if !is_duplicate(&locations, &loc) {
                 locations.push(loc);
             }
         }
     }
- 
+
     locations.truncate(5);
     locations
 }
- 
+
 fn parse_rust_location(line: &str) -> Option<ErrorLocation> {
     let line = line.trim();
- 
+
     let search_str = if line.starts_with("-->") {
         line.trim_start_matches("-->").trim()
     } else if line.contains(" --> ") {
@@ -91,17 +91,17 @@ fn parse_rust_location(line: &str) -> Option<ErrorLocation> {
     } else {
         line
     };
- 
+
     parse_file_line_col(search_str, &[".rs"])
 }
- 
+
 fn parse_python_location(line: &str) -> Option<ErrorLocation> {
     let line = line.trim();
- 
+
     if !line.contains("File ") {
         return None;
     }
- 
+
     let file_pos = line.find("File ")?;
     let after_file = &line[file_pos + 5..];
     let (path, rest) = if after_file.starts_with('"') {
@@ -113,11 +113,11 @@ fn parse_python_location(line: &str) -> Option<ErrorLocation> {
     } else {
         return None;
     };
- 
+
     if !path.ends_with(".py") {
         return None;
     }
- 
+
     let line_part = rest.trim().strip_prefix(',')?;
     let line_part = line_part.trim().strip_prefix("line")?;
     let line_num: usize = line_part
@@ -127,37 +127,37 @@ fn parse_python_location(line: &str) -> Option<ErrorLocation> {
         .trim_end_matches(',')
         .parse()
         .ok()?;
- 
+
     Some(ErrorLocation {
         file: path.to_string(),
         line: line_num,
     })
 }
- 
+
 fn parse_generic_location(line: &str) -> Option<ErrorLocation> {
     parse_file_line_col(line.trim(), &[".go", ".js", ".ts", ".java", ".c"])
 }
- 
+
 fn parse_file_line_col(text: &str, extensions: &[&str]) -> Option<ErrorLocation> {
     let parts: Vec<&str> = text.splitn(4, ':').collect();
     if parts.len() < 2 {
         return None;
     }
- 
+
     for i in 0..parts.len().saturating_sub(1) {
         let file_part = parts[..=i].join(":");
         let file_part = file_part.trim();
- 
+
         let has_valid_ext = if extensions.contains(&".rs") {
             file_part.ends_with(".rs")
         } else {
             extensions.iter().any(|ext| file_part.ends_with(ext))
         };
- 
+
         if !has_valid_ext {
             continue;
         }
- 
+
         if let Some(line_str) = parts.get(i + 1) {
             let line_str = line_str.split_whitespace().next().unwrap_or("");
             let line_str = line_str.trim_end_matches(':');
@@ -173,36 +173,36 @@ fn parse_file_line_col(text: &str, extensions: &[&str]) -> Option<ErrorLocation>
     }
     None
 }
- 
+
 fn is_duplicate(locations: &[ErrorLocation], new: &ErrorLocation) -> bool {
     locations
         .iter()
         .any(|l| l.file == new.file && (l.line as i64 - new.line as i64).abs() < 10)
 }
- 
+
 // ─── قراءة Chunk من ملف كبير ─────────────────────────────────
- 
+
 /// يقرأ chunk من ملف كبير حول سطر محدد
 /// يُضيف أرقام الأسطر في البداية لمساعدة اللغوي على الإشارة بدقة
 pub fn read_file_chunk(path: &Path, center_line: usize, radius: usize) -> Option<FileChunk> {
     let content = fs::read_to_string(path).ok()?;
     let all_lines: Vec<&str> = content.lines().collect();
     let total_lines = all_lines.len();
- 
+
     if total_lines == 0 {
         return None;
     }
- 
+
     let center_idx = center_line.saturating_sub(1).min(total_lines - 1);
     let start_idx = center_idx.saturating_sub(radius);
     let end_idx = (center_idx + radius).min(total_lines - 1);
- 
+
     let mut chunk_lines = Vec::new();
     for (i, line) in all_lines[start_idx..=end_idx].iter().enumerate() {
         let line_num = start_idx + i + 1;
         chunk_lines.push(format!("{:5}: {}", line_num, line));
     }
- 
+
     Some(FileChunk {
         content: chunk_lines.join("\n"),
         start_line: start_idx + 1,
@@ -210,42 +210,42 @@ pub fn read_file_chunk(path: &Path, center_line: usize, radius: usize) -> Option
         total_lines,
     })
 }
- 
+
 /// يقرر هل يُرسل الملف كاملاً أم chunk
 pub fn get_file_content_smart(
     path: &Path,
     error_locations: &[ErrorLocation],
 ) -> Result<SmartContent, String> {
-    let content = fs::read_to_string(path)
-        .map_err(|e| format!("خطأ في قراءة {:?}: {}", path, e))?;
- 
+    let content =
+        fs::read_to_string(path).map_err(|e| format!("خطأ في قراءة {:?}: {}", path, e))?;
+
     let line_count = content.lines().count();
     let token_estimate = content.len() / CHARS_PER_TOKEN;
- 
+
     if line_count <= MAX_FILE_LINES && token_estimate <= MAX_TOKENS_PER_FILE {
         return Ok(SmartContent::FullFile(content));
     }
- 
+
     let path_str = path.to_string_lossy();
     let center_line = error_locations
         .iter()
         .find(|loc| path_str.contains(&loc.file) || loc.file.contains(path_str.as_ref()))
         .map(|loc| loc.line)
         .unwrap_or(1);
- 
+
     match read_file_chunk(path, center_line, CHUNK_RADIUS) {
         Some(chunk) => Ok(SmartContent::Chunk(chunk)),
         None => Ok(SmartContent::FullFile(content)),
     }
 }
- 
+
 // ─── SmartContent ─────────────────────────────────────────────
- 
+
 pub enum SmartContent {
     FullFile(String),
     Chunk(FileChunk),
 }
- 
+
 impl SmartContent {
     pub fn content_for_prompt(&self, file_name: &str) -> String {
         match self {
@@ -256,11 +256,11 @@ impl SmartContent {
             ),
         }
     }
- 
+
     pub fn is_chunk(&self) -> bool {
         matches!(self, SmartContent::Chunk(_))
     }
- 
+
     pub fn context_hint(&self, file_name: &str) -> Option<String> {
         match self {
             SmartContent::FullFile(_) => None,
@@ -273,22 +273,25 @@ impl SmartContent {
         }
     }
 }
- 
+
 // ─── تقدير الـ tokens ─────────────────────────────────────────
- 
+
 pub fn estimate_tokens(text: &str) -> usize {
     text.len() / CHARS_PER_TOKEN
 }
- 
+
 pub fn estimate_context_tokens(files: &[(String, String)]) -> usize {
-    files.iter().map(|(_, content)| estimate_tokens(content)).sum()
+    files
+        .iter()
+        .map(|(_, content)| estimate_tokens(content))
+        .sum()
 }
- 
+
 // ─── اختبارات الوحدة ──────────────────────────────────────────
 #[cfg(test)]
 mod tests {
     use super::*;
- 
+
     #[test]
     fn test_extract_rust_location_arrow() {
         let output = "error[E0308]: mismatched types\n  --> src/main.rs:42:10\n   |";
@@ -297,7 +300,7 @@ mod tests {
         assert_eq!(locs[0].file, "src/main.rs");
         assert_eq!(locs[0].line, 42);
     }
- 
+
     #[test]
     fn test_extract_python_location() {
         let output = "Traceback (most recent call last):\n  File \"src/core.py\", line 1217, in make_context\nAssertionError";
@@ -306,14 +309,16 @@ mod tests {
         assert_eq!(locs[0].file, "src/core.py");
         assert_eq!(locs[0].line, 1217);
     }
- 
+
     #[test]
     fn test_extract_go_location() {
         let output = "FAIL\nmain_test.go:34: got nil, want error";
         let locs = extract_error_locations(output);
-        assert!(locs.iter().any(|l| l.file.contains("main_test.go") && l.line == 34));
+        assert!(locs
+            .iter()
+            .any(|l| l.file.contains("main_test.go") && l.line == 34));
     }
- 
+
     #[test]
     fn test_chunk_radius() {
         use std::io::Write;
@@ -327,7 +332,7 @@ mod tests {
         assert!(chunk.content.contains("  190:"));
         assert!(chunk.content.contains("  310:"));
     }
- 
+
     #[test]
     fn test_chunk_at_start_of_file() {
         use std::io::Write;
@@ -339,20 +344,20 @@ mod tests {
         assert_eq!(chunk.start_line, 1);
         assert_eq!(chunk.end_line, 70);
     }
- 
+
     #[test]
     fn test_estimate_tokens() {
         let text = "a".repeat(400);
         assert_eq!(estimate_tokens(&text), 100);
     }
- 
+
     #[test]
     fn test_no_duplicates_close_lines() {
         let output = "  --> src/main.rs:42:10\n  --> src/main.rs:43:5";
         let locs = extract_error_locations(output);
         assert_eq!(locs.len(), 1);
     }
- 
+
     #[test]
     fn test_smart_content_full_file_small() {
         use std::io::Write;
@@ -363,7 +368,7 @@ mod tests {
         let result = get_file_content_smart(tmp.path(), &[]).unwrap();
         assert!(!result.is_chunk());
     }
- 
+
     #[test]
     fn test_smart_content_chunk_large() {
         use std::io::Write;
@@ -371,11 +376,14 @@ mod tests {
         for i in 1..=600 {
             writeln!(tmp, "fn line_{}() {{ /* code */ }}", i).unwrap();
         }
-        let loc = ErrorLocation { file: "test".into(), line: 300 };
+        let loc = ErrorLocation {
+            file: "test".into(),
+            line: 300,
+        };
         let result = get_file_content_smart(tmp.path(), &[loc]).unwrap();
         assert!(result.is_chunk());
     }
- 
+
     #[test]
     fn test_context_hint_format() {
         let chunk = FileChunk {

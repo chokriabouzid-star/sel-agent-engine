@@ -1132,7 +1132,7 @@ dependencies = [
 
 [[package]]
 name = "sel-agent"
-version = "6.4.0"
+version = "7.3.0"
 dependencies = [
  "anyhow",
  "clap",

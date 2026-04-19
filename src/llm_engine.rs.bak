@@ -7,24 +7,37 @@ use crate::types::Message;
 
 // ─── System Prompt ────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT: &str = r#"You are SEL Agent, an autonomous execution engine.
-CRITICAL: Respond ONLY with a valid JSON object matching the schema below. No markdown text outside the JSON block.
+const SYSTEM_PROMPT: &str = r#"You are SEL Agent — a deterministic software execution agent.
+OUTPUT: Respond ONLY with a single json code block. No text outside it.
 
 SCHEMA:
 {"version":"1.0","commands":[
-  {"type":"run","command":"..."},
-  {"type":"write_file","path":"...","content":"..."},
-  {"type":"run_tests","target":"..."},
-  {"type":"patch_file","path":"...","search":"...","replace":"..."},
-  {"type":"done","message":"..."}
+  {"type":"run","command":"python3 -m venv venv"},
+  {"type":"run","command":"venv/bin/pip3 install pytest"},
+  {"type":"write_file","path":"calc.py","content":"def add(a,b):\n    return a+b\n"},
+  {"type":"write_file","path":"test_calc.py","content":"from calc import add\ndef test_add():\n    assert add(1,2)==3\n"},
+  {"type":"run_tests","target":"test_calc.py"},
+  {"type":"patch_file","path":"calc.py","search":"return a","replace":"return a+b"},
+  {"type":"done","message":"All tests passed"}
 ]}
 
-RULES:
-- Python: Use venv/bin/pytest
-- Rust: run_tests target MUST be "cargo"
-- Go: run_tests target MUST be "go", ALWAYS import "fmt"/"errors" if used
-- TS/Node: run_tests target MUST be "npm test"
-- STRONG TESTS: Write comprehensive tests with both positive and negative cases.
+CRITICAL RULES:
+- Python: venv/bin/pytest, never name files math.py/os.py/json.py/csv.py
+- Rust: double quotes for strings, no cargo new, Cargo.toml at workspace root
+  run_tests target MUST be "cargo"
+- Go: go.mod required, Test prefix, _test.go suffix
+  run_tests target MUST be "go"
+  ALWAYS import "fmt" if using fmt.Sprintf/Errorf/Println
+  ALWAYS import "errors" if using errors.New
+- Node/TS: ALWAYS use run_tests with target "npm test"
+  NEVER use run command for npm test
+- NEVER repeat workspace path in file paths
+- ALWAYS include type field in every command
+- TESTS MUST BE STRONG: 3+ assertions per function
+  assert add(1,2)==3; assert add(0,0)==0; assert add(-1,1)==0
+- FACTORIAL: test n=0→1, n=1→1, n=5→120
+- BOOLEAN: test both True AND False
+- OUTPUT FORMAT: JSON only, no thinking tags, no markdown outside code block
 "#;
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
@@ -93,70 +106,6 @@ struct Response {
 #[derive(Deserialize)]
 struct Choice {
     message: ApiMsg,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum LlmProvider {
-    Groq,
-    Moonshot,
-}
-
-#[derive(Debug, Clone)]
-pub struct ModelConfig {
-    pub provider: LlmProvider,
-    pub model_id: String,
-    pub base_url: String,
-    pub env_key: String,
-}
-
-impl ModelConfig {
-    pub fn from_alias(alias: &str) -> Self {
-        match alias {
-            "kimi" | "kimi-k2" | "kimi-k2-instruct" => ModelConfig {
-                provider: LlmProvider::Groq,
-                model_id: "moonshotai/kimi-k2-instruct-0905".to_string(),
-                base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
-                env_key: "GROQ_API_KEY".to_string(),
-            },
-            "llama" | "llama-70b" => ModelConfig {
-                provider: LlmProvider::Groq,
-                model_id: "llama-3.3-70b-versatile".to_string(),
-                base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
-                env_key: "GROQ_API_KEY".to_string(),
-            },
-            "kimi-k2.5" | "kimi25" | "kimi-latest" => ModelConfig {
-                provider: LlmProvider::Moonshot,
-                model_id: "kimi-k2.5".to_string(),
-                base_url: "https://api.moonshot.ai/v1/chat/completions".to_string(),
-                env_key: "MOONSHOT_API_KEY".to_string(),
-            },
-            "silicon" | "kimi-silicon" => ModelConfig {
-                provider: LlmProvider::Moonshot,
-                model_id: "moonshotai/Kimi-K2.5".to_string(),
-                base_url: "https://api.siliconflow.cn/v1/chat/completions".to_string(),
-                env_key: "SILICONFLOW_API_KEY".to_string(),
-            },
-            _ => ModelConfig {
-                provider: LlmProvider::Groq,
-                model_id: alias.to_string(),
-                base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
-                env_key: "GROQ_API_KEY".to_string(),
-            },
-        }
-    }
-}
-
-pub fn classify_json_error(reason: &str) -> String {
-    if reason.contains("No ```json") || reason.contains("json block") {
-        "⚠️  [النموذج] رد بنص بدل JSON — إعادة بـ prompt مبسط".to_string()
-    } else if reason.contains("missing field") {
-        "⚠️  [النموذج] JSON ناقص حقل مطلوب".to_string()
-    } else {
-        format!(
-            "⚠️  [النموذج] فشل تحليل JSON — {}",
-            &reason[..reason.len().min(50)]
-        )
-    }
 }
 
 // ─── impl LlmEngine ──────────────────────────────────────────────────────────
@@ -259,100 +208,68 @@ impl LlmEngine {
         }
     }
 
-
-    /// يستدعي LLM بـ cascade تلقائي — 3 جولات مع انتظار تزايدي
+    /// يستدعي LLM بـ cascade تلقائي عند فشل provider
     pub async fn call(&mut self, messages: &[Message]) -> Result<String> {
         if self.providers.is_empty() {
             return Err(anyhow!(
-                "❌ لا يوجد API key — جرّب: export GEMINI_API_KEY=... او GROQ_API_KEY=..."
+                "❌ لا يوجد API key — جرّب: export GEMINI_API_KEY=... أو GROQ_API_KEY=..."
             ));
         }
 
         let msgs = build_msgs(messages);
         let count = self.providers.len();
-        let mut daily_exhausted: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
-        let wait_secs = [30u64, 60u64];
 
-        for round in 0..3u32 {
+        // حاول الـ cascade مرتين: مرة عادية، ومرة بعد انتظار 60s إذا كان كل شيء TPM
+        for round in 0..2u32 {
             let mut last_err = None;
-            let mut tried_any = false;
+            let mut all_tpm = true;
 
             for i in 0..count {
                 let provider = self.providers[i].clone();
-                if daily_exhausted.contains(&provider.name) {
-                    continue;
-                }
-                tried_any = true;
 
                 match call_one(&provider, &msgs, &mut self.stats).await {
                     Ok(text) => {
-                        if i > 0 || round > 0 {
-                            println!("   OK {} succeeded", provider.name);
+                        if i > 0 {
+                            println!("   ✅ {} نجح بعد {} فشل", provider.name, i);
                         }
                         return Ok(text);
                     }
                     Err(e) => {
                         let s = e.to_string();
-                        let is_429 = s.contains("429");
-                        let is_daily = is_429 && (
-                            s.contains("per day") ||
-                            s.contains("TPD") ||
-                            s.contains("daily") ||
-                            s.contains("quota") ||
-                            s.contains("exceeded your current quota") ||
-                            s.contains("GenerateRequestsPerDay")
-                        );
-                        let is_auth =
+                        let is_tpm = s.contains("429") && 
+                            (s.contains("per minute") || s.contains("TPM"));
+                        let is_cascade = 
                             s.contains("401") || s.contains("403") ||
-                            s.contains("Unauthorized") ||
-                            s.contains("Authentication") ||
-                            s.contains("Invalid API");
+                            s.contains("429") || s.contains("Unauthorized") ||
+                            s.contains("Authentication") || s.contains("Invalid API");
 
-                        if is_daily {
-                            println!("   ⛔ {} — daily limit reached", provider.name);
-                            daily_exhausted.insert(provider.name.clone());
-                        } else if is_429 || is_auth {
-                            let reason = if is_429 { "Rate Limit" } else { "Auth" };
-                            println!("   🔀 SWITCH {} ({}) → trying next...", provider.name, reason);
+                        if !is_tpm { all_tpm = false; }
+
+                        if is_cascade && i + 1 < count {
+                            let reason = classify_err(&s);
+                            println!("   ⚠️  {} فشل ({}) — التبديل لـ {} ...",
+                                provider.name, reason, self.providers[i+1].name);
+                            last_err = Some(e);
+                            continue;
                         }
                         last_err = Some(e);
+                        all_tpm = all_tpm && s.contains("429");
+                        break;
                     }
                 }
             }
 
-            if !tried_any { break; }
-
-            if round < 2 {
-                let wait = wait_secs[round as usize];
-                println!("   ⏳ WAIT: round {}/3 failed — pausing {}s before retry...", round + 1, wait);
-                tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
-            } else {
-                let exhausted: Vec<&str> = self.providers.iter()
-                    .filter(|p| daily_exhausted.contains(&p.name))
-                    .map(|p| p.name.as_str())
-                    .collect();
-                let rate_limited: Vec<&str> = self.providers.iter()
-                    .filter(|p| !daily_exhausted.contains(&p.name))
-                    .map(|p| p.name.as_str())
-                    .collect();
-
-                let mut report = String::from("All providers failed after 3 rounds:\n");
-                if !exhausted.is_empty() {
-                    report.push_str(&format!("  daily exhausted: {}\n", exhausted.join(", ")));
-                }
-                if !rate_limited.is_empty() {
-                    report.push_str(&format!("  rate limited: {}\n", rate_limited.join(", ")));
-                }
-                report.push_str("Solutions:\n  1. Wait 1 hour\n  2. ollama pull qwen2.5-coder:7b\n  3. Add paid API key\n");
-
-                return Err(last_err
-                    .unwrap_or_else(|| anyhow!("All providers failed"))
-                    .context(report));
+            // إذا كل providers فشلت بـ TPM → انتظر 60s وحاول مجدداً (مرة واحدة فقط)
+            if round == 0 && all_tpm {
+                println!("   ⏳ كل providers وصلت حد TPM — انتظار 62s ثم إعادة المحاولة...");
+                tokio::time::sleep(std::time::Duration::from_secs(62)).await;
+                continue;
             }
+
+            return Err(last_err.unwrap_or_else(|| anyhow!("All providers failed")));
         }
 
-        Err(anyhow!("All providers failed"))
+        Err(anyhow!("All providers failed after TPM wait"))
     }
 
     pub fn call_stats(&self) -> &LlmCallStats {

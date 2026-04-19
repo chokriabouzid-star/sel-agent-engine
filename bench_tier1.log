@@ -1,0 +1,413 @@
+warning: unused import: `self`
+ --> src/agent.rs:6:16
+  |
+6 |     protocol::{self, Cmd},
+  |                ^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unnecessary parentheses around `if` condition
+  --> src/executor.rs:99:12
+   |
+99 |         if (prog.contains("pip3") || prog.contains("pip")) {
+   |            ^                                             ^
+   |
+   = note: `#[warn(unused_parens)]` (part of `#[warn(unused)]`) on by default
+help: remove these parentheses
+   |
+99 -         if (prog.contains("pip3") || prog.contains("pip")) {
+99 +         if prog.contains("pip3") || prog.contains("pip") {
+   |
+
+warning: unused variable: `loop_warning`
+    --> src/agent.rs:1307:25
+     |
+1307 | ...               let loop_warning = if self.repair_fingerprin...
+     |                       ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_loop_warning`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `model`
+  --> src/agent.rs:90:13
+   |
+90 |         let model = std::env::var("SEL_MODEL")
+   |             ^^^^^ help: if this is intentional, prefix it with an underscore: `_model`
+
+warning: unused variable: `ep`
+   --> src/main.rs:104:14
+    |
+104 |         let (ep, key) = if let Ok(base) = std::env::var("SEL_AP...
+    |              ^^ help: if this is intentional, prefix it with an underscore: `_ep`
+
+warning: unused variable: `key`
+   --> src/main.rs:104:18
+    |
+104 |         let (ep, key) = if let Ok(base) = std::env::var("SEL_AP...
+    |                  ^^^ help: if this is intentional, prefix it with an underscore: `_key`
+
+warning: field `quality` is never read
+   --> src/main.rs:678:9
+    |
+672 |     struct ModelResult {
+    |            ----------- field in this struct
+...
+678 |         quality: f64,
+    |         ^^^^^^^
+    |
+    = note: `ModelResult` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `lang` and `require_mutation` are never read
+  --> src/bench_compile.rs:8:9
+   |
+ 6 | pub struct CompileCase {
+   |            ----------- fields in this struct
+ 7 |     pub name: &'static str,
+ 8 |     pub lang: &'static str,
+   |         ^^^^
+...
+11 |     pub require_mutation: bool,
+   |         ^^^^^^^^^^^^^^^^
+
+warning: field `repairs` is never read
+  --> src/bench_compile.rs:16:9
+   |
+14 | pub struct CompileCheck {
+   |            ------------ field in this struct
+15 |     pub passed: bool,
+16 |     pub repairs: usize,
+   |         ^^^^^^^
+
+warning: fields `provider` and `base_url` are never read
+   --> src/llm_engine.rs:119:9
+    |
+118 | pub struct ModelConfig {
+    |            ----------- fields in this struct
+119 |     pub provider: LlmProvider,
+    |         ^^^^^^^^
+120 |     pub model_id: String,
+121 |     pub base_url: String,
+    |         ^^^^^^^^
+    |
+    = note: `ModelConfig` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: method `call_stats` is never used
+   --> src/llm_engine.rs:371:12
+    |
+177 | impl LlmEngine {
+    | -------------- method in this implementation
+...
+371 |     pub fn call_stats(&self) -> &LlmCallStats {
+    |            ^^^^^^^^^^
+
+warning: function `classify_err` is never used
+   --> src/llm_engine.rs:422:4
+    |
+422 | fn classify_err(s: &str) -> &'static str {
+    |    ^^^^^^^^^^^^
+
+warning: method `context_hint` is never used
+   --> src/chunker.rs:264:12
+    |
+249 | impl SmartContent {
+    | ----------------- method in this implementation
+...
+264 |     pub fn context_hint(&self, file_name: &str) -> Option<Strin...
+    |            ^^^^^^^^^^^^
+
+warning: function `estimate_tokens` is never used
+   --> src/chunker.rs:279:8
+    |
+279 | pub fn estimate_tokens(text: &str) -> usize {
+    |        ^^^^^^^^^^^^^^^
+
+warning: function `estimate_context_tokens` is never used
+   --> src/chunker.rs:283:8
+    |
+283 | pub fn estimate_context_tokens(files: &[(String, String)]) -> u...
+    |        ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_CONTEXT_FILES` is never used
+  --> src/context.rs:15:11
+   |
+15 | pub const MAX_CONTEXT_FILES: usize = 50; // v5.1: رفع من 20 إلى 50
+   |           ^^^^^^^^^^^^^^^^^
+
+warning: field `reasons` is never read
+  --> src/context.rs:27:9
+   |
+23 | pub struct ScoredFile {
+   |            ---------- field in this struct
+...
+27 |     pub reasons: Vec<String>,
+   |         ^^^^^^^
+   |
+   = note: `ScoredFile` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `cmd` is never read
+  --> src/environment.rs:13:9
+   |
+12 | pub struct ToolInfo {
+   |            -------- field in this struct
+13 |     pub cmd: String,
+   |         ^^^
+   |
+   = note: `ToolInfo` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `sub_kind` is never read
+  --> src/goal_parser.rs:31:9
+   |
+29 | pub struct ParsedGoal {
+   |            ---------- field in this struct
+30 |     pub kind: ProjectKind,
+31 |     pub sub_kind: SubKind,
+   |         ^^^^^^^^
+   |
+   = note: `ParsedGoal` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: method `is_delete_file` is never used
+   --> src/protocol.rs:128:12
+    |
+ 54 | impl Cmd {
+    | -------- method in this implementation
+...
+128 |     pub fn is_delete_file(&self) -> bool {
+    |            ^^^^^^^^^^^^^^
+
+warning: function `validate_test_order` is never used
+   --> src/protocol.rs:247:8
+    |
+247 | pub fn validate_test_order(plan: &Plan) -> Result<(), String> {
+    |        ^^^^^^^^^^^^^^^^^^^
+
+warning: struct `ProjectManifest` is never constructed
+ --> src/manifest.rs:7:12
+  |
+7 | pub struct ProjectManifest {
+  |            ^^^^^^^^^^^^^^^
+
+warning: struct `FileEntry` is never constructed
+  --> src/manifest.rs:13:12
+   |
+13 | pub struct FileEntry {
+   |            ^^^^^^^^^
+
+warning: enum `FileKind` is never used
+  --> src/manifest.rs:22:10
+   |
+22 | pub enum FileKind { Source, Test, Config }
+   |          ^^^^^^^^
+
+warning: multiple associated items are never used
+   --> src/manifest.rs:25:12
+    |
+ 24 | impl ProjectManifest {
+    | -------------------- associated items in this implementation
+ 25 |     pub fn generate(workspace: &Path) -> Self {
+    |            ^^^^^^^^
+...
+ 32 |     fn scan_files(workspace: &Path) -> Vec<FileEntry> {
+    |        ^^^^^^^^^^
+...
+ 59 |     fn analyze_file(workspace: &Path, path: &Path) -> Option<Fi...
+    |        ^^^^^^^^^^^^
+...
+ 85 |     fn extract_exports(content: &str, ext: &str) -> Vec<String> {
+    |        ^^^^^^^^^^^^^^^
+...
+131 |     fn extract_imports(content: &str, ext: &str) -> Vec<String> {
+    |        ^^^^^^^^^^^^^^^
+...
+176 |     fn first_ident(s: &str) -> Option<String> {
+    |        ^^^^^^^^^^^
+...
+190 |     fn ident_after_keyword(line: &str) -> Option<String> {
+    |        ^^^^^^^^^^^^^^^^^^^
+...
+202 |     fn ident_after_pub(line: &str) -> Option<String> {
+    |        ^^^^^^^^^^^^^^^
+...
+209 |     fn extract_go_export(line: &str) -> Option<String> {
+    |        ^^^^^^^^^^^^^^^^^
+...
+223 |     pub fn to_summary(&self) -> String {
+    |            ^^^^^^^^^^
+
+warning: method `has_failures` is never used
+  --> src/types.rs:59:12
+   |
+42 | impl ExecutionContext {
+   | --------------------- method in this implementation
+...
+59 |     pub fn has_failures(&self) -> bool {
+   |            ^^^^^^^^^^^^
+
+warning: field `step_index` is never read
+  --> src/types.rs:66:9
+   |
+65 | pub struct FailedStep {
+   |            ---------- field in this struct
+66 |     pub step_index: usize,
+   |         ^^^^^^^^^^
+   |
+   = note: `FailedStep` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: associated function `system` is never used
+   --> src/types.rs:190:12
+    |
+189 | impl Message {
+    | ------------ associated function in this implementation
+190 |     pub fn system(s: impl Into<String>) -> Self {
+    |            ^^^^^^
+
+warning: method `load_hashes` is never used
+   --> src/types.rs:425:12
+    |
+424 | impl ExecutionContext {
+    | --------------------- method in this implementation
+425 |     pub fn load_hashes(&mut self, workspace: &std::path::Path) {
+    |            ^^^^^^^^^^^
+
+warning: field `max_context_files` is never read
+   --> src/types.rs:457:9
+    |
+454 | pub struct ContextConfig {
+    |            ------------- field in this struct
+...
+457 |     pub max_context_files: usize,  // الحد الأقصى للملفات (50 ب...
+    |         ^^^^^^^^^^^^^^^^^
+    |
+    = note: `ContextConfig` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: `sel-agent` (bin "sel-agent") generated 30 warnings (run `cargo fix --bin "sel-agent" -p sel-agent` to apply 6 suggestions)
+    Finished `release` profile [optimized] target(s) in 0.33s
+     Running `target/release/sel-agent bench-real-world --tier 1 --max-repairs 3`
+
+╔═══════════════════════════════════════════════════════════════════╗
+║   SEL Agent v7.3.0 — Feature-Targeted Benchmark                   ║
+║   Compile-First | quick_fix | Language Guard | Real-World         ║
+╚═══════════════════════════════════════════════════════════════════╝
+
+📋 Test Plan (4 cases):
+
+  ● Tier 1 — Compile-First Pipeline (4 cases)
+      → [Python      ] py_compile
+      → [Go          ] go test -run=^$
+      → [Rust        ] cargo check
+      → [TypeScript  ] tsc --noEmit
+
+   🏗  Scaffold: Python environment
+   📦 Creating venv...
+   ✅ venv created
+   ✅ pytest installed (pinned)
+   🏗  Scaffold ready: Python (1 files)
+
+🧠 Planning...
+   🔍 Environment: python=python3 node=✓ rust=✓
+   ⚠️  [النموذج] رد بنص بدل JSON — إعادة بـ prompt مبسط (attempt 1/3)
+   ✅ Protocol retry 1 succeeded.
+   ✓ 2 commands
+   ✓ All patches unique
+
+[1/2] write_file: calculator.py
+[TRACE] write_file sanitize: input=209 output=209
+   📝 calculator.py (209 bytes)
+   ✓ (0 ms) → Written: calculator.py
+[2/2] run_tests: test_calculator.py
+   🧪 venv/bin/pytest test_calculator.py -v --tb=short
+   ✅ Tests passed (exit 0)
+   ✓ (0 ms) → 5 passed, 0 failed
+
+🧬 Mutation check on calculator.py...
+ ✅ Tests are solid.
+
+✅ Goal complete! Tests passed.
+SEL_SUCCESS
+  ✅ T1 [Python] Compile-Check Python (19s, 0 repairs) | py_compile
+     ⏳ 15s cooldown...
+
+❌ Invalid goal: Goal has no test requirement — add tests to verify.
+SEL_FAILED: Goal has no test requirement — add tests to verify.
+  ✅ T1 [Go] Compile-Check Go (0s, 0 repairs) | go test -run=^$
+     ⏳ 15s cooldown...
+
+🧠 Planning...
+   🔍 Environment: python=python3 node=✓ rust=✓
+   ⚠️  [النموذج] رد بنص بدل JSON — إعادة بـ prompt مبسط (attempt 1/3)
+   ✅ Protocol retry 1 succeeded.
+   ✓ 4 commands
+   ✓ All patches unique
+
+[1/4] run: mkdir -p src
+   ✓ (4 ms)
+[2/4] write_file: src/lib.rs
+[TRACE] write_file sanitize: input=1039 output=1039
+   📝 src/lib.rs (1039 bytes)
+   ✓ (0 ms) → Written: src/lib.rs
+[3/4] run_tests: cargo
+   🦀 cargo test
+   ✅ Tests passed (exit 0)
+   ✓ (820 ms) → 4 passed, 0 failed
+[4/4] done: All tests passed
+
+🧬 Mutation check on src/lib.rs...
+   ✅ Tests are solid.
+
+✅ All tests passed
+SEL_SUCCESS
+  ✅ T1 [Rust] Compile-Check Rust (5s, 0 repairs) | cargo check
+     ⏳ 15s cooldown...
+   🏗  Scaffold: TypeScript environment
+   ✅ package.json ready (pinned TS stack)
+   ✅ tsconfig.json ready
+   📦 Installing pinned TS stack...
+   ✅ Dependencies installed (pinned)
+   🏗  Scaffold ready: TypeScript (3 files)
+
+🧠 Planning...
+   🔍 Environment: python=python3 node=✓ rust=✓
+   ⚠️  [النموذج] رد بنص بدل JSON — إعادة بـ prompt مبسط (attempt 1/3)
+   ✅ Protocol retry 1 succeeded.
+   ✓ 3 commands
+   ✓ All patches unique
+
+[1/3] write_file: utils.ts
+[TRACE] write_file sanitize: input=373 output=373
+   📝 utils.ts (373 bytes)
+   ✓ (0 ms) → Written: utils.ts
+[2/3] run_tests: npm test
+   🟨 npm test -- --runInBand --forceExit
+   ✅ Tests passed (exit 0)
+   ✓ (8340 ms) → 7 passed, 0 failed
+
+> sel-project@1.0.0 test
+> jest --runInBand --forceExit
+
+
+[3/3] done: All tests passed
+
+🧬 Mutation check on utils.ts...
+   ✅ Tests are solid.
+
+✅ All tests passed
+SEL_SUCCESS
+  ✅ T1 [TypeScript] Compile-Check TypeScript (80s, 0 repairs) | tsc --noEmit
+
+╔══════════════════════════════════════════════════════════════╗
+║   SEL Agent v7.3 — Benchmark Results                        ║
+╠══════════════════════════════════════════════════════════════╣
+║  Tier    : Tier 1
+║  Time    : 2m 30s
+║  Result  : 4/4 (100.0%)
+║  AvgFix  : 0.0 repairs/success
+╠══════════════════════════════════════════════════════════════╣
+║  Feature Breakdown                                          ║
+╠══════════════════════════════════════════════════════════════╣
+║  cargo check                            ██████████ 1/1
+║  go test -run=^$                        ██████████ 1/1
+║  py_compile                             ██████████ 1/1
+║  tsc --noEmit                           ██████████ 1/1
+╠══════════════════════════════════════════════════════════════╣
+║    ✅ STABLE — ready for v7.4 planning  ║
+╚══════════════════════════════════════════════════════════════╝
+

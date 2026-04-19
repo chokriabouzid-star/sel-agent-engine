@@ -3,7 +3,7 @@
 use crate::{
     executor::SafeExecutor,
     llm_engine::LlmEngine,
-    protocol::{self, Cmd},
+    protocol::Cmd,
     types::{AgentState, ContextConfig, ExecutionContext, FailedStep, FailureKind, Message},
 };
 use anyhow::Result;
@@ -75,6 +75,10 @@ impl Agent {
     pub fn repair_count(&self) -> usize {
         self.ctx.repair_attempts as usize
     }
+
+    pub fn is_success(&self) -> bool {
+        matches!(self.state, AgentState::Done)
+    }
     fn send_event(
         &self,
         event_type: &str,
@@ -83,7 +87,7 @@ impl Agent {
         success: Option<bool>,
         mutation: Option<f64>,
     ) {
-        let model = std::env::var("SEL_MODEL")
+        let _model = std::env::var("SEL_MODEL")
             .unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string());
         let body = serde_json::json!({
             "event_type": event_type,
@@ -193,7 +197,7 @@ impl Agent {
                                 let err_msg = e.to_string();
                                 println!(
                                     "   {} (attempt {}/{})",
-                                    crate::llm::classify_json_error(&err_msg),
+                                    crate::llm_engine::classify_json_error(&err_msg),
                                     attempt + 1,
                                     MAX_RETRIES + 1
                                 );
@@ -451,6 +455,16 @@ impl Agent {
         issues
     }
 
+    fn validate_plan_with_oracle(&self, plan: &[Cmd]) -> Vec<String> {
+        let mut issues = Vec::new();
+        for cmd in plan {
+            if let Err(e) = self.executor.oracle.validate_plan_cmd(cmd) {
+                issues.push(e);
+            }
+        }
+        issues
+    }
+
     async fn replan_with_feedback(
         &mut self,
         original_plan: Vec<Cmd>,
@@ -485,7 +499,7 @@ impl Agent {
         };
         let ref_context = self.build_ref_context();
         let lang_hint = self.build_lang_hint();
-        let prompt = format!(
+        let prompt = crate::constitution::CONSTITUTION.to_string() + &format!(
             "{}{}{}\nGoal: {}\n\nFEEDBACK:\n{}",
             existing_files, ref_context, lang_hint, self.goal, feedback
         );
@@ -540,7 +554,7 @@ impl Agent {
                     if let Some(reason) = Self::validate_goal(&self.goal) {
                         println!("\n❌ Invalid goal: {}", reason);
                         println!("SEL_FAILED: {}", reason);
-                        self.state = AgentState::Done;
+                        self.state = AgentState::Failed(reason.to_string());
                         break Ok(());
                     }
                     println!("\n🧠 Planning...");
@@ -590,7 +604,7 @@ impl Agent {
                     // v5.6: استخدام build_ref_context helper
                     let ref_context = self.build_ref_context();
 
-                    let prompt = format!(
+                    let prompt = crate::constitution::CONSTITUTION.to_string() + &format!(
                         "{}{}{}\n{}\n{}\nGoal: {}\nProvide the complete execution plan.",
                         existing_files, ref_context, lang_hint, env_context, constraints, self.goal
                     );
@@ -598,8 +612,13 @@ impl Agent {
                     match self.plan_with_resilience(prompt).await {
                         Ok(commands) => {
                             println!("   ✓ {} commands", commands.len());
-                            // v5.6: Unique Patch Enforcer — التحقق قبل التنفيذ
-                            let issues = self.validate_patch_uniqueness(&commands);
+                            // 🛡️ Pre-Execution Oracle Validation
+                            let mut issues = self.validate_plan_with_oracle(&commands);
+                            
+                            // v5.6: Unique Patch Enforcer
+                            let patch_issues = self.validate_patch_uniqueness(&commands);
+                            issues.extend(patch_issues);
+
                             if !issues.is_empty() {
                                 match self.replan_with_feedback(commands, issues).await {
                                     Ok(valid_commands) => {
@@ -694,6 +713,7 @@ impl Agent {
                                     _ => None,
                                 });
                                 let mut mutation_passed = true;
+                                if !self.ctx.skip_mutation {
                                 if let Some(src) = impl_source {
                                     use crate::executor::MutationResult;
                                     println!("\n🧬 Mutation check on {}...", src);
@@ -739,6 +759,7 @@ impl Agent {
                                         }
                                     }
                                 }
+                                } // end skip_mutation guard
                                 // ─────────────────────────────
                                 if mutation_passed {
                                     self.ctx.save_hashes(&self.executor.workspace);
@@ -796,8 +817,8 @@ impl Agent {
                                         || lc.contains("go test")
                                         || lc.contains("pytest")
                                         || lc.contains("npm test"))
-                                        && r.stdout.contains("passed")
-                                        || r.stdout.contains("ok")
+                                        && (r.stdout.contains("passed")
+                                            || r.stdout.contains("ok"))
                                     {
                                         self.ctx.tests_passed = true;
                                     }
@@ -967,6 +988,47 @@ impl Agent {
                         continue;
                     }
 
+                    // v7.3: quick_fix بدون LLM (ModuleNotFoundError, GoUndefined)
+                    {
+                        let qf_stderr = self
+                            .ctx
+                            .failed_steps
+                            .iter()
+                            .map(|f| f.stderr.as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        if let Some(fix) = crate::memory::quick_fix(&qf_stderr) {
+                            match fix {
+                                crate::memory::QuickFix::InstallPackage { command } => {
+                                    println!("   ⚡ QuickFix: {}", command);
+                                    let parts: Vec<&str> = command.split_whitespace().collect();
+                                    if parts.len() >= 2 {
+                                        let venv_pip = self.executor.workspace.join("venv/bin/pip3");
+                                        let pip = if venv_pip.exists() {
+                                            venv_pip.to_string_lossy().to_string()
+                                        } else {
+                                            "pip3".to_string()
+                                        };
+                                        let pkgs = &parts[2..];
+                                        let _ = std::process::Command::new(&pip)
+                                            .arg("install")
+                                            .args(pkgs)
+                                            .current_dir(&self.executor.workspace)
+                                            .output();
+                                        println!("   ✅ QuickFix installed: {}", pkgs.join(" "));
+                                        self.ctx.failed_steps.clear();
+                                        self.state = AgentState::Executing;
+                                        continue;
+                                    }
+                                }
+                                crate::memory::QuickFix::AddGoImport { symbol } => {
+                                    println!("   ⚡ QuickFix Go import: {}", symbol);
+                                    // executor autofix_go_undefined_import يعالجها
+                                    // هنا نمرر للـ repair مع hint
+                                }
+                            }
+                        }
+                    }
                     let early_stderr = self
                         .ctx
                         .failed_steps
@@ -1064,136 +1126,76 @@ impl Agent {
                         failure_kind,
                         FailureKind::ImportError | FailureKind::NodeTestError
                     );
-                    // v5.9: Patch Error Full Context
-                    // إذا كان الخطأ search block → أرسل الملف كاملاً
-                    let _patch_error_context: String = if all_stderr
-                        .contains("search block not found")
-                        || all_stderr.contains("search block found")
-                    {
-                        // استخرج اسم الملف من رسالة الخطأ — بدون تكرار
+
+
+                    // v6.0: Always inject full file content for ALL repairs (not just PatchError)
+                    // This ensures the LLM always sees the current state of files before patching
+                    let _patch_error_context: String = {
                         let mut patch_ctx = String::new();
-                        let mut seen_files: std::collections::HashSet<String> =
-                            std::collections::HashSet::new();
+                        let is_patch_error = all_stderr.contains("search block not found")
+                            || all_stderr.contains("search block found");
+                        // Collect all failed files from current repair cycle
+                        let mut files_to_inject: Vec<String> = Vec::new();
+                        // From patch errors - extract file names
                         for line in all_stderr.lines() {
-                            if line.contains("search block not found in '")
-                                || line.contains("search block found")
-                                    && line.contains("times in '")
-                            {
-                                // استخرج المسار من بين علامتي '
+                            if line.contains("search block not found in '") {
                                 if let Some(start) = line.find("in '") {
                                     let rest = &line[start + 4..];
                                     if let Some(end) = rest.find('\'') {
-                                        let file_path = &rest[..end];
-                                        let full_path = self.executor.workspace.join(file_path);
-                                        if seen_files.contains(file_path) {
-                                            continue;
-                                        }
-                                        seen_files.insert(file_path.to_string());
-                                        if let Ok(content) = std::fs::read_to_string(&full_path) {
-                                            patch_ctx.push_str(&format!(
-                                                "
+                                        files_to_inject.push(rest[..end].to_string());
+                                    }
+                                }
+                            }
+                        }
+                        // From failed steps - extract culprit files
+                        for step in &self.ctx.failed_steps {
+                            if let Some(ref cf) = step.culprit_file {
+                                let name = std::path::Path::new(cf)
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or(cf.as_str())
+                                    .to_string();
+                                if !files_to_inject.contains(&name) {
+                                    files_to_inject.push(name);
+                                }
+                            }
+                        }
+                        // Always inject files on AssertionError / PatchError (2nd attempt+)
+                        let should_inject_all = is_patch_error
+                            || self.ctx.repair_attempts >= 2
+                            || matches!(self.ctx.current_failure_kind,
+                                Some(FailureKind::AssertionError) | Some(FailureKind::Unknown));
 
-⚠️ v5.9 PATCH FIX — FULL FILE CONTENT of '{}':
-                                                 Copy search text EXACTLY from this content:
-```rust
-{}
-```
-                                                 RULES: search block must appear EXACTLY ONCE.",
-                                                file_path, content
-                                            ));
-                                            println!("   📖 v5.9: injecting full content of '{}' for patch fix", file_path);
-                                        }
+                        for file_name in &files_to_inject {
+                            let full_path = self.executor.workspace.join(file_name);
+                            if let Ok(content) = std::fs::read_to_string(&full_path) {
+                                patch_ctx.push_str(&format!(
+                                    "\n\n⚠️ CURRENT FILE CONTENT of '{}' (use this EXACT text for search blocks):\n```\n{}\n```",
+                                    file_name, content
+                                ));
+                                println!("   📖 v6.0: injecting full content of '{}' for repair", file_name);
+                            }
+                        }
+                        // On 3rd attempt+ with AssertionError, also inject ALL workspace source files
+                        if should_inject_all && files_to_inject.is_empty() {
+                            for ws_file in &all_workspace_files {
+                                let name = ws_file.file_name()
+                                    .and_then(|n: &std::ffi::OsStr| n.to_str())
+                                    .unwrap_or_default()
+                                    .to_string();
+                                // Only source files, skip tests
+                                if !name.contains("test") && !name.contains("spec") {
+                                    if let Ok(content) = std::fs::read_to_string(ws_file) {
+                                        patch_ctx.push_str(&format!(
+                                            "\n\n📄 SOURCE FILE '{}' (copy exact text for patches):\n```\n{}\n```",
+                                            name, content
+                                        ));
+                                        println!("   📖 v6.0: injecting source file '{}'", name);
                                     }
                                 }
                             }
                         }
                         patch_ctx
-                    } else {
-                        String::new()
-                    };
-
-                    // v5.9: Patch Error Full Context
-                    // إذا كان الخطأ search block → أرسل الملف كاملاً
-                    let _patch_error_context: String = if all_stderr
-                        .contains("search block not found")
-                        || all_stderr.contains("search block found")
-                    {
-                        // استخرج اسم الملف من رسالة الخطأ
-                        let mut patch_ctx = String::new();
-                        for line in all_stderr.lines() {
-                            if line.contains("search block not found in '")
-                                || line.contains("search block found")
-                                    && line.contains("times in '")
-                            {
-                                // استخرج المسار من بين علامتي '
-                                if let Some(start) = line.find("in '") {
-                                    let rest = &line[start + 4..];
-                                    if let Some(end) = rest.find('\'') {
-                                        let file_path = &rest[..end];
-                                        let full_path = self.executor.workspace.join(file_path);
-                                        if let Ok(content) = std::fs::read_to_string(&full_path) {
-                                            patch_ctx.push_str(&format!(
-                                                "
-
-⚠️ v5.9 PATCH FIX — FULL FILE CONTENT of '{}':
-                                                 Copy search text EXACTLY from this content:
-```rust
-{}
-```
-                                                 RULES: search block must appear EXACTLY ONCE.",
-                                                file_path, content
-                                            ));
-                                            println!("   📖 v5.9: injecting full content of '{}' for patch fix", file_path);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        patch_ctx
-                    } else {
-                        String::new()
-                    };
-
-                    // v5.9: Patch Error Full Context
-                    // إذا كان الخطأ search block → أرسل الملف كاملاً
-                    let _patch_error_context: String = if all_stderr
-                        .contains("search block not found")
-                        || all_stderr.contains("search block found")
-                    {
-                        // استخرج اسم الملف من رسالة الخطأ
-                        let mut patch_ctx = String::new();
-                        for line in all_stderr.lines() {
-                            if line.contains("search block not found in '")
-                                || line.contains("search block found")
-                                    && line.contains("times in '")
-                            {
-                                // استخرج المسار من بين علامتي '
-                                if let Some(start) = line.find("in '") {
-                                    let rest = &line[start + 4..];
-                                    if let Some(end) = rest.find('\'') {
-                                        let file_path = &rest[..end];
-                                        let full_path = self.executor.workspace.join(file_path);
-                                        if let Ok(content) = std::fs::read_to_string(&full_path) {
-                                            patch_ctx.push_str(&format!(
-                                                "
-
-⚠️ v5.9 PATCH FIX — FULL FILE CONTENT of '{}':
-                                                 Copy search text EXACTLY from this content:
-```rust
-{}
-```
-                                                 RULES: search block must appear EXACTLY ONCE.",
-                                                file_path, content
-                                            ));
-                                            println!("   📖 v5.9: injecting full content of '{}' for patch fix", file_path);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        patch_ctx
-                    } else {
-                        String::new()
                     };
 
                     let files_context: String = if dep_only {
@@ -1265,10 +1267,7 @@ impl Agent {
                             .collect::<Vec<_>>()
                             .join("\n\n")
                     };
-                    // backward compat
-                    let main_py = String::new();
-                    let test_py = String::new();
-                    let _ = (main_py.as_str(), test_py.as_str());
+
 
                     // تصنيف نوع الفشل — يجب أن يكون قبل files_context
                     let errors = self
@@ -1293,12 +1292,6 @@ impl Agent {
                         ""
                     };
 
-                    // Mutation Enforcement v1.3
-                    let mutation_note = if errors.contains("WEAK TESTS") {
-                        "\n\n🧬 MUTATION ENFORCEMENT: Your tests are too weak.\nYOU MUST strengthen the test file:\n1. Add assert statements with EXACT expected values.\n2. Test edge cases: negative numbers, zero, empty input.\n3. Each function must have at least 2 independent assertions.\nDO NOT modify the source file."
-                    } else {
-                        ""
-                    };
                     // Mutation Enforcement v1.3
                     let mutation_note = if errors.contains("WEAK TESTS") {
                         "\n\nMUTATION ENFORCEMENT: Your tests are too weak — they passed on broken code.\n                         YOU MUST strengthen the test file:\n                         1. Add assert statements with EXACT expected values (e.g. assert result == 42).\n                         2. Test edge cases: negative numbers, zero, empty input.\n                         3. Each function must have at least 2 independent assertions.\n                         DO NOT modify the source file — only improve the test file."
@@ -1326,7 +1319,7 @@ impl Agent {
                             self.ctx.repair_attempts, display_limit
                         )
                     };
-                    let loop_warning = if self.repair_fingerprints.len() > 1
+                    let _loop_warning = if self.repair_fingerprints.len() > 1
                         && self.repair_fingerprints.last()
                             == self
                                 .repair_fingerprints
@@ -1376,7 +1369,7 @@ impl Agent {
                         String::new()
                     };
 
-                    let prompt = format!(
+                    let prompt = crate::constitution::CONSTITUTION.to_string() + &format!(
                         "Goal: {}{}{}{}{}{}\n\nHINT: {}\n\n{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}{}\n\
                          Fix ALL issues. Provide complete corrected plan.",
                         self.goal, network_note, mutation_note, patch_note, ref_file_context, memory_hint, repair_hint, attempt_note, errors, files_context, _patch_error_context

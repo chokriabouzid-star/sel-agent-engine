@@ -1,7 +1,7 @@
 // src/types.rs — v1.3: الأنواع الأساسية
 
-use std::path::PathBuf;
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 // ══════════════════════════════════════════════════════
 // State Machine
@@ -22,28 +22,34 @@ pub enum AgentState {
 
 #[derive(Debug, Default)]
 pub struct ExecutionContext {
-    pub tests_passed:      bool,
-    pub last_exit_code:    Option<i32>,
-    pub failed_steps:      Vec<FailedStep>,
-    pub repair_attempts:   u8,
+    pub tests_passed: bool,
+    pub last_exit_code: Option<i32>,
+    pub failed_steps: Vec<FailedStep>,
+    pub repair_attempts: u8,
     pub successful_hashes: HashSet<String>,
-    pub max_repairs:       u8,
-    pub start_time:        Option<std::time::Instant>,
-    pub mutations_total:    u32,
-    pub mutations_killed:   u32,
-    pub replan_attempts:    u8,   // v5.6: Unique Patch Enforcer
-    pub last_failed_steps:  Vec<FailedStep>, // v5.8: نسخة احتياطية قبل المسح
-    pub _last_failure_kind:  String,  // v5.8: للـ memory
-    pub _last_error_sig:     String,  // v5.8
-    pub current_failure_kind: Option<FailureKind>,  // v6.4
+    pub max_repairs: u8,
+    pub start_time: Option<std::time::Instant>,
+    pub mutations_total: u32,
+    pub mutations_killed: u32,
+    pub replan_attempts: u8,                // v5.6: Unique Patch Enforcer
+    pub last_failed_steps: Vec<FailedStep>, // v5.8: نسخة احتياطية قبل المسح
+    pub _last_failure_kind: String,         // v5.8: للـ memory
+    pub _last_error_sig: String,            // v5.8
+    pub current_failure_kind: Option<FailureKind>, // v6.4
+    pub skip_mutation: bool, // v6.5: disable mutation enforcement for real-world bench
 }
 
 impl ExecutionContext {
     pub fn new(max_repairs: u8) -> Self {
-        Self { max_repairs, start_time: None, successful_hashes: std::collections::HashSet::new(), ..Default::default() }
+        Self {
+            max_repairs,
+            start_time: None,
+            successful_hashes: std::collections::HashSet::new(),
+            ..Default::default()
+        }
     }
     pub fn reset_for_repair(&mut self) {
-        self.tests_passed   = false;
+        self.tests_passed = false;
         self.last_exit_code = None;
         if !self.failed_steps.is_empty() {
             self.last_failed_steps = self.failed_steps.clone(); // v5.8
@@ -57,11 +63,11 @@ impl ExecutionContext {
 
 #[derive(Debug, Clone)]
 pub struct FailedStep {
-    pub step_index:   usize,
-    pub label:        String,
-    pub stderr:       String,
-    pub exit_code:    i32,
-    pub culprit_file: Option<String>,  // الملف المسؤول عن الخطأ
+    pub step_index: usize,
+    pub label: String,
+    pub stderr: String,
+    pub exit_code: i32,
+    pub culprit_file: Option<String>, // الملف المسؤول عن الخطأ
 }
 
 impl FailedStep {
@@ -70,11 +76,11 @@ impl FailedStep {
             // Python traceback: File "/path/file.py", line 42
             if line.contains("File \"") && line.contains(".py") {
                 if let Some(s) = line.find("File \"") {
-                    let rest = &line[s+6..];
+                    let rest = &line[s + 6..];
                     if let Some(e) = rest.find('"') {
                         let path = &rest[..e];
                         if !path.contains("venv") && !path.contains("site-packages") {
-                            let base = path.rfind('/').map(|i| i+1).unwrap_or(0);
+                            let base = path.rfind('/').map(|i| i + 1).unwrap_or(0);
                             let name = &path[base..];
                             if !name.starts_with("test_") {
                                 return Some(name.to_string());
@@ -86,12 +92,18 @@ impl FailedStep {
             // pytest: service.py:1: in <module>
             if line.contains(".py:") && line.contains(": in ") {
                 // تجاهل مسارات stdlib وvenv
-                if line.contains("/usr/lib") || line.contains("venv/") || line.contains("site-packages") {
+                if line.contains("/usr/lib")
+                    || line.contains("venv/")
+                    || line.contains("site-packages")
+                {
                     continue;
                 }
                 if let Some(pos) = line.find(".py:") {
-                    let start = line[..pos].rfind(|c: char| c == '/' || c == ' ' || c == '\t').map(|i| i+1).unwrap_or(0);
-                    let name = &line[start..pos+3];
+                    let start = line[..pos]
+                        .rfind(|c: char| c == '/' || c == ' ' || c == '\t')
+                        .map(|i| i + 1)
+                        .unwrap_or(0);
+                    let name = &line[start..pos + 3];
                     if !name.starts_with("test_") && !name.starts_with("__") {
                         return Some(name.to_string());
                     }
@@ -102,22 +114,28 @@ impl FailedStep {
                 let rest = line.trim_start().trim_start_matches("--> ");
                 if let Some(colon) = rest.find(':') {
                     let path = &rest[..colon];
-                    let base = path.rfind('/').map(|i| i+1).unwrap_or(0);
+                    let base = path.rfind('/').map(|i| i + 1).unwrap_or(0);
                     return Some(path[base..].to_string());
                 }
             }
             // Go: file.go:42
             if line.contains(".go:") {
                 if let Some(pos) = line.find(".go:") {
-                    let start = line[..pos].rfind(|c: char| c == '/' || c == ' ').map(|i| i+1).unwrap_or(0);
-                    return Some(line[start..pos+3].to_string());
+                    let start = line[..pos]
+                        .rfind(|c: char| c == '/' || c == ' ')
+                        .map(|i| i + 1)
+                        .unwrap_or(0);
+                    return Some(line[start..pos + 3].to_string());
                 }
             }
             // Node.js: file.js:42
             if line.contains(".js:") && !line.contains("node_modules") {
                 if let Some(pos) = line.find(".js:") {
-                    let start = line[..pos].rfind(|c: char| c == '/' || c == ' ').map(|i| i+1).unwrap_or(0);
-                    return Some(line[start..pos+3].to_string());
+                    let start = line[..pos]
+                        .rfind(|c: char| c == '/' || c == ' ')
+                        .map(|i| i + 1)
+                        .unwrap_or(0);
+                    return Some(line[start..pos + 3].to_string());
                 }
             }
         }
@@ -130,19 +148,31 @@ impl FailedStep {
 
 #[derive(Debug, Clone)]
 pub struct ExecResult {
-    pub success:     bool,
-    pub exit_code:   i32,
-    pub stdout:      String,
-    pub stderr:      String,
+    pub success: bool,
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
     pub duration_ms: u64,
 }
 
 impl ExecResult {
     pub fn ok(msg: impl Into<String>) -> Self {
-        Self { success: true,  exit_code: 0, stdout: msg.into(), stderr: String::new(), duration_ms: 0 }
+        Self {
+            success: true,
+            exit_code: 0,
+            stdout: msg.into(),
+            stderr: String::new(),
+            duration_ms: 0,
+        }
     }
     pub fn fail(msg: impl Into<String>) -> Self {
-        Self { success: false, exit_code: 1, stdout: String::new(), stderr: msg.into(), duration_ms: 0 }
+        Self {
+            success: false,
+            exit_code: 1,
+            stdout: String::new(),
+            stderr: msg.into(),
+            duration_ms: 0,
+        }
     }
 }
 
@@ -152,13 +182,23 @@ impl ExecResult {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Message {
-    pub role:    String,
+    pub role: String,
     pub content: String,
 }
 
 impl Message {
-    pub fn system(s: impl Into<String>) -> Self { Self { role: "system".into(),    content: s.into() } }
-    pub fn user(s:   impl Into<String>) -> Self { Self { role: "user".into(),      content: s.into() } }
+    pub fn system(s: impl Into<String>) -> Self {
+        Self {
+            role: "system".into(),
+            content: s.into(),
+        }
+    }
+    pub fn user(s: impl Into<String>) -> Self {
+        Self {
+            role: "user".into(),
+            content: s.into(),
+        }
+    }
 }
 
 // ══════════════════════════════════════════════════════
@@ -175,8 +215,8 @@ pub enum SafetyError {
 impl std::fmt::Display for SafetyError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::PathTraversal(s)   => write!(f, "Path traversal: {}", s),
-            Self::BlockedCommand(s)  => write!(f, "Blocked command: {}", s),
+            Self::PathTraversal(s) => write!(f, "Path traversal: {}", s),
+            Self::BlockedCommand(s) => write!(f, "Blocked command: {}", s),
             Self::WorkspaceEscape(s) => write!(f, "Workspace escape: {}", s),
         }
     }
@@ -197,8 +237,8 @@ pub enum FailureKind {
     DatabaseError,
     NodeTestError,
     FlaskConcurrency,
-    InfraError,   // v6.4: connection error / rate limit / pip timeout
-    PatchError,   // v6.6: search block not found / validation failed
+    InfraError, // v6.4: connection error / rate limit / pip timeout
+    PatchError, // v6.6: search block not found / validation failed
     Unknown,
 }
 
@@ -216,15 +256,22 @@ impl FailureKind {
         }
         // Infra errors — highest priority (never send to LLM)
         if s.contains("Connection error")
-            || s.contains("rate limit") || s.contains("Rate limit")
-            || s.contains("429") || s.contains("503") || s.contains("502")
+            || s.contains("rate limit")
+            || s.contains("Rate limit")
+            || s.contains("429")
+            || s.contains("503")
+            || s.contains("502")
             || s.contains("Timeout after")
             || s.contains("error sending request")
         {
             return Self::InfraError;
         }
         // Go errors
-        if s.contains("undefined:") || s.contains("cannot use") || s.contains("no required module") || s.contains("cannot find package") {
+        if s.contains("undefined:")
+            || s.contains("cannot use")
+            || s.contains("no required module")
+            || s.contains("cannot find package")
+        {
             return Self::TypeError;
         }
         if s.contains("syntax error:") && (s.contains(".go:") || s.contains("unexpected")) {
@@ -256,8 +303,10 @@ impl FailureKind {
             return Self::AssertionError;
         }
         // Python errors
-        if s.contains("ModuleNotFoundError") || s.contains("ImportError while importing")
-            || s.contains("No module named") {
+        if s.contains("ModuleNotFoundError")
+            || s.contains("ImportError while importing")
+            || s.contains("No module named")
+        {
             return Self::ImportError;
         }
         if s.contains("SyntaxError") || s.contains("was never closed") {
@@ -278,20 +327,26 @@ impl FailureKind {
         if s.contains("error[E") || s.contains("error: ") && s.contains("-->") {
             return Self::BuildError;
         }
-        if s.contains("LookupError") && (s.contains("flask") || s.contains("app_ctx") || s.contains("application context"))
+        if s.contains("LookupError")
+            && (s.contains("flask") || s.contains("app_ctx") || s.contains("application context"))
             || s.contains("RuntimeError") && s.contains("Working outside of application context")
             || s.contains("RuntimeError") && s.contains("Working outside of request context")
-            || s.contains("Push an application context") {
+            || s.contains("Push an application context")
+        {
             return Self::FlaskConcurrency;
         }
         if s.contains("ReferenceError: test is not defined")
             || s.contains("ReferenceError: describe is not defined")
-            || s.contains("ReferenceError: expect is not defined") {
+            || s.contains("ReferenceError: expect is not defined")
+        {
             return Self::NodeTestError;
         }
-        if s.contains("OperationalError") || s.contains("no such table")
-            || s.contains("readonly database") || s.contains("sqlite3")
-            || s.contains("sqlalchemy") {
+        if s.contains("OperationalError")
+            || s.contains("no such table")
+            || s.contains("readonly database")
+            || s.contains("sqlite3")
+            || s.contains("sqlalchemy")
+        {
             return Self::DatabaseError;
         }
         Self::Unknown
@@ -372,14 +427,21 @@ impl ExecutionContext {
         if let Ok(content) = std::fs::read_to_string(path) {
             for line in content.lines() {
                 let h = line.trim();
-                if !h.is_empty() { self.successful_hashes.insert(h.to_string()); }
+                if !h.is_empty() {
+                    self.successful_hashes.insert(h.to_string());
+                }
             }
         }
     }
 
     pub fn save_hashes(&self, workspace: &std::path::Path) {
         let path = workspace.join(".sel_hashes");
-        let content = self.successful_hashes.iter().cloned().collect::<Vec<_>>().join("\n");
+        let content = self
+            .successful_hashes
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n");
         let _ = std::fs::write(path, content);
     }
 }
@@ -390,17 +452,17 @@ impl ExecutionContext {
 
 #[derive(Debug, Clone)]
 pub struct ContextConfig {
-    pub ref_file:          Option<PathBuf>,      // ملف مرجعي للأنواع والتوقيعات
-    pub focus_paths:       Vec<String>,          // مسارات لإعطاء أولوية أعلى
-    pub max_context_files: usize,                // الحد الأقصى للملفات (50 بدل 20)
+    pub ref_file: Option<PathBuf>, // ملف مرجعي للأنواع والتوقيعات
+    pub focus_paths: Vec<String>,  // مسارات لإعطاء أولوية أعلى
+    pub max_context_files: usize,  // الحد الأقصى للملفات (50 بدل 20)
 }
 
 impl Default for ContextConfig {
     fn default() -> Self {
         Self {
-            ref_file:          None,
-            focus_paths:       vec![],
-            max_context_files: 50,  // رفع من 20 إلى 50
+            ref_file: None,
+            focus_paths: vec![],
+            max_context_files: 50, // رفع من 20 إلى 50
         }
     }
 }
@@ -408,18 +470,18 @@ impl Default for ContextConfig {
 impl FailureKind {
     pub fn max_attempts(&self) -> u8 {
         match self {
-            Self::PatchError       => 2,  // context mismatch — أعطِ فرصتين مع hint
-            Self::InfraError       => 0,  // لا LLM repair — retry فقط
-            Self::ImportError      => 1,
-            Self::NodeTestError    => 1,
-            Self::DatabaseError    => 2,
+            Self::PatchError => 2, // context mismatch — أعطِ فرصتين مع hint
+            Self::InfraError => 0, // لا LLM repair — retry فقط
+            Self::ImportError => 1,
+            Self::NodeTestError => 1,
+            Self::DatabaseError => 2,
             Self::FlaskConcurrency => 2,
-            Self::SyntaxError      => 3,
-            Self::TypeError        => 3,
-            Self::AssertionError   => 3,
-            Self::BuildError       => 3,
-            Self::CollectionError  => 2,
-            Self::Unknown          => 3,
+            Self::SyntaxError => 3,
+            Self::TypeError => 3,
+            Self::AssertionError => 3,
+            Self::BuildError => 3,
+            Self::CollectionError => 2,
+            Self::Unknown => 3,
         }
     }
 }
@@ -435,10 +497,22 @@ mod tests {
         assert_eq!(FailureKind::Unknown.max_attempts(), 3);
         assert_eq!(FailureKind::InfraError.max_attempts(), 0);
         assert_eq!(FailureKind::PatchError.max_attempts(), 2);
-        assert_eq!(FailureKind::classify("search block not found in 'app.ts'"), FailureKind::PatchError);
-        assert_eq!(FailureKind::classify("patch_file validation failed: too many lines"), FailureKind::PatchError);
+        assert_eq!(
+            FailureKind::classify("search block not found in 'app.ts'"),
+            FailureKind::PatchError
+        );
+        assert_eq!(
+            FailureKind::classify("patch_file validation failed: too many lines"),
+            FailureKind::PatchError
+        );
         // InfraError يجب أن يُصنَّف صح
-        assert_eq!(FailureKind::classify("Connection error: timeout"), FailureKind::InfraError);
-        assert_eq!(FailureKind::classify("Timeout after 120s"), FailureKind::InfraError);
+        assert_eq!(
+            FailureKind::classify("Connection error: timeout"),
+            FailureKind::InfraError
+        );
+        assert_eq!(
+            FailureKind::classify("Timeout after 120s"),
+            FailureKind::InfraError
+        );
     }
 }

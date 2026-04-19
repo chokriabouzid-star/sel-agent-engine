@@ -3,43 +3,45 @@
 // Context Budget Engine
 // ─────────────────────────────────────────────
 
-use crate::chunker::{extract_error_locations, get_file_content_smart, SmartContent, MAX_FILE_LINES};
+use crate::chunker::{
+    extract_error_locations, get_file_content_smart, SmartContent, MAX_FILE_LINES,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 // ─── الثوابت ───────────────────────────────────
 
 pub const MAX_REPAIR_TOKENS: usize = 8_000;
-pub const MAX_CONTEXT_FILES: usize = 50;  // v5.1: رفع من 20 إلى 50
-const CHARS_PER_TOKEN:       usize = 4;
-const MIN_SCORE:             u8    = 2;
-const SMALL_FILE_LINES:      usize = 200;
+pub const MAX_CONTEXT_FILES: usize = 50; // v5.1: رفع من 20 إلى 50
+const CHARS_PER_TOKEN: usize = 4;
+const MIN_SCORE: u8 = 2;
+const SMALL_FILE_LINES: usize = 200;
 
 // ─── الأنواع ───────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct ScoredFile {
-    pub path:    PathBuf,
+    pub path: PathBuf,
     pub content: String,
-    pub score:   u8,
+    pub score: u8,
     pub reasons: Vec<String>,
 }
 
 pub struct RepairContext {
-    pub stderr:        String,
-    pub recent_edits:  Vec<PathBuf>,
-    pub max_tokens:    usize,
+    pub stderr: String,
+    pub recent_edits: Vec<PathBuf>,
+    pub max_tokens: usize,
     pub force_include: Vec<PathBuf>,
-    pub culprit_files: Vec<String>,   // الملفات المسبّبة للخطأ — أعلى أولوية
+    pub culprit_files: Vec<String>, // الملفات المسبّبة للخطأ — أعلى أولوية
     pub context_config: Option<crate::types::ContextConfig>,
 }
 
 impl Default for RepairContext {
     fn default() -> Self {
         Self {
-            stderr:        String::new(),
-            recent_edits:  vec![],
-            max_tokens:    MAX_REPAIR_TOKENS,
+            stderr: String::new(),
+            recent_edits: vec![],
+            max_tokens: MAX_REPAIR_TOKENS,
             force_include: vec![],
             culprit_files: vec![],
             context_config: None,
@@ -49,10 +51,10 @@ impl Default for RepairContext {
 
 #[derive(Debug)]
 pub struct BudgetReport {
-    pub total_files:    usize,
+    pub total_files: usize,
     pub selected_files: usize,
-    pub tokens_before:  usize,
-    pub tokens_after:   usize,
+    pub tokens_before: usize,
+    pub tokens_after: usize,
 }
 
 impl BudgetReport {
@@ -85,7 +87,6 @@ pub fn select_repair_files(
     workspace_files: &[PathBuf],
     ctx: &RepairContext,
 ) -> (Vec<ScoredFile>, BudgetReport) {
-
     // 1. اقرأ الملفات وصنفها
     let mut scored: Vec<ScoredFile> = workspace_files
         .iter()
@@ -95,14 +96,11 @@ pub fn select_repair_files(
     // 2. رتب تنازلياً حسب الـ score
     scored.sort_by(|a, b| b.score.cmp(&a.score));
 
-    let total_files  = scored.len();
-    let tokens_before = scored
-        .iter()
-        .map(|f| estimate_tokens(&f.content))
-        .sum();
+    let total_files = scored.len();
+    let tokens_before = scored.iter().map(|f| estimate_tokens(&f.content)).sum();
 
     // 3. اختر ضمن حد الـ tokens
-    let mut selected     = vec![];
+    let mut selected = vec![];
     let mut tokens_after = 0usize;
 
     for file in scored {
@@ -126,9 +124,9 @@ pub fn select_repair_files(
                 if tokens_after + tokens <= ctx.max_tokens {
                     tokens_after += tokens;
                     selected.push(ScoredFile {
-                        path:    path.clone(),
+                        path: path.clone(),
                         content,
-                        score:   0,
+                        score: 0,
                         reasons: vec!["force_include".to_string()],
                     });
                 }
@@ -157,35 +155,43 @@ fn read_and_score(path: &Path, ctx: &RepairContext) -> Option<ScoredFile> {
             match get_file_content_smart(path, &locs) {
                 Ok(SmartContent::Chunk(chunk)) => format!(
                     "// ⚠️ CHUNKED: {} ({} lines, showing {}-{})\n{}",
-                    path.display(), line_count,
-                    chunk.start_line, chunk.end_line,
+                    path.display(),
+                    line_count,
+                    chunk.start_line,
+                    chunk.end_line,
                     chunk.content
                 ),
                 Ok(SmartContent::FullFile(c)) => c,
                 Err(_) => raw,
             }
-        } else { raw }
-    } else { raw };
+        } else {
+            raw
+        }
+    } else {
+        raw
+    };
     let (score, reasons) = compute_score(path, &content, ctx);
-    Some(ScoredFile { path: path.to_path_buf(), content, score, reasons })
+    Some(ScoredFile {
+        path: path.to_path_buf(),
+        content,
+        score,
+        reasons,
+    })
 }
 
-fn compute_score(
-    path: &Path,
-    content: &str,
-    ctx: &RepairContext,
-) -> (u8, Vec<String>) {
-    let mut score   = 0u8;
+fn compute_score(path: &Path, content: &str, ctx: &RepairContext) -> (u8, Vec<String>) {
+    let mut score = 0u8;
     let mut reasons = vec![];
 
-    let filename = path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
+    let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
 
     // +10 ملف في focus_paths (v5.1)
     if let Some(ref config) = ctx.context_config {
-        if config.focus_paths.iter().any(|fp| path.to_string_lossy().contains(fp)) {
+        if config
+            .focus_paths
+            .iter()
+            .any(|fp| path.to_string_lossy().contains(fp))
+        {
             score += 10;
             reasons.push("focus path".to_string());
         }
@@ -229,9 +235,7 @@ fn imports_errored_file(content: &str, stderr: &str) -> bool {
         .split_whitespace()
         .filter(|w| w.contains('.'))
         .filter_map(|w| {
-            let clean = w.trim_matches(|c: char| {
-                !c.is_alphanumeric() && c != '_' && c != '.'
-            });
+            let clean = w.trim_matches(|c: char| !c.is_alphanumeric() && c != '_' && c != '.');
             clean.split('.').next()
         })
         .collect();
@@ -267,7 +271,7 @@ mod tests {
 
     fn make_ctx(stderr: &str) -> RepairContext {
         RepairContext {
-            stderr:        stderr.to_string(),
+            stderr: stderr.to_string(),
             force_include: vec![],
             ..Default::default()
         }
@@ -276,11 +280,7 @@ mod tests {
     #[test]
     fn test_mentioned_in_error() {
         let ctx = make_ctx("Error in main.rs:42: undefined variable");
-        let (score, reasons) = compute_score(
-            Path::new("main.rs"),
-            "fn main() {}",
-            &ctx,
-        );
+        let (score, reasons) = compute_score(Path::new("main.rs"), "fn main() {}", &ctx);
         assert_eq!(score, 6); // 5 + 1 (small)
         assert!(reasons.iter().any(|r| r == "mentioned in error"));
     }
@@ -288,11 +288,7 @@ mod tests {
     #[test]
     fn test_unrelated_file() {
         let ctx = make_ctx("Error in main.rs:42");
-        let (score, _) = compute_score(
-            Path::new("utils.rs"),
-            "pub fn helper() {}",
-            &ctx,
-        );
+        let (score, _) = compute_score(Path::new("utils.rs"), "pub fn helper() {}", &ctx);
         assert_eq!(score, 1); // فقط small file
     }
 
@@ -300,9 +296,9 @@ mod tests {
     fn test_recently_edited() {
         let path = PathBuf::from("app.py");
         let ctx = RepairContext {
-            stderr:        "SyntaxError in db.py".to_string(),
-            recent_edits:  vec![path.clone()],
-            max_tokens:    MAX_REPAIR_TOKENS,
+            stderr: "SyntaxError in db.py".to_string(),
+            recent_edits: vec![path.clone()],
+            max_tokens: MAX_REPAIR_TOKENS,
             force_include: vec![],
             culprit_files: vec![],
             context_config: None,
@@ -333,10 +329,10 @@ mod tests {
     #[test]
     fn test_budget_report_reduction() {
         let report = BudgetReport {
-            total_files:    10,
+            total_files: 10,
             selected_files: 3,
-            tokens_before:  8000,
-            tokens_after:   1600,
+            tokens_before: 8000,
+            tokens_after: 1600,
         };
         assert_eq!(report.reduction_pct(), 80);
     }
@@ -351,14 +347,20 @@ pub fn read_ref_file(ref_file: &Path) -> Option<String> {
         if s.starts_with("~/") {
             if let Ok(home) = std::env::var("HOME") {
                 std::path::PathBuf::from(format!("{}/{}", home, &s[2..]))
-            } else { ref_file.to_path_buf() }
-        } else { ref_file.to_path_buf() }
+            } else {
+                ref_file.to_path_buf()
+            }
+        } else {
+            ref_file.to_path_buf()
+        }
     };
     match std::fs::read_to_string(&expanded) {
         Ok(content) => {
-            println!("📄 Loaded ref file: {} ({} lines)", 
-                ref_file.display(), 
-                content.lines().count());
+            println!(
+                "📄 Loaded ref file: {} ({} lines)",
+                ref_file.display(),
+                content.lines().count()
+            );
             Some(content)
         }
         Err(e) => {

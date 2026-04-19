@@ -30,9 +30,9 @@ impl ModelScore {
     pub fn from_metrics(model: &str, run_id: &str, m: &RawMetrics, max_time: u64) -> Self {
         let correctness = compute_correctness(m);
         let reliability = compute_reliability(m);
-        let efficiency  = compute_efficiency(m.elapsed_secs, max_time);
-        let composite   = (correctness * 0.70) + (reliability * 0.20) + (efficiency * 0.10);
-        let unstable    = reliability < 0.5;
+        let efficiency = compute_efficiency(m.elapsed_secs, max_time);
+        let composite = (correctness * 0.70) + (reliability * 0.20) + (efficiency * 0.10);
+        let unstable = reliability < 0.5;
         Self {
             model: model.into(),
             run_id: run_id.into(),
@@ -49,22 +49,25 @@ impl ModelScore {
 fn compute_correctness(m: &RawMetrics) -> f64 {
     let test_ratio = if m.tests_total > 0 {
         m.tests_passed as f64 / m.tests_total as f64
-    } else { 0.0 };
+    } else {
+        0.0
+    };
     (test_ratio + m.mutation_score) / 2.0
 }
 
 fn compute_reliability(m: &RawMetrics) -> f64 {
-    let penalty =
-        (m.connection_errors as f64 * 0.15) +
-        (m.rate_limits       as f64 * 0.10) +
-        (m.retries           as f64 * 0.05) +
-        (m.timeouts          as f64 * 0.12) +
-        (m.repairs           as f64 * 0.03);
+    let penalty = (m.connection_errors as f64 * 0.15)
+        + (m.rate_limits as f64 * 0.10)
+        + (m.retries as f64 * 0.05)
+        + (m.timeouts as f64 * 0.12)
+        + (m.repairs as f64 * 0.03);
     (1.0 - penalty).max(0.0)
 }
 
 fn compute_efficiency(elapsed: u64, max_time: u64) -> f64 {
-    if max_time == 0 { return 1.0; }
+    if max_time == 0 {
+        return 1.0;
+    }
     // إذا كان الفرق أقل من 20% → كلاهما متساويان عملياً
     let ratio = elapsed as f64 / max_time as f64;
     if ratio >= 0.80 {
@@ -87,15 +90,25 @@ pub fn rank_models(mut scores: Vec<ModelScore>) -> Vec<ModelScore> {
             _ => {}
         }
         // مستوى 1: correctness
-        b.correctness.partial_cmp(&a.correctness).unwrap_or(Ordering::Equal)
-        // مستوى 2: reliability
-        .then_with(|| b.reliability.partial_cmp(&a.reliability).unwrap_or(Ordering::Equal))
-        // مستوى 3: efficiency
-        .then_with(|| b.efficiency.partial_cmp(&a.efficiency).unwrap_or(Ordering::Equal))
-        // مستوى 4: اسم النموذج
-        .then_with(|| a.model.cmp(&b.model))
-        // مستوى 5: run_id
-        .then_with(|| a.run_id.cmp(&b.run_id))
+        b.correctness
+            .partial_cmp(&a.correctness)
+            .unwrap_or(Ordering::Equal)
+            // مستوى 2: reliability
+            .then_with(|| {
+                b.reliability
+                    .partial_cmp(&a.reliability)
+                    .unwrap_or(Ordering::Equal)
+            })
+            // مستوى 3: efficiency
+            .then_with(|| {
+                b.efficiency
+                    .partial_cmp(&a.efficiency)
+                    .unwrap_or(Ordering::Equal)
+            })
+            // مستوى 4: اسم النموذج
+            .then_with(|| a.model.cmp(&b.model))
+            // مستوى 5: run_id
+            .then_with(|| a.run_id.cmp(&b.run_id))
     });
     scores
 }
@@ -112,7 +125,11 @@ pub fn print_comparison_table(scores: &[ModelScore]) {
     println!("{}", "─".repeat(80));
 
     for (i, s) in scores.iter().enumerate() {
-        let winner = if i == 0 && !s.unstable { "✓ Winner" } else { "" };
+        let winner = if i == 0 && !s.unstable {
+            "✓ Winner"
+        } else {
+            ""
+        };
         let status = if s.unstable { "⚠ UNSTABLE" } else { winner };
         println!(
             "  {:<28} {:>7.2} {:>8.2} {:>9.2} {:>9.3}  {}",
