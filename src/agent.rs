@@ -1455,7 +1455,7 @@ impl Agent {
                         -1.0
                     };
                     let _ = report_run(&self.goal, true, repairs as i64, elapsed, ms).await;
-                    return Ok(());
+                    return Err(anyhow::anyhow!("SEL_FAILED"));
                 }
                 AgentState::Failed(reason) => {
                     println!("\n❌ Agent failed: {}", reason);
@@ -1472,7 +1472,7 @@ impl Agent {
                         -1.0
                     };
                     let _ = report_run(&self.goal, false, repairs, elapsed, ms).await;
-                    return Ok(());
+                    return Err(anyhow::anyhow!("SEL_FAILED"));
                 }
             }
         }
