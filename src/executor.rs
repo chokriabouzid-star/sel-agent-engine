@@ -458,11 +458,12 @@ impl SafeExecutor {
     async fn run_tests(&self, target: &str) -> Result<ExecResult> {
         let (prog, args) = self.oracle.resolve_test_command(target);
         let start = std::time::Instant::now();
+        let p_type = self.oracle.current_type();
         
-        println!("   🚀 Running tests via Oracle: {} {}", prog, args.join(" "));
+        println!("   🚀 [Oracle:{:?}] Running: {} {}", p_type, prog, args.join(" "));
 
         // --- RUST ---
-        if prog == "cargo" {
+        if prog == "cargo" || prog.ends_with("/cargo") {
             let out = tokio::time::timeout(
                 std::time::Duration::from_secs(self.timeout_secs),
                 TCmd::new("cargo")
@@ -510,7 +511,7 @@ impl SafeExecutor {
         }
 
         // --- GO ---
-        if prog == "go" {
+        if prog == "go" || prog.ends_with("/go") {
             if self.workspace.join("go.mod").exists() {
                 let _ = TCmd::new("go").args(["mod", "tidy"]).current_dir(&self.workspace).output().await;
             }
@@ -535,7 +536,9 @@ impl SafeExecutor {
         }
 
         // --- NODE / TS ---
-        if prog == "npm" || prog == "npx" || prog == "node" {
+        if prog == "npm" || prog == "npx" || prog == "node" 
+            || prog.ends_with("/npm") || prog.ends_with("/npx") || prog.ends_with("/node") 
+        {
             let out = tokio::time::timeout(
                 std::time::Duration::from_secs(self.timeout_secs),
                 TCmd::new(prog).args(&args).current_dir(&self.workspace).output(),
@@ -558,10 +561,21 @@ impl SafeExecutor {
         }
 
         // --- PYTHON ---
-        if prog.contains("pytest") {
-            // v5.6 Auto-create venv if missing
+        if prog.contains("pytest") || target.contains("pytest") {
+            // v7.3.7: Proactive AutoFix for Python venv + pytest
             if !self.workspace.join("venv").exists() {
-                let _ = TCmd::new("python3").args(["-m", "venv", "venv"]).current_dir(&self.workspace).output().await;
+                println!("   🔧 AutoFix: creating venv and installing pytest...");
+                let _ = TCmd::new("python3")
+                    .args(["-m", "venv", "venv"])
+                    .current_dir(&self.workspace)
+                    .output().await;
+                
+                // v7.3.8: Use ABSOLUTE path for venv-specific pip to ensure success on first try
+                let pip_bin = self.workspace.join("venv/bin/pip");
+                let _ = TCmd::new(pip_bin)
+                    .args(["install", "pytest", "--quiet"])
+                    .current_dir(&self.workspace)
+                    .output().await;
             }
             let out = tokio::time::timeout(
                 std::time::Duration::from_secs(self.timeout_secs),

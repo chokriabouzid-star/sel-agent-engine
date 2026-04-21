@@ -1130,7 +1130,7 @@ impl Agent {
 
                     // v6.0: Always inject full file content for ALL repairs (not just PatchError)
                     // This ensures the LLM always sees the current state of files before patching
-                    let _patch_error_context: String = {
+                    let patch_error_context: String = {
                         let mut patch_ctx = String::new();
                         let is_patch_error = all_stderr.contains("search block not found")
                             || all_stderr.contains("search block found");
@@ -1319,7 +1319,7 @@ impl Agent {
                             self.ctx.repair_attempts, display_limit
                         )
                     };
-                    let _loop_warning = if self.repair_fingerprints.len() > 1
+                    let loop_warning = if self.repair_fingerprints.len() > 1
                         && self.repair_fingerprints.last()
                             == self
                                 .repair_fingerprints
@@ -1372,7 +1372,7 @@ impl Agent {
                     let prompt = crate::constitution::CONSTITUTION.to_string() + &format!(
                         "Goal: {}{}{}{}{}{}\n\nHINT: {}\n\n{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}{}\n\
                          Fix ALL issues. Provide complete corrected plan.",
-                        self.goal, network_note, mutation_note, patch_note, ref_file_context, memory_hint, repair_hint, attempt_note, errors, files_context, _patch_error_context
+                        self.goal, network_note, mutation_note, patch_note, ref_file_context, memory_hint, repair_hint, &(attempt_note.to_string() + loop_warning), errors, files_context, patch_error_context
                     );
 
                     // Protocol Resilience v1.3

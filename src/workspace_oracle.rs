@@ -10,18 +10,29 @@ pub enum ProjectType {
     Unknown,
 }
 
+impl ProjectType {
+    pub fn as_str(&self) -> &str {
+        match self {
+            ProjectType::Rust => "Rust",
+            ProjectType::Go => "Go",
+            ProjectType::Node => "Node.js",
+            ProjectType::Python => "Python",
+            ProjectType::Unknown => "Unknown",
+        }
+    }
+}
+
 pub struct WorkspaceOracle {
     pub workspace: PathBuf,
-    pub project_type: ProjectType,
 }
 
 impl WorkspaceOracle {
     pub fn new(workspace: PathBuf) -> Self {
-        let project_type = Self::detect_project_type(&workspace);
-        Self {
-            workspace,
-            project_type,
-        }
+        Self { workspace }
+    }
+
+    pub fn current_type(&self) -> ProjectType {
+        Self::detect_project_type(&self.workspace)
     }
 
     fn detect_project_type(path: &Path) -> ProjectType {
@@ -34,7 +45,11 @@ impl WorkspaceOracle {
         } else if path.join("setup.py").exists() 
             || path.join("pyproject.toml").exists() 
             || path.join("requirements.txt").exists() 
-            || path.join("venv").exists() 
+            || path.join("venv").exists()
+            || std::fs::read_dir(path).map(|dir| {
+                dir.filter_map(Result::ok)
+                   .any(|e| e.path().extension().map_or(false, |ext| ext == "py"))
+            }).unwrap_or(false)
         {
             ProjectType::Python
         } else {
@@ -44,12 +59,13 @@ impl WorkspaceOracle {
 
     /// التحقق مما إذا كان امتداد الملف مسموحاً به في مشروع من هذا النوع
     pub fn is_ext_allowed(&self, ext: &str) -> Result<(), String> {
-        let allowed = match self.project_type {
+        let p_type = self.current_type();
+        let allowed = match p_type {
             ProjectType::Rust => ["rs", "toml", "md"].contains(&ext),
             ProjectType::Go => ["go", "mod", "sum", "sh", "md"].contains(&ext),
             ProjectType::Node => ["js", "ts", "tsx", "json", "md"].contains(&ext),
             ProjectType::Python => ["py", "txt", "cfg", "toml", "ini", "md", "sql"].contains(&ext),
-            ProjectType::Unknown => true, // في المشاريع غير المحددة، لا نفرض قيوداً صارمة حالياً
+            ProjectType::Unknown => true,
         };
 
         if allowed {
@@ -57,7 +73,7 @@ impl WorkspaceOracle {
         } else {
             Err(format!(
                 "LANGUAGE LOCK BLOCKED: Cannot operate on '.{}' file in a {:?} workspace.",
-                ext, self.project_type
+                ext, p_type
             ))
         }
     }
@@ -65,10 +81,10 @@ impl WorkspaceOracle {
     /// حل الأمر الخاص بالاختبارات بناءً على حقيقة المشروع لا اقتراح الـ LLM فقط
     pub fn resolve_test_command(&self, target: &str) -> (String, Vec<String>) {
         let t = target.to_lowercase();
+        let p_type = self.current_type();
         
-        match self.project_type {
+        match p_type {
             ProjectType::Go => {
-                // إذا حاول الـ LLM طلب cargo في بيئة Go (كما حدث في Tier 3)
                 if t.contains("cargo") {
                     return ("go".to_string(), vec!["test".to_string(), "./...".to_string(), "-v".to_string()]);
                 }
@@ -78,8 +94,7 @@ impl WorkspaceOracle {
                 ("cargo".to_string(), vec!["test".to_string(), "--".to_string(), "--nocapture".to_string()])
             }
             ProjectType::Node => {
-                // توجيه ذكي لـ Jest/NPM
-                if t.contains("jest") || t.ends_with(".ts") || t.ends_with(".js") {
+                if t.contains("jest") || t.ends_with(".ts") || t.ends_with(".js") || t.contains("npm ") || t.contains("test") {
                     ("npx".to_string(), vec!["jest".to_string(), "--runInBand".to_string(), "--forceExit".to_string()])
                 } else {
                     ("npm".to_string(), vec!["test".to_string(), "--".to_string(), "--runInBand".to_string(), "--forceExit".to_string()])
@@ -93,17 +108,28 @@ impl WorkspaceOracle {
                 };
                 (pytest.to_string(), vec!["-v".to_string(), "--tb=short".to_string()])
             }
-            _ => (target.to_string(), vec![])
+            _ => {
+                // v7.3.6: Smart split for compound commands in unknown projects
+                let parts: Vec<String> = target.split_whitespace().map(|s| s.to_string()).collect();
+                if parts.is_empty() {
+                    (target.to_string(), vec![])
+                } else {
+                    let prog = parts[0].clone();
+                    let args = parts[1..].to_vec();
+                    (prog, args)
+                }
+            }
         }
     }
 
     /// التحقق مما إذا كان الأمر المقترح من الـ LLM يتناسب مع نوع المشروع
     pub fn validate_plan_cmd(&self, cmd: &crate::protocol::Cmd) -> Result<(), String> {
         use crate::protocol::Cmd;
+        let p_type = self.current_type();
         match cmd {
             Cmd::Run { command } => {
                 let lc = command.to_lowercase();
-                match self.project_type {
+                match p_type {
                     ProjectType::Rust if lc.contains("go test") || lc.contains("pytest") || lc.contains("npm ") => {
                         Err("Plan contains non-Rust commands in a Rust project.".to_string())
                     }
