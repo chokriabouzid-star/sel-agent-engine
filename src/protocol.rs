@@ -266,23 +266,63 @@ fn sanitize_content_fields(json_str: &str) -> String {
 
 pub fn parse(response: &str) -> Result<Plan> {
     // Phase 1: try normal parse
-    let json =
-        extract_json(response).ok_or_else(|| anyhow!("No ```json block found in response"))?;
+    let json = extract_json(response).ok_or_else(|| anyhow!("No ```json block found in response"))?;
     let cleaned = fix_json_escapes(json);
     
-    // Try direct parse first
+    // Try Phase 1: Direct Plan parse
     if let Ok(plan) = serde_json::from_str::<Plan>(&cleaned) {
         return Ok(plan);
     }
     
-    // Phase 2: try with content field sanitization
+    // Try Phase 2: Bare list of commands
+    if let Ok(commands) = serde_json::from_str::<Vec<Cmd>>(&cleaned) {
+        eprintln!("[TRACE] parse: detected bare command list");
+        return Ok(Plan { version: "1.0".into(), commands });
+    }
+
+    // Try Phase 3: Map with commands but no version
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&cleaned) {
+        if let Some(cmds_val) = val.get("commands") {
+            if let Ok(commands) = serde_json::from_value::<Vec<Cmd>>(cmds_val.clone()) {
+                eprintln!("[TRACE] parse: recovered plan without version field");
+                return Ok(Plan { version: "1.0".into(), commands });
+            }
+        }
+    }
+
+    // Phase 4: try with content field sanitization (for control characters)
     let sanitized = sanitize_content_fields(&cleaned);
     if let Ok(plan) = serde_json::from_str::<Plan>(&sanitized) {
         eprintln!("[TRACE] parse: succeeded with content sanitization");
         return Ok(plan);
     }
+
+    // Phase 5: Final attempt — try to recover by stringifying any accidental objects in string fields
+    // This handles the "invalid type: map, expected a string" error
+    if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&cleaned) {
+        if let Some(cmds) = val.get_mut("commands").and_then(|c| c.as_array_mut()) {
+            for cmd in cmds {
+                if let Some(obj) = cmd.as_object_mut() {
+                    // List of fields that MUST be strings
+                    let string_fields = ["command", "content", "path", "search", "replace", "target", "message"];
+                    for field in string_fields {
+                        if let Some(f_val) = obj.get_mut(field) {
+                            if f_val.is_object() || f_val.is_array() {
+                                let cmd_type = obj.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
+                                eprintln!("[TRACE] parse: stringifying accidental {} object in field '{}'", cmd_type, field);
+                                *f_val = serde_json::Value::String(f_val.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            if let Ok(plan) = serde_json::from_value::<Plan>(val) {
+                return Ok(plan);
+            }
+        }
+    }
     
-    // Phase 3: original error for diagnostics
+    // Phase 6: original error for diagnostics
     serde_json::from_str(&cleaned).map_err(|e| {
         anyhow!("JSON parse error: {}\n---\n{}", e, {
             let start = json.len().min(600).saturating_sub(50);
