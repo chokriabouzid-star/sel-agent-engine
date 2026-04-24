@@ -38,7 +38,12 @@ impl WorkspaceOracle {
     fn detect_project_type(path: &Path) -> ProjectType {
         if path.join("Cargo.toml").exists() {
             ProjectType::Rust
-        } else if path.join("go.mod").exists() {
+        } else if path.join("go.mod").exists() 
+            || std::fs::read_dir(path).map(|dir| {
+                dir.filter_map(Result::ok)
+                   .any(|e| e.path().extension().is_some_and(|ext| ext == "go"))
+            }).unwrap_or(false)
+        {
             ProjectType::Go
         } else if path.join("package.json").exists() {
             ProjectType::Node
@@ -48,7 +53,7 @@ impl WorkspaceOracle {
             || path.join("venv").exists()
             || std::fs::read_dir(path).map(|dir| {
                 dir.filter_map(Result::ok)
-                   .any(|e| e.path().extension().map_or(false, |ext| ext == "py"))
+                   .any(|e| e.path().extension().is_some_and(|ext| ext == "py"))
             }).unwrap_or(false)
         {
             ProjectType::Python

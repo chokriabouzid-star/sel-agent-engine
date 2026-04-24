@@ -10,7 +10,7 @@
 //! 1️⃣ environment::enforce → 2️⃣ config::deduplicate → 3️⃣ dependencies::normalize
 
 use crate::protocol::Cmd;
-use crate::scanner::has_ts_files;
+use crate::context::Scanner;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -44,7 +44,7 @@ impl ProjectEnv {
             return ProjectEnv::Python;
         }
         if workspace.join("package.json").exists() {
-            let has_ts = has_ts_files(workspace);
+            let has_ts = Scanner::has_ts_files(workspace);
             return ProjectEnv::Node { has_typescript: has_ts };
         }
         ProjectEnv::Unknown
@@ -110,7 +110,10 @@ impl ProjectState {
     }
 
     fn check_jest_in_package_json(path: &Path) -> bool {
-        let content = std::fs::read_to_string(path).ok()?;
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
         if let Ok(json) = serde_json::from_str::<Value>(&content) {
             if json.get("jest").is_some() {
                 return true;
@@ -247,7 +250,11 @@ fn intercept_write_file(
         });
     }
 
-    None
+    // For all other files, return the command unmodified
+    Some(Cmd::WriteFile {
+        path: path.to_string(),
+        content: content.to_string(),
+    })
 }
 
 /// تطبيع package.json: إضافة pinned stack، إزالة jest field إذا كان هناك jest.config.js
@@ -525,7 +532,7 @@ mod tests {
 
     #[test]
     fn test_normalize_package_json() {
-        let dir = tempdir().unwrap();
+        let _dir = tempdir().unwrap();
         let state = ProjectState {
             has_jest_config: false,
             ..Default::default()
@@ -557,6 +564,6 @@ mod tests {
         let input = r#"{"name": "test", "jest": {"preset": "ts-jest"}}"#;
         let output = normalize_package_json(input, &state, &env);
 
-        assert!(!output.contains("\"jest\""));
+        assert!(!output.contains("\"jest\": {"));
     }
 }

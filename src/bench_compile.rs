@@ -93,14 +93,11 @@ pub fn check_result(name: &str, ws: &Path, ok: bool, repairs: usize, mutation: f
                 result.notes.push("created unexpected files".into());
             }
             // تحقق أن main.go لم يتغير (الخطأ في test فقط)
-            match std::fs::read_to_string(ws.join("main.go")) {
-                Ok(content) => {
-                    if !content.contains("func Reverse(s string) string") {
-                        result.passed = false;
-                        result.notes.push("Reverse function was modified".into());
-                    }
+            if let Ok(content) = std::fs::read_to_string(ws.join("main.go")) {
+                if !content.contains("func Reverse(s string) string") {
+                    result.passed = false;
+                    result.notes.push("Reverse function was modified".into());
                 }
-                Err(_) => {}
             }
         }
 
@@ -153,64 +150,52 @@ pub fn check_result(name: &str, ws: &Path, ok: bool, repairs: usize, mutation: f
         }
 
         "python_module_missing" => {
-            match std::fs::read_to_string(ws.join("app.py")) {
-                Ok(content) => {
-                    if !content.contains("import requests") && !content.contains("from requests") {
-                        result.passed = false;
-                        result.notes.push("import requests was removed".into());
-                    }
+            if let Ok(content) = std::fs::read_to_string(ws.join("app.py")) {
+                if !content.contains("import requests") && !content.contains("from requests") {
+                    result.passed = false;
+                    result.notes.push("import requests was removed".into());
                 }
-                Err(_) => {}
             }
         }
 
         "python_wrong_logic" => {
-            match std::fs::read_to_string(ws.join("calculator.py")) {
-                Ok(content) => {
-                    // divide يجب أن يستخدم / أو //
-                    let has_divide_op = content.lines().any(|l| {
-                        l.contains("return") && (l.contains("a / b") || l.contains("a // b"))
-                            && !l.contains("a * b")
-                    });
-                    // power يجب أن يستخدم **
-                    let has_power_op = content.contains("**");
+            if let Ok(content) = std::fs::read_to_string(ws.join("calculator.py")) {
+                // divide يجب أن يستخدم / أو //
+                let has_divide_op = content.lines().any(|l| {
+                    l.contains("return") && (l.contains("a / b") || l.contains("a // b"))
+                        && !l.contains("a * b")
+                });
+                // power يجب أن يستخدم **
+                let has_power_op = content.contains("**");
 
-                    if !has_divide_op {
-                        result.passed = false;
-                        result.notes.push("divide not fixed".into());
-                    }
-                    if !has_power_op {
-                        result.passed = false;
-                        result.notes.push("power not using **".into());
-                    }
+                if !has_divide_op {
+                    result.passed = false;
+                    result.notes.push("divide not fixed".into());
                 }
-                Err(_) => {}
+                if !has_power_op {
+                    result.passed = false;
+                    result.notes.push("power not using **".into());
+                }
             }
         }
 
         "python_wrong_import" => {
-            match std::fs::read_to_string(ws.join("test_models.py")) {
-                Ok(content) => {
-                    if content.contains("wrong_module") {
-                        result.passed = false;
-                        result.notes.push("still imports from wrong_module".into());
-                    }
-                    if !content.contains("from models") {
-                        result.passed = false;
-                        result.notes.push("not importing from models".into());
-                    }
+            if let Ok(content) = std::fs::read_to_string(ws.join("test_models.py")) {
+                if content.contains("wrong_module") {
+                    result.passed = false;
+                    result.notes.push("still imports from wrong_module".into());
                 }
-                Err(_) => {}
+                if !content.contains("from models") {
+                    result.passed = false;
+                    result.notes.push("not importing from models".into());
+                }
             }
             // models.py يجب أن لا يتغير
-            match std::fs::read_to_string(ws.join("models.py")) {
-                Ok(content) => {
-                    if !content.contains("class User:") {
-                        result.passed = false;
-                        result.notes.push("models.py was incorrectly modified".into());
-                    }
+            if let Ok(content) = std::fs::read_to_string(ws.join("models.py")) {
+                if !content.contains("class User:") {
+                    result.passed = false;
+                    result.notes.push("models.py was incorrectly modified".into());
                 }
-                Err(_) => {}
             }
         }
 
@@ -220,16 +205,13 @@ pub fn check_result(name: &str, ws: &Path, ok: bool, repairs: usize, mutation: f
                 result.notes.push(format!("too many repairs: {}", repairs));
             }
             // تحقق أن Fibonacci صالحة
-            match std::fs::read_to_string(ws.join("main.go")) {
-                Ok(content) => {
-                    let open_braces = content.matches('{').count();
-                    let close_braces = content.matches('}').count();
-                    if open_braces != close_braces {
-                        result.passed = false;
-                        result.notes.push("unbalanced braces".into());
-                    }
+            if let Ok(content) = std::fs::read_to_string(ws.join("main.go")) {
+                let open_braces = content.matches('{').count();
+                let close_braces = content.matches('}').count();
+                if open_braces != close_braces {
+                    result.passed = false;
+                    result.notes.push("unbalanced braces".into());
                 }
-                Err(_) => {}
             }
         }
 
@@ -238,19 +220,16 @@ pub fn check_result(name: &str, ws: &Path, ok: bool, repairs: usize, mutation: f
                 result.passed = false;
                 result.notes.push(format!("too many repairs: {}", repairs));
             }
-            match std::fs::read_to_string(ws.join("processor.py")) {
-                Ok(content) => {
-                    // لا syntax errors
-                    if content.contains("== 0\n") && !content.contains("== 0:") {
-                        result.passed = false;
-                        result.notes.push("missing colon after if".into());
-                    }
-                    if content.contains("len(items\n") {
-                        result.passed = false;
-                        result.notes.push("unclosed paren".into());
-                    }
+            if let Ok(content) = std::fs::read_to_string(ws.join("processor.py")) {
+                // لا syntax errors
+                if content.contains("== 0\n") && !content.contains("== 0:") {
+                    result.passed = false;
+                    result.notes.push("missing colon after if".into());
                 }
-                Err(_) => {}
+                if content.contains("len(items\n") {
+                    result.passed = false;
+                    result.notes.push("unclosed paren".into());
+                }
             }
         }
 

@@ -127,6 +127,7 @@ pub async fn run_bench_realworld(
             max_repairs,
             types::ContextConfig::default(),
         );
+        ag.ctx.skip_mutation = true;
 
         let case_start = Instant::now();
         let result = ag.run().await;

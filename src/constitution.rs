@@ -47,5 +47,46 @@ These rules are absolute. Violating them results in immediate task failure.
    d) MASK SENSITIVE:
       - mask_sensitive(text, show_start, show_end): show first N and last M chars, mask middle.
       - If show_start=0 and show_end=0: return all stars "*" * len(text)
+
+7. PYTHON TEST STRUCTURE — MANDATORY
+   All test assertions MUST be inside def test_xxx() functions.
+   Module-level assertions are FORBIDDEN and will cause collection errors.
+
+   WRONG (module-level):
+   ```python
+   import mymodule
+   assert mymodule.add(2, 3) == 5  # ← WRONG: module-level assert
+   result = mymodule.add(2, 3)
+   assert result == 5              # ← WRONG
+   ```
+
+   CORRECT:
+   ```python
+   import mymodule
+
+   def test_add():
+       assert mymodule.add(2, 3) == 5  # ← CORRECT: inside def test_
+
+   def test_edge():
+       assert mymodule.add(0, 0) == 0
+   ```
+
+   RULE: Every assertion must be inside a function named test_*.
+   RULE: No function calls at module level except imports.
+   RULE: pytest collects ONLY functions starting with test_.
+
+8. JSON PROTOCOL SAFETY:
+   - NEVER include arrow functions (=>) inside JSON content strings.
+   - Use \n for newlines inside content, never raw line breaks.
+   - If content has special chars (backticks, template literals, '=>'), split into smaller write_file calls.
+   - Keep ALL JSON string values under 200 characters when possible.
+   - For complex multi-line code, use \n for line breaks and \" for quotes.
+   - NEVER use raw template literals (`...`) inside JSON strings.
+
+9. SPEC FILE PROTECTION:
+   - NEVER modify, overwrite, or patch test files (test_*.py, *_test.go, *.test.ts, *.spec.ts).
+   - Test files define the GROUND TRUTH. Fix the SOURCE code to match the tests.
+   - If tests fail, the bug is in the source code, NOT the tests.
+   - Creating NEW test files is allowed; modifying EXISTING ones is FORBIDDEN.
 </SYSTEM_CONSTITUTION>
 "#;

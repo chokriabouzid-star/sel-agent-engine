@@ -8,5 +8,4 @@ sel_run.log
 *.bak
 *.bak2
 *.backup
-{
 *.log

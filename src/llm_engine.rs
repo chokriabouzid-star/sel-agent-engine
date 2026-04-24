@@ -25,6 +25,19 @@ RULES:
 - Go: run_tests target MUST be "go", ALWAYS import "fmt"/"errors" if used
 - TS/Node: run_tests target MUST be "npm test"
 - STRONG TESTS: Write comprehensive tests with both positive and negative cases.
+
+JSON SAFETY — MANDATORY:
+1. Use \n for newlines inside content strings, NEVER raw line breaks.
+2. Use \" for quotes inside content, NEVER unescaped quotes.
+3. NEVER put arrow functions (=>) inside JSON content strings.
+4. Keep each content value SHORT (< 200 chars per line).
+5. For complex files: split into multiple write_file commands.
+6. NEVER use raw template literals (`...`) inside JSON strings.
+
+SPEC FILE PROTECTION — MANDATORY:
+- NEVER modify existing test files (test_*.py, *_test.go, *.test.ts, *.spec.ts).
+- If tests fail, fix the SOURCE code, NOT the tests.
+- Creating NEW test files is allowed; modifying EXISTING ones is FORBIDDEN.
 "#;
 
 // ─── Stats ────────────────────────────────────────────────────────────────────

@@ -98,7 +98,7 @@ impl FailedStep {
                 }
                 if let Some(pos) = line.find(".py:") {
                     let start = line[..pos]
-                        .rfind(|c: char| c == '/' || c == ' ' || c == '\t')
+                        .rfind(['/', ' ', '\t'])
                         .map(|i| i + 1)
                         .unwrap_or(0);
                     let name = &line[start..pos + 3];
@@ -120,7 +120,7 @@ impl FailedStep {
             if line.contains(".go:") {
                 if let Some(pos) = line.find(".go:") {
                     let start = line[..pos]
-                        .rfind(|c: char| c == '/' || c == ' ')
+                        .rfind(['/', ' '])
                         .map(|i| i + 1)
                         .unwrap_or(0);
                     return Some(line[start..pos + 3].to_string());
@@ -130,7 +130,7 @@ impl FailedStep {
             if line.contains(".js:") && !line.contains("node_modules") {
                 if let Some(pos) = line.find(".js:") {
                     let start = line[..pos]
-                        .rfind(|c: char| c == '/' || c == ' ')
+                        .rfind(['/', ' '])
                         .map(|i| i + 1)
                         .unwrap_or(0);
                     return Some(line[start..pos + 3].to_string());
@@ -220,204 +220,13 @@ impl std::fmt::Display for SafetyError {
     }
 }
 
+pub use crate::failure::FailureKind;
+
+
 // ══════════════════════════════════════════════════════
-// Failure Classification
+// Execution Context
 // ══════════════════════════════════════════════════════
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum FailureKind {
-    SyntaxError,
-    ImportError,
-    AssertionError,
-    TypeError,
-    CollectionError,
-    BuildError,
-    DatabaseError,
-    NodeTestError,
-    FlaskConcurrency,
-    InfraError, // v6.4: connection error / rate limit / pip timeout
-    PatchError, // v6.6: search block not found / validation failed
-    Unknown,
-}
-
-impl FailureKind {
-    pub fn classify(stderr: &str) -> Self {
-        let s = stderr;
-        // Patch errors — highest priority after Infra (context mismatch)
-        // يجب أن يسبق كل تصنيف آخر لأن patch failure يختلط مع أخطاء أخرى
-        if s.contains("search block not found")
-            || s.contains("patch_file validation failed")
-            || s.contains("Patch changed too many lines")
-            || s.contains("search block is empty")
-        {
-            return Self::PatchError;
-        }
-        // Infra errors — highest priority (never send to LLM)
-        if s.contains("Connection error")
-            || s.contains("rate limit")
-            || s.contains("Rate limit")
-            || s.contains("429")
-            || s.contains("503")
-            || s.contains("502")
-            || s.contains("Timeout after")
-            || s.contains("error sending request")
-        {
-            return Self::InfraError;
-        }
-        // Go errors
-        if s.contains("undefined:")
-            || s.contains("cannot use")
-            || s.contains("no required module")
-            || s.contains("cannot find package")
-        {
-            return Self::TypeError;
-        }
-        if s.contains("syntax error:") && (s.contains(".go:") || s.contains("unexpected")) {
-            return Self::SyntaxError;
-        }
-        if s.contains("FAIL	") || s.contains("--- FAIL") {
-            return Self::AssertionError;
-        }
-        // Rust project structure errors
-        if s.contains("could not find `Cargo.toml`") || s.contains("could not find Cargo.toml") {
-            return Self::BuildError;
-        }
-        // Rust assertion failures
-        if s.contains("left") && s.contains("right") && s.contains("panicked") {
-            return Self::AssertionError;
-        }
-        // Rust errors
-        if s.contains("error[E") || (s.contains("error:") && s.contains("-->")) {
-            // Rust type/borrow errors
-            if s.contains("E0308") || s.contains("mismatched types") || s.contains("E0507") {
-                return Self::TypeError;
-            }
-            return Self::BuildError;
-        }
-        if s.contains("thread") && s.contains("panicked") {
-            return Self::AssertionError;
-        }
-        if s.contains("FAILED") && s.contains("test result:") {
-            return Self::AssertionError;
-        }
-        // Python errors
-        if s.contains("ModuleNotFoundError")
-            || s.contains("ImportError while importing")
-            || s.contains("No module named")
-        {
-            return Self::ImportError;
-        }
-        if s.contains("SyntaxError") || s.contains("was never closed") {
-            return Self::SyntaxError;
-        }
-        if s.contains("collected 0 items") {
-            return Self::CollectionError;
-        }
-        if s.contains("AttributeError") {
-            return Self::TypeError;
-        }
-        if s.contains("TypeError") {
-            return Self::TypeError;
-        }
-        if s.contains("AssertionError") {
-            return Self::AssertionError;
-        }
-        if s.contains("error[E") || s.contains("error: ") && s.contains("-->") {
-            return Self::BuildError;
-        }
-        if s.contains("LookupError")
-            && (s.contains("flask") || s.contains("app_ctx") || s.contains("application context"))
-            || s.contains("RuntimeError") && s.contains("Working outside of application context")
-            || s.contains("RuntimeError") && s.contains("Working outside of request context")
-            || s.contains("Push an application context")
-        {
-            return Self::FlaskConcurrency;
-        }
-        if s.contains("ReferenceError: test is not defined")
-            || s.contains("ReferenceError: describe is not defined")
-            || s.contains("ReferenceError: expect is not defined")
-        {
-            return Self::NodeTestError;
-        }
-        if s.contains("OperationalError")
-            || s.contains("no such table")
-            || s.contains("readonly database")
-            || s.contains("sqlite3")
-            || s.contains("sqlalchemy")
-        {
-            return Self::DatabaseError;
-        }
-        Self::Unknown
-    }
-
-    pub fn repair_hint(&self) -> &str {
-        match self {
-            Self::SyntaxError =>
-                "SYNTAX ERROR: Fix syntax only. Do NOT change logic or reinstall packages.",
-            Self::ImportError =>
-                "IMPORT ERROR: Module not found. Either install it with pip or use stdlib alternative.",
-            Self::AssertionError =>
-                "ASSERTION ERROR: Logic is wrong. Fix the implementation, not the test.",
-            Self::TypeError =>
-                "TYPE ERROR: Wrong types used. Check function signatures and return types.",
-            Self::CollectionError =>
-                "COLLECTION ERROR: pytest found 0 tests. Ensure test functions start with test_",
-            Self::BuildError =>
-                "BUILD ERROR: Compilation failed. Fix the compile errors shown.",
-            Self::NodeTestError =>
-                "NODE TEST ERROR: Do NOT use Jest/Mocha syntax (test/describe/expect).                  Use only Node.js built-in assert module.                  Example: const assert = require('assert'); assert.strictEqual(add(2,3), 5);",
-            Self::DatabaseError =>
-                "DATABASE ERROR: The test database is not set up correctly.                  You MUST use this exact pattern in test_main.py:
-                 
-                 from sqlalchemy import create_engine
-                 from sqlalchemy.orm import sessionmaker
-                 from main import app, Base, get_db
-                 from fastapi.testclient import TestClient
-                 
-                 SQLALCHEMY_TEST_URL = 'sqlite:///:memory:'
-                 engine = create_engine(SQLALCHEMY_TEST_URL, connect_args={'check_same_thread': False})
-                 TestingSessionLocal = sessionmaker(bind=engine)
-                 
-                 def override_get_db():
-                     db = TestingSessionLocal()
-                     try: yield db
-                     finally: db.close()
-                 
-                 app.dependency_overrides[get_db] = override_get_db
-                 Base.metadata.create_all(bind=engine)
-                 client = TestClient(app)
-                 
-                 IMPORTANT: main.py must have get_db() as a dependency injection function.",
-            Self::FlaskConcurrency =>
-                "FLASK CONTEXT ERROR: Code is running outside Flask application context.                 
-YOU MUST fix the test file using one of these patterns:                 
-
-PATTERN A — pytest fixture (recommended):                 
-  import pytest                 
-  from main import app                 
-  @pytest.fixture                 
-  def client():                 
-      app.config['TESTING'] = True                 
-      with app.test_client() as c:                 
-          yield c                 
-  def test_route(client):                 
-      r = client.get('/')                 
-      assert r.status_code == 200                 
-
-PATTERN B — app_context manually:                 
-  with app.app_context():                 
-      # code that needs app context                 
-
-NEVER call db or app internals outside app context.",
-            Self::PatchError =>
-                "PATCH ERROR: The search block was not found in the file.                 You MUST read the current file content first, then use the EXACT text as the search block.                 Do NOT approximate or paraphrase. Copy the exact lines from the file.",
-            Self::InfraError =>
-                "INFRA ERROR: Network/API issue. No code fix needed — retry automatically.",
-            Self::Unknown =>
-                "Fix the errors shown above.",
-        }
-    }
-}
 
 impl ExecutionContext {
     pub fn load_hashes(&mut self, workspace: &std::path::Path) {
@@ -465,52 +274,4 @@ impl Default for ContextConfig {
     }
 }
 
-impl FailureKind {
-    pub fn max_attempts(&self) -> u8 {
-        match self {
-            Self::PatchError => 2, // context mismatch — أعطِ فرصتين مع hint
-            Self::InfraError => 0, // لا LLM repair — retry فقط
-            Self::ImportError => 1,
-            Self::NodeTestError => 1,
-            Self::DatabaseError => 2,
-            Self::FlaskConcurrency => 2,
-            Self::SyntaxError => 3,
-            Self::TypeError => 3,
-            Self::AssertionError => 3,
-            Self::BuildError => 3,
-            Self::CollectionError => 2,
-            Self::Unknown => 3,
-        }
-    }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn test_repair_budget() {
-        assert_eq!(FailureKind::ImportError.max_attempts(), 1);
-        assert_eq!(FailureKind::SyntaxError.max_attempts(), 3);
-        assert_eq!(FailureKind::DatabaseError.max_attempts(), 2);
-        assert_eq!(FailureKind::Unknown.max_attempts(), 3);
-        assert_eq!(FailureKind::InfraError.max_attempts(), 0);
-        assert_eq!(FailureKind::PatchError.max_attempts(), 2);
-        assert_eq!(
-            FailureKind::classify("search block not found in 'app.ts'"),
-            FailureKind::PatchError
-        );
-        assert_eq!(
-            FailureKind::classify("patch_file validation failed: too many lines"),
-            FailureKind::PatchError
-        );
-        // InfraError يجب أن يُصنَّف صح
-        assert_eq!(
-            FailureKind::classify("Connection error: timeout"),
-            FailureKind::InfraError
-        );
-        assert_eq!(
-            FailureKind::classify("Timeout after 120s"),
-            FailureKind::InfraError
-        );
-    }
-}

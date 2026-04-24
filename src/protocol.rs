@@ -212,10 +212,77 @@ fn fix_json_escapes(s: &str) -> String {
     result
 }
 
+/// v7.4: Aggressive sanitization for content fields containing broken code
+fn sanitize_content_fields(json_str: &str) -> String {
+    let mut result = String::with_capacity(json_str.len() + 64);
+    let chars: Vec<char> = json_str.chars().collect();
+    let mut i = 0;
+    let mut in_string = false;
+    let mut in_content_field = false;
+
+    while i < chars.len() {
+        let c = chars[i];
+
+        if in_string {
+            if c == '\\' && i + 1 < chars.len() {
+                result.push(c);
+                result.push(chars[i + 1]);
+                i += 2;
+                continue;
+            }
+            if c == '"' {
+                in_string = false;
+                in_content_field = false;
+                result.push(c);
+                i += 1;
+                continue;
+            }
+            // Inside content field — sanitize problematic characters
+            if in_content_field {
+                // Control characters (except already-escaped ones)
+                if c == '\t' {
+                    result.push_str("\\t");
+                    i += 1;
+                    continue;
+                }
+            }
+            result.push(c);
+        } else {
+            if c == '"' {
+                in_string = true;
+                // Check if this is a content/search/replace field
+                let prefix: String = result.chars().rev().take(20).collect::<String>().chars().rev().collect();
+                if prefix.contains("\"content\":") || prefix.contains("\"search\":") || prefix.contains("\"replace\":") {
+                    in_content_field = true;
+                }
+            }
+            result.push(c);
+        }
+
+        i += 1;
+    }
+    result
+}
+
 pub fn parse(response: &str) -> Result<Plan> {
+    // Phase 1: try normal parse
     let json =
         extract_json(response).ok_or_else(|| anyhow!("No ```json block found in response"))?;
     let cleaned = fix_json_escapes(json);
+    
+    // Try direct parse first
+    if let Ok(plan) = serde_json::from_str::<Plan>(&cleaned) {
+        return Ok(plan);
+    }
+    
+    // Phase 2: try with content field sanitization
+    let sanitized = sanitize_content_fields(&cleaned);
+    if let Ok(plan) = serde_json::from_str::<Plan>(&sanitized) {
+        eprintln!("[TRACE] parse: succeeded with content sanitization");
+        return Ok(plan);
+    }
+    
+    // Phase 3: original error for diagnostics
     serde_json::from_str(&cleaned).map_err(|e| {
         anyhow!("JSON parse error: {}\n---\n{}", e, {
             let start = json.len().min(600).saturating_sub(50);

@@ -1,0 +1,4 @@
+src/context/mod.rs:4:28: warning: unused imports: `Language` and `ProjectProfile`
+src/context/mod.rs:6:20: warning: unused imports: `BudgetReport`, `MAX_CONTEXT_FILES`, `ScoredFile`, and `estimate_tokens`
+warning: `sel-agent` (bin "sel-agent") generated 2 warnings (run `cargo fix --bin "sel-agent" -p sel-agent` to apply 2 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.49s

@@ -119,8 +119,8 @@ pub fn print_comparison_table(scores: &[ModelScore]) {
     println!("  Model Comparison — v6.1 Reliability-Aware Scoring");
     println!("{}", "═".repeat(80));
     println!(
-        "  {:<28} {:>8} {:>9} {:>9} {:>9}  {}",
-        "Model", "Correct", "Reliable", "Effic.", "Composite", "Status"
+        "  {:<28} {:>8} {:>9} {:>9} {:>9}  Status",
+        "Model", "Correct", "Reliable", "Effic.", "Composite"
     );
     println!("{}", "─".repeat(80));
 

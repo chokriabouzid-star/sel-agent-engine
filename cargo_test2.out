@@ -1,0 +1,3 @@
+   Compiling sel-agent v7.3.0 (/home/chokribouzid/projects/active/sel-agent-v4)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.97s
+  Executable unittests src/main.rs (target/debug/deps/sel_agent-19475aea75c9c081)

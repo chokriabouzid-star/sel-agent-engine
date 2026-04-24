@@ -1,0 +1,90 @@
+   Compiling sel-agent v7.3.0 (/home/chokribouzid/projects/active/sel-agent-v4)
+warning: unused imports: `Language` and `ProjectProfile`
+ --> src/context/mod.rs:4:28
+  |
+4 | ...r, Language, ProjectProfile};
+  |       ^^^^^^^^  ^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+
+thread 'rustc' (4260) panicked at /rustc-dev/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/alloc/src/vec/mod.rs:2796:36:
+slice index starts at 36 but ends at 35
+stack backtrace:
+   0:     0x72ad652ab193 - <std::sys::backtrace::BacktraceLock::print::DisplayBacktrace as core::fmt::Display>::fmt::h1851ca2a850bd9a9
+   1:     0x72ad65a106c8 - core::fmt::write::h22467d3ad5dd5554
+   2:     0x72ad66eb23b6 - std::io::Write::write_fmt::h5e3b6a876f7a20bf
+   3:     0x72ad65278835 - std::panicking::default_hook::{{closure}}::he43c3ac33dfa4b50
+   4:     0x72ad65278663 - std::panicking::default_hook::hd124da54acf1152f
+   5:     0x72ad64307e67 - std[6c2a84ad8a8dd4fe]::panicking::update_hook::<alloc[9e645bc090c49844]::boxed::Box<rustc_driver_impl[1d9845581eaa47ce]::install_ice_hook::{closure#1}>>::{closure#0}
+   6:     0x72ad65278b62 - std::panicking::panic_with_hook::h9b5f1f19954f65a8
+   7:     0x72ad652788f8 - std::panicking::panic_handler::{{closure}}::hf431df8c849ee0d6
+   8:     0x72ad652728f9 - std::sys::backtrace::__rust_end_short_backtrace::hf97362b31a346cc0
+   9:     0x72ad65253a5d - __rustc[9e6a08e89e4b9111]::rust_begin_unwind
+  10:     0x72ad62555b5c - core::panicking::panic_fmt::ha4414e4328fe24a0
+  11:     0x72ad63d2f000 - core::slice::index::slice_index_fail::do_panic::runtime::h8399a589672cd03c
+  12:     0x72ad61af79e8 - core::slice::index::slice_index_fail::h62807bcaa490c9c1
+  13:     0x72ad6434faeb - <rustc_errors[7d3d66eeb6ee8b55]::styled_buffer::StyledBuffer>::replace
+  14:     0x72ad66ec7776 - <rustc_errors[7d3d66eeb6ee8b55]::emitter::HumanEmitter>::emit_messages_default_inner::{closure#0}
+  15:     0x72ad66eb9ff9 - <rustc_errors[7d3d66eeb6ee8b55]::emitter::HumanEmitter as rustc_errors[7d3d66eeb6ee8b55]::emitter::Emitter>::emit_diagnostic
+  16:     0x72ad66eb8abe - <rustc_errors[7d3d66eeb6ee8b55]::json::Diagnostic>::from_errors_diagnostic
+  17:     0x72ad66eb7d3c - <rustc_errors[7d3d66eeb6ee8b55]::json::JsonEmitter as rustc_errors[7d3d66eeb6ee8b55]::emitter::Emitter>::emit_diagnostic
+  18:     0x72ad66eb66ca - <rustc_errors[7d3d66eeb6ee8b55]::DiagCtxtInner>::emit_diagnostic::{closure#3}
+  19:     0x72ad66eb4143 - rustc_interface[cb6d9a2205ff8f81]::callbacks::track_diagnostic::<core[5424e89100fc38d5]::option::Option<rustc_span[58ae59e8fd208579]::ErrorGuaranteed>>
+  20:     0x72ad66eb31bc - <rustc_errors[7d3d66eeb6ee8b55]::DiagCtxtInner>::emit_diagnostic
+  21:     0x72ad66eb306d - <rustc_errors[7d3d66eeb6ee8b55]::DiagCtxtHandle>::emit_diagnostic
+  22:     0x72ad66eb2f2b - <() as rustc_errors[7d3d66eeb6ee8b55]::diagnostic::EmissionGuarantee>::emit_producing_guarantee
+  23:     0x72ad6664b43a - rustc_middle[f493ae294297be1]::lint::lint_level::lint_level_impl
+  24:     0x72ad65acc85e - rustc_ast[eb4c7dd49897a445]::visit::walk_item_inner::<rustc_ast[eb4c7dd49897a445]::ast::ItemKind, rustc_lint[430e2f04218dbb85]::early::EarlyContextAndPass<rustc_lint[430e2f04218dbb85]::BuiltinCombinedEarlyLintPass>>
+  25:     0x72ad65acc2fa - rustc_ast[eb4c7dd49897a445]::visit::walk_item_inner::<rustc_ast[eb4c7dd49897a445]::ast::ItemKind, rustc_lint[430e2f04218dbb85]::early::EarlyContextAndPass<rustc_lint[430e2f04218dbb85]::BuiltinCombinedEarlyLintPass>>
+  26:     0x72ad65acb5d1 - <rustc_lint[430e2f04218dbb85]::early::EarlyContextAndPass<rustc_lint[430e2f04218dbb85]::BuiltinCombinedEarlyLintPass> as rustc_ast[eb4c7dd49897a445]::visit::Visitor>::visit_item
+  27:     0x72ad66b45d47 - rustc_interface[cb6d9a2205ff8f81]::passes::early_lint_checks
+  28:     0x72ad66b45693 - rustc_query_impl[b186b72090195238]::plumbing::__rust_begin_short_backtrace::<rustc_query_impl[b186b72090195238]::query_impl::early_lint_checks::dynamic_query::{closure#2}::{closure#0}, rustc_middle[f493ae294297be1]::query::erase::Erased<[u8; 0usize]>>
+  29:     0x72ad66eda8ff - rustc_query_system[39372781df04df7]::query::plumbing::try_execute_query::<rustc_query_impl[b186b72090195238]::DynamicConfig<rustc_query_system[39372781df04df7]::query::caches::SingleCache<rustc_middle[f493ae294297be1]::query::erase::Erased<[u8; 0usize]>>, false, false, false>, rustc_query_impl[b186b72090195238]::plumbing::QueryCtxt, true>
+  30:     0x72ad66eda3a3 - rustc_query_impl[b186b72090195238]::query_impl::early_lint_checks::get_query_incr::__rust_end_short_backtrace
+  31:     0x72ad66530cd2 - rustc_ast_lowering[24f7bcc9c4f62c7a]::lower_to_hir
+  32:     0x72ad66ba1722 - rustc_query_impl[b186b72090195238]::plumbing::__rust_begin_short_backtrace::<rustc_query_impl[b186b72090195238]::query_impl::hir_crate::dynamic_query::{closure#2}::{closure#0}, rustc_middle[f493ae294297be1]::query::erase::Erased<[u8; 8usize]>>
+  33:     0x72ad66ed915b - rustc_query_system[39372781df04df7]::query::plumbing::try_execute_query::<rustc_query_impl[b186b72090195238]::DynamicConfig<rustc_query_system[39372781df04df7]::query::caches::SingleCache<rustc_middle[f493ae294297be1]::query::erase::Erased<[u8; 8usize]>>, false, false, false>, rustc_query_impl[b186b72090195238]::plumbing::QueryCtxt, true>
+  34:     0x72ad66ed9c85 - rustc_query_impl[b186b72090195238]::query_impl::hir_crate::get_query_incr::__rust_end_short_backtrace
+  35:     0x72ad67150716 - rustc_query_impl[b186b72090195238]::plumbing::__rust_begin_short_backtrace::<rustc_query_impl[b186b72090195238]::query_impl::opt_hir_owner_nodes::dynamic_query::{closure#2}::{closure#0}, rustc_middle[f493ae294297be1]::query::erase::Erased<[u8; 8usize]>>.warm
+  36:     0x72ad65d1a47a - rustc_query_system[39372781df04df7]::query::plumbing::try_execute_query::<rustc_query_impl[b186b72090195238]::DynamicConfig<rustc_data_structures[f3023ef8aa14917]::vec_cache::VecCache<rustc_span[58ae59e8fd208579]::def_id::LocalDefId, rustc_middle[f493ae294297be1]::query::erase::Erased<[u8; 8usize]>, rustc_query_system[39372781df04df7]::dep_graph::graph::DepNodeIndex>, false, false, false>, rustc_query_impl[b186b72090195238]::plumbing::QueryCtxt, true>
+  37:     0x72ad65d0fff7 - rustc_query_impl[b186b72090195238]::query_impl::opt_hir_owner_nodes::get_query_incr::__rust_end_short_backtrace
+  38:     0x72ad65d373c3 - <rustc_middle[f493ae294297be1]::ty::context::TyCtxt>::hir_owner_node
+  39:     0x72ad66ba1d0d - rustc_middle[f493ae294297be1]::hir::map::hir_crate_items
+  40:     0x72ad66ba0b6f - rustc_query_impl[b186b72090195238]::plumbing::__rust_begin_short_backtrace::<rustc_query_impl[b186b72090195238]::query_impl::hir_crate_items::dynamic_query::{closure#2}::{closure#0}, rustc_middle[f493ae294297be1]::query::erase::Erased<[u8; 8usize]>>
+  41:     0x72ad66ed915b - rustc_query_system[39372781df04df7]::query::plumbing::try_execute_query::<rustc_query_impl[b186b72090195238]::DynamicConfig<rustc_query_system[39372781df04df7]::query::caches::SingleCache<rustc_middle[f493ae294297be1]::query::erase::Erased<[u8; 8usize]>>, false, false, false>, rustc_query_impl[b186b72090195238]::plumbing::QueryCtxt, true>
+  42:     0x72ad66ed84ed - rustc_query_impl[b186b72090195238]::query_impl::hir_crate_items::get_query_incr::__rust_end_short_backtrace
+  43:     0x72ad65d25aa3 - rustc_interface[cb6d9a2205ff8f81]::passes::analysis
+  44:     0x72ad65d25a33 - rustc_query_impl[b186b72090195238]::plumbing::__rust_begin_short_backtrace::<rustc_query_impl[b186b72090195238]::query_impl::analysis::dynamic_query::{closure#2}::{closure#0}, rustc_middle[f493ae294297be1]::query::erase::Erased<[u8; 0usize]>>
+  45:     0x72ad66edaa82 - rustc_query_system[39372781df04df7]::query::plumbing::try_execute_query::<rustc_query_impl[b186b72090195238]::DynamicConfig<rustc_query_system[39372781df04df7]::query::caches::SingleCache<rustc_middle[f493ae294297be1]::query::erase::Erased<[u8; 0usize]>>, false, false, false>, rustc_query_impl[b186b72090195238]::plumbing::QueryCtxt, true>
+  46:     0x72ad66eda27f - rustc_query_impl[b186b72090195238]::query_impl::analysis::get_query_incr::__rust_end_short_backtrace
+  47:     0x72ad66d85d10 - <rustc_interface[cb6d9a2205ff8f81]::passes::create_and_enter_global_ctxt<core[5424e89100fc38d5]::option::Option<rustc_interface[cb6d9a2205ff8f81]::queries::Linker>, rustc_driver_impl[1d9845581eaa47ce]::run_compiler::{closure#0}::{closure#2}>::{closure#2} as core[5424e89100fc38d5]::ops::function::FnOnce<(&rustc_session[25e8a112773a0ca7]::session::Session, rustc_middle[f493ae294297be1]::ty::context::CurrentGcx, alloc[9e645bc090c49844]::sync::Arc<rustc_data_structures[f3023ef8aa14917]::jobserver::Proxy>, &std[6c2a84ad8a8dd4fe]::sync::once_lock::OnceLock<rustc_middle[f493ae294297be1]::ty::context::GlobalCtxt>, &rustc_data_structures[f3023ef8aa14917]::sync::worker_local::WorkerLocal<rustc_middle[f493ae294297be1]::arena::Arena>, &rustc_data_structures[f3023ef8aa14917]::sync::worker_local::WorkerLocal<rustc_hir[12fd4e3ef5d937a2]::Arena>, rustc_driver_impl[1d9845581eaa47ce]::run_compiler::{closure#0}::{closure#2})>>::call_once::{shim:vtable#0}
+  48:     0x72ad66bfdb85 - rustc_interface[cb6d9a2205ff8f81]::interface::run_compiler::<(), rustc_driver_impl[1d9845581eaa47ce]::run_compiler::{closure#0}>::{closure#1}
+  49:     0x72ad66b4e194 - std[6c2a84ad8a8dd4fe]::sys::backtrace::__rust_begin_short_backtrace::<rustc_interface[cb6d9a2205ff8f81]::util::run_in_thread_with_globals<rustc_interface[cb6d9a2205ff8f81]::util::run_in_thread_pool_with_globals<rustc_interface[cb6d9a2205ff8f81]::interface::run_compiler<(), rustc_driver_impl[1d9845581eaa47ce]::run_compiler::{closure#0}>::{closure#1}, ()>::{closure#0}, ()>::{closure#0}::{closure#0}, ()>
+  50:     0x72ad66b4df67 - <std[6c2a84ad8a8dd4fe]::thread::lifecycle::spawn_unchecked<rustc_interface[cb6d9a2205ff8f81]::util::run_in_thread_with_globals<rustc_interface[cb6d9a2205ff8f81]::util::run_in_thread_pool_with_globals<rustc_interface[cb6d9a2205ff8f81]::interface::run_compiler<(), rustc_driver_impl[1d9845581eaa47ce]::run_compiler::{closure#0}>::{closure#1}, ()>::{closure#0}, ()>::{closure#0}::{closure#0}, ()>::{closure#1} as core[5424e89100fc38d5]::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+  51:     0x72ad66b51538 - std::sys::thread::unix::Thread::new::thread_start::hc71bde616ea8b6e9
+  52:     0x72ad6049caa4 - start_thread
+                               at ./nptl/pthread_create.c:447:8
+  53:     0x72ad60529c6c - clone3
+                               at ./misc/../sysdeps/unix/sysv/linux/x86_64/clone3.S:78:0
+  54:                0x0 - <unknown>
+
+error: the compiler unexpectedly panicked. this is a bug.
+
+note: we would appreciate a bug report: https://github.com/rust-lang/rust/issues/new?labels=C-bug%2C+I-ICE%2C+T-compiler&template=ice.md
+
+note: rustc 1.93.1 (01f6ddf75 2026-02-11) running on x86_64-unknown-linux-gnu
+
+note: compiler flags: -C embed-bitcode=no -C debuginfo=2 -C incremental=[REDACTED]
+
+note: some of the compiler flags provided by cargo are hidden
+
+query stack during panic:
+#0 [early_lint_checks] perform lints prior to AST lowering
+#1 [hir_crate] getting the crate HIR
+... and 3 other queries... use `env RUST_BACKTRACE=1` to see the full query stack
+warning: `sel-agent` (bin "sel-agent" test) generated 1 warning (run `cargo fix --bin "sel-agent" -p sel-agent --tests` to apply 1 suggestion)
+error: could not compile `sel-agent` (bin "sel-agent" test); 1 warning emitted
+
+Caused by:
+  process didn't exit successfully: `/home/chokribouzid/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rustc --crate-name sel_agent --edition=2021 src/main.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=03a7ec1d238a3f03 -C extra-filename=-19475aea75c9c081 --out-dir /home/chokribouzid/projects/active/sel-agent-v4/target/debug/deps -C incremental=/home/chokribouzid/projects/active/sel-agent-v4/target/debug/incremental -L dependency=/home/chokribouzid/projects/active/sel-agent-v4/target/debug/deps --extern anyhow=/home/chokribouzid/projects/active/sel-agent-v4/target/debug/deps/libanyhow-66c12ca144eef53f.rlib --extern clap=/home/chokribouzid/projects/active/sel-agent-v4/target/debug/deps/libclap-b33e9c30a88d71e1.rlib --extern colored=/home/chokribouzid/projects/active/sel-agent-v4/target/debug/deps/libcolored-01200789c707b68b.rlib --extern indicatif=/home/chokribouzid/projects/active/sel-agent-v4/target/debug/deps/libindicatif-fe97d7e987d7d0db.rlib --extern regex=/home/chokribouzid/projects/active/sel-agent-v4/target/debug/deps/libregex-bf6244fa60aafb6f.rlib --extern reqwest=/home/chokribouzid/projects/active/sel-agent-v4/target/debug/deps/libreqwest-3a9e2223ba6869d0.rlib --extern serde=/home/chokribouzid/projects/active/sel-agent-v4/target/debug/deps/libserde-27e5a43c8684c29c.rlib --extern serde_json=/home/chokribouzid/projects/active/sel-agent-v4/target/debug/deps/libserde_json-abac10cef07547a8.rlib --extern tempfile=/home/chokribouzid/projects/active/sel-agent-v4/target/debug/deps/libtempfile-8be3f95e5ff0ea0c.rlib --extern tokio=/home/chokribouzid/projects/active/sel-agent-v4/target/debug/deps/libtokio-1aa11b1f517f928b.rlib --extern walkdir=/home/chokribouzid/projects/active/sel-agent-v4/target/debug/deps/libwalkdir-d8326a02d77feff0.rlib` (exit status: 101)

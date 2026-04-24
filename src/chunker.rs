@@ -121,7 +121,6 @@ fn parse_python_location(line: &str) -> Option<ErrorLocation> {
     let line_part = rest.trim().strip_prefix(',')?;
     let line_part = line_part.trim().strip_prefix("line")?;
     let line_num: usize = line_part
-        .trim()
         .split_whitespace()
         .next()?
         .trim_end_matches(',')

@@ -47,9 +47,22 @@ fn fix_rust_string_literals(src: &str) -> String {
             while end < bytes.len() && bytes[end] != b'\'' && bytes[end] != b'\n' {
                 end += 1;
             }
-            if end < bytes.len() && bytes[end] == b'\'' && end > start + 1 {
+            if end < bytes.len() && bytes[end] == b'\'' && end > start {
                 let word = &src[start..end];
-                if word.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
+                let word_len = word.chars().count();
+                
+                let is_escape = word.contains('\\');
+                let is_lifetime = word.chars().all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit());
+                let is_char_digit = word_len == 1 && word.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false);
+                let is_char_single = word_len == 1;
+                
+                let should_convert = word_len > 1
+                    && !is_escape
+                    && !is_lifetime
+                    && !is_char_digit
+                    && !is_char_single;
+                
+                if should_convert {
                     result.push('"');
                     result.push_str(word);
                     result.push('"');
@@ -95,13 +108,14 @@ impl SafeExecutor {
 
     async fn shell(&self, command: &str) -> Result<ExecResult> {
         self.safety_check(command)?;
+        let command = sanitize_go_module_name(command);
 
         let parts: Vec<&str> = command.split_whitespace().collect();
         let prog = parts.first().ok_or_else(|| anyhow!("Empty command"))?;
 
         // رفض pip install بدون package name
         if prog.contains("pip3") || prog.contains("pip") {
-            let is_install = parts.iter().any(|p| *p == "install");
+            let is_install = parts.contains(&"install");
             let has_package = parts.len() > 2 && parts.iter().skip(2).any(|p| !p.starts_with('-'));
             if is_install && !has_package {
                 return Ok(ExecResult::fail(
@@ -110,7 +124,7 @@ impl SafeExecutor {
             }
         }
 
-        if !ALLOWED.iter().any(|a| *a == *prog) {
+        if !ALLOWED.contains(prog) {
             return Ok(ExecResult::fail(format!(
                 "'{}' is not in the allowed programs list", prog
             )));
@@ -122,11 +136,26 @@ impl SafeExecutor {
         }
 
         let start = Instant::now();
-        let out = tokio::time::timeout(
+        let mut out = tokio::time::timeout(
             Duration::from_secs(self.timeout_secs),
             TCmd::new(prog).args(&parts[1..]).current_dir(&self.workspace).output(),
         ).await
         .map_err(|_| anyhow!("Timeout after {}s: {}", self.timeout_secs, command))??;
+
+        // --- QuickFix on Run ---
+        let out_str = String::from_utf8_lossy(&out.stdout);
+        let err_str = String::from_utf8_lossy(&out.stderr);
+        let combined = format!("{}\n{}", out_str, err_str);
+
+        if combined.contains("ModuleNotFoundError: No module named") {
+            if let Some(module) = extract_module_name(&combined) {
+                println!("   ⚡ QuickFix: pip install {}", module);
+                let pip = if self.workspace.join("venv/bin/pip3").exists() { "venv/bin/pip3" } else { "pip3" };
+                let _ = TCmd::new(pip).args(["install", &module]).current_dir(&self.workspace).output().await;
+                // Re-run
+                out = TCmd::new(prog).args(&parts[1..]).current_dir(&self.workspace).output().await?;
+            }
+        }
 
         Ok(ExecResult {
             success:     out.status.success(),
@@ -147,6 +176,12 @@ impl SafeExecutor {
     // ─── File Operations ───────────────────────────
 
     fn write_file(&self, path: &str, content: &str) -> Result<ExecResult> {
+        // v7.4: Spec Protection — block overwrite of existing test/spec files
+        if self.is_spec_file(path) && !self.is_first_write(path) {
+            return Ok(ExecResult::fail(format!(
+                "SPEC PROTECTION: '{}' is a test/spec file. Fix the SOURCE code instead.", path
+            )));
+        }
         {
             let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
             let is_config = matches!(path, "Cargo.toml" | "go.mod" | "go.sum" | "package.json"
@@ -159,10 +194,17 @@ impl SafeExecutor {
             }
         }
         let p = self.safe_path(path)?;
-        // حماية: ملفات محمية لا يُكتب عليها إذا كانت موجودة
+        // حماية: ملفات محمية لا يُكتب عليها إذا كانت موجودة (إلا إذا كانت تالفة)
         let protected = ["Cargo.toml", "Cargo.lock", "go.mod", "go.sum"];
         let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if protected.contains(&name) && p.exists() {
+        
+        let is_valid_cargo = if name == "Cargo.toml" && p.exists() {
+            std::fs::read_to_string(&p).map(|c| c.contains("[package]")).unwrap_or(false)
+        } else {
+            p.exists()
+        };
+
+        if protected.contains(&name) && is_valid_cargo {
             return Ok(ExecResult::fail(format!(
                 "write_file: '{}' is protected — use patch_file to modify existing files", path
             )));
@@ -237,6 +279,15 @@ impl SafeExecutor {
                             path, err2
                         )));
                     }
+                } else if let Some(fixed) = autofix_go_unused_import(&p, &err) {
+                    println!("   🔧 AutoFix Go unused import: {}", fixed);
+                    if let Some(err2) = go_compile_check(&self.workspace) {
+                        return Ok(ExecResult::fail(format!(
+                            "COMPILE ERROR in '{}' after unused-import autofix:\n{}",
+                            path, err2
+                        )));
+                    }
+                    println!("   ✅ AutoFix Go unused import succeeded");
                 } else {
                     return Ok(ExecResult::fail(format!(
                         "COMPILE ERROR in '{}' — NOTE: The actual error might be in a DIFFERENT file. Check the error details below and fix the file mentioned there:\n{}",
@@ -324,6 +375,12 @@ impl SafeExecutor {
 
 
     fn patch_file(&self, path: &str, search: &str, replace: &str) -> Result<ExecResult> {
+        // v7.4: Spec Protection — block patching test/spec files during repair
+        if self.is_spec_file(path) {
+            return Ok(ExecResult::fail(format!(
+                "SPEC PROTECTION: '{}' is a test file. Modify the source code to match the spec.", path
+            )));
+        }
         {
             let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
             let is_config = matches!(path, "Cargo.toml" | "go.mod" | "go.sum" | "package.json"
@@ -336,6 +393,14 @@ impl SafeExecutor {
             }
         }
         let p = self.safe_path(path)?;
+        
+        // v7.4: CWD Tracking — try subdirectories if direct path fails
+        let p = if !p.exists() {
+            let resolved = self.resolve_path_with_subdir(path);
+            if resolved.exists() { resolved } else { p }
+        } else {
+            p
+        };
         
         // v7.3.3: Pre-flight check for BUG-PATCH-01
         if !p.exists() {
@@ -384,27 +449,32 @@ impl SafeExecutor {
         }
         let content = std::fs::read_to_string(&p)?;
         let content = sanitize_code(&content);
-        let count = content.matches(search).count();
-        // إذا لم يُوجد مباشرة — جرب normalize whitespace
-        let (effective_search, effective_replace, normalized) = if count == 0 {
-            let norm_content = content.split_whitespace().collect::<Vec<_>>().join(" ");
-            let norm_search  = search.split_whitespace().collect::<Vec<_>>().join(" ");
-            let norm_replace = replace.split_whitespace().collect::<Vec<_>>().join(" ");
-            (norm_content, norm_replace, Some(norm_search))
-        } else {
-            (content.clone(), replace.to_string(), None)
-        };
-        let (search_key, content_key) = if let Some(ref ns) = normalized {
-            (ns.as_str(), effective_search.as_str())
-        } else {
-            (search, content.as_str())
-        };
-        let count = content_key.matches(search_key).count();
+        let search_sanitized = sanitize_code(search);
+        let replace_sanitized = sanitize_code(replace);
+        let search = search_sanitized.as_str();
+        let replace = replace_sanitized.as_str();
+        let mut count = content.matches(search).count();
+        let mut actual_search = search.to_string();
+
+        // Fallback for Tab vs Space mismatch (common in Go)
         if count == 0 {
-            // v5.2: increment failure counter
+            let tabbed_search = search.replace("    ", "\t");
+            if content.matches(&tabbed_search).count() > 0 {
+                count = content.matches(&tabbed_search).count();
+                actual_search = tabbed_search;
+            } else {
+                let tabbed_search_2 = search.replace("  ", "\t"); // try 2 spaces
+                if content.matches(&tabbed_search_2).count() > 0 {
+                    count = content.matches(&tabbed_search_2).count();
+                    actual_search = tabbed_search_2;
+                }
+            }
+        }
+
+        if count == 0 {
             *self.patch_attempts.borrow_mut().entry(p.clone()).or_insert(0) += 1;
             return Ok(ExecResult::fail(format!(
-                "patch_file: search block not found in '{}' (tried exact + whitespace-normalized) — copy the exact text from the file", path
+                "patch_file: search block not found in '{}' — copy the exact text from the file (check tabs/spaces)", path
             )));
         }
         if count > 1 {
@@ -412,34 +482,44 @@ impl SafeExecutor {
                 "patch_file: search block found {} times in '{}' — must be unique, use more context", count, path
             )));
         }
-        let new_content = if normalized.is_some() {
-            content_key.replacen(search_key, &effective_replace, 1)
-        } else {
-            content.replacen(search, replace, 1)
-        };
-        // v5.2: Validate before writing
+        let new_content = content.replacen(&actual_search, replace, 1);
         if let Err(e) = self.validate_patch(path, &content, &new_content) {
             *self.patch_attempts.borrow_mut().entry(p.clone()).or_insert(0) += 1;
             return Ok(ExecResult::fail(format!("patch_file validation failed: {}", e)));
         }
         
-        // v5.5: auto-fix single-quote string literals in Rust files
         let new_content = if p.extension().map(|x| x == "rs").unwrap_or(false) {
             fix_rust_string_literals(&new_content)
         } else {
             new_content
         };
-        std::fs::write(&p, &new_content)?;
-
-        // v5.2: reset counter on success
+        std::fs::write(&p, new_content.as_bytes())?;
         self.patch_attempts.borrow_mut().insert(p.clone(), 0);
-        
-        println!("   🔧 patch_file: {} ({} bytes → {} bytes)", path, content.len(), new_content.len());
+        println!("   🔧 patch_file: {} (patched)", path);
+
+        if path.ends_with(".go") {
+            if let Some(compile_err) = go_compile_check(&self.workspace) {
+                eprintln!("[TRACE] post-patch Go check: {}", &compile_err[..compile_err.len().min(80)]);
+                if let Some(fixed) = autofix_go_unused_import(&p, &compile_err) {
+                    println!("   🔧 AutoFix Go unused import (post-patch): {}", fixed);
+                } else if let Some(fixed) = autofix_go_undefined_import(&p, &compile_err) {
+                    println!("   🔧 AutoFix Go undefined import (post-patch): {}", fixed);
+                }
+            }
+        }
+
         Ok(ExecResult::ok(format!("Patched: {}", path)))
     }
 
     fn read_file(&self, path: &str) -> Result<ExecResult> {
         let p = self.safe_path(path)?;
+        // v7.4: CWD Tracking — try subdirectories if direct path fails
+        let p = if !p.exists() {
+            let resolved = self.resolve_path_with_subdir(path);
+            if resolved.exists() { resolved } else { p }
+        } else {
+            p
+        };
         if !p.exists() {
             return Ok(ExecResult::fail(format!("'{}' not found", path)));
         }
@@ -464,11 +544,12 @@ impl SafeExecutor {
 
         // --- RUST ---
         if prog == "cargo" || prog.ends_with("/cargo") {
+            let rust_ws = find_cargo_workspace(&self.workspace);
             let out = tokio::time::timeout(
                 std::time::Duration::from_secs(self.timeout_secs),
                 TCmd::new("cargo")
                     .args(["test", "--", "--nocapture"])
-                    .current_dir(&self.workspace)
+                    .current_dir(&rust_ws)
                     .output(),
             ).await
             .map_err(|_| anyhow!("cargo test timeout"))??;
@@ -479,7 +560,7 @@ impl SafeExecutor {
             // v1.4 Digest AutoFix logic (kept for robustness)
             if combined.contains("trait `Digest` which provides") {
                 println!("   🔧 AutoFix: adding sha2::Digest import");
-                for dir in [self.workspace.as_path(), self.workspace.join("src").as_path()] {
+                for dir in [rust_ws.as_path(), rust_ws.join("src").as_path()] {
                     if let Ok(entries) = std::fs::read_dir(dir) {
                         for entry in entries.flatten() {
                             let p = entry.path();
@@ -512,22 +593,49 @@ impl SafeExecutor {
 
         // --- GO ---
         if prog == "go" || prog.ends_with("/go") {
-            if self.workspace.join("go.mod").exists() {
-                let _ = TCmd::new("go").args(["mod", "tidy"]).current_dir(&self.workspace).output().await;
+            if !self.workspace.join("go.mod").exists() {
+                println!("   🔧 AutoFix: go.mod missing — initializing module 'sel_tmp'");
+                let init_out = TCmd::new("go")
+                    .args(["mod", "init", "sel_tmp"])
+                    .current_dir(&self.workspace)
+                    .output().await;
+                match init_out {
+                    Ok(o) if o.status.success() => println!("   ✅ go mod init sel_tmp succeeded"),
+                    Ok(o) => eprintln!("   ⚠️ go mod init failed: {}", String::from_utf8_lossy(&o.stderr)),
+                    Err(e) => eprintln!("   ⚠️ go mod init error: {}", e),
+                }
             }
+
+            if self.workspace.join("go.mod").exists() {
+                let _ = TCmd::new("go")
+                    .args(["mod", "tidy"])
+                    .current_dir(&self.workspace)
+                    .output().await;
+            }
+
             let out = tokio::time::timeout(
                 std::time::Duration::from_secs(self.timeout_secs),
                 TCmd::new("go").args(&args).current_dir(&self.workspace).output(),
             ).await.map_err(|_| anyhow!("go test timeout"))??;
-            let combined = format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+
+            let combined = format!(
+                "{}\n{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
             let exit_ok = out.status.success();
             let (passed, failed) = parse_go_tests(&combined);
-            let success = exit_ok && passed > 0;
+
+            let no_test_files = combined.contains("[no test files]");
+            let success = (exit_ok && passed > 0) || (exit_ok && no_test_files);
+
             return Ok(ExecResult {
                 success,
                 exit_code: out.status.code().unwrap_or(-1),
                 stdout: format!("{} passed, {} failed", passed, failed),
-                stderr: if success { String::new() } else {
+                stderr: if success {
+                    String::new()
+                } else {
                     let s = combined.len().saturating_sub(2000);
                     combined[s..].to_string()
                 },
@@ -563,6 +671,7 @@ impl SafeExecutor {
         // --- PYTHON ---
         if prog.contains("pytest") || target.contains("pytest") {
             // v7.3.7: Proactive AutoFix for Python venv + pytest
+            let mut final_prog = prog.clone();
             if !self.workspace.join("venv").exists() {
                 println!("   🔧 AutoFix: creating venv and installing pytest...");
                 let _ = TCmd::new("python3")
@@ -576,10 +685,19 @@ impl SafeExecutor {
                     .args(["install", "pytest", "--quiet"])
                     .current_dir(&self.workspace)
                     .output().await;
+                
+                // v7.4.1: Update prog to use the new venv
+                if self.workspace.join("venv/bin/pytest").exists() {
+                    final_prog = "venv/bin/pytest".to_string();
+                }
+            } else if prog == "pytest" && self.workspace.join("venv/bin/pytest").exists() {
+                // v7.4.1: Fallback — if venv exists but model suggested 'pytest'
+                final_prog = "venv/bin/pytest".to_string();
             }
+
             let out = tokio::time::timeout(
                 std::time::Duration::from_secs(self.timeout_secs),
-                TCmd::new(&prog).args(&args).current_dir(&self.workspace).env("PYTHONPATH", &self.workspace).output(),
+                TCmd::new(&final_prog).args(&args).current_dir(&self.workspace).env("PYTHONPATH", &self.workspace).output(),
             ).await.map_err(|_| anyhow!("pytest timeout"))??;
             let combined = format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
             let (passed, failed) = parse_pytest(&combined);
@@ -621,6 +739,50 @@ impl SafeExecutor {
             }
         }
         Ok(())
+    }
+
+    /// v7.4: CWD Tracking — resolve files in subdirectories when direct path fails
+    fn resolve_path_with_subdir(&self, path: &str) -> PathBuf {
+        let direct = self.workspace.join(path);
+        if direct.exists() {
+            return direct;
+        }
+        // Search in subdirectories (depth 1)
+        if let Ok(entries) = std::fs::read_dir(&self.workspace) {
+            for entry in entries.flatten() {
+                let sub = entry.path();
+                if sub.is_dir() {
+                    let candidate = sub.join(path);
+                    if candidate.exists() {
+                        eprintln!("[TRACE] CWD-FIX: found '{}' in subdir '{}'",
+                            path, sub.file_name().unwrap_or_default().to_string_lossy());
+                        return candidate;
+                    }
+                }
+            }
+        }
+        direct // fallback
+    }
+
+    /// v7.4: Spec Protection — checks filename patterns to detect test/spec files
+    fn is_spec_file(&self, path: &str) -> bool {
+        let filename = std::path::Path::new(path)
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        filename.starts_with("test_")           // test_main.py
+            || filename.ends_with("_test.go")   // main_test.go
+            || filename.ends_with("_test.rs")   // main_test.rs
+            || filename.contains(".test.")      // app.test.ts
+            || filename.contains(".spec.")      // app.spec.ts
+            || filename.ends_with("_spec.rb")   // main_spec.rb
+    }
+
+    /// v7.4: First write detection — allows creating new test files
+    fn is_first_write(&self, path: &str) -> bool {
+        !self.workspace.join(path).exists()
     }
 }
 
@@ -674,6 +836,7 @@ fn apply_all_mutations(code: &str) -> Vec<(String, String, String)> {
             .map(|line| {
                 let trimmed = line.trim_start();
                 let skip = trimmed.starts_with('#') || trimmed.starts_with("//")
+                        || trimmed.starts_with('*') || trimmed.starts_with("/*")
                         || skip_patterns.iter().any(|p| line.contains(p));
                 if found_line.is_none() && !skip && line.contains(*from) {
                     let new_line = line.replacen(from, to, 1);
@@ -736,17 +899,14 @@ impl SafeExecutor {
                     .output(),
             ).await;
             let _ = std::fs::write(&source_path, &original);
-            match out {
-                Ok(Ok(result)) => {
-                    if result.status.success() {
-                        if !any_missed {
-                            survived_orig = orig_line.clone();
-                            survived_mutd = mutd_line.clone();
-                        }
-                        any_missed = true;
-                    } else { any_caught = true; }
-                }
-                _ => {}
+            if let Ok(Ok(result)) = out {
+                if result.status.success() {
+                    if !any_missed {
+                        survived_orig = orig_line.clone();
+                        survived_mutd = mutd_line.clone();
+                    }
+                    any_missed = true;
+                } else { any_caught = true; }
             }
             if any_missed { break; }
         }
@@ -843,7 +1003,7 @@ fn go_compile_check(workspace: &std::path::Path) -> Option<String> {
     }
     eprintln!("[TRACE] go_compile_check: running...");
     let out = std::process::Command::new("go")
-        .args(&["test", "-run=^$", "-count=1"])
+        .args(["test", "-run=^$", "-count=1"])
         .current_dir(workspace)
         .output()
         .ok()?;
@@ -878,7 +1038,6 @@ fn autofix_go_undefined_import(file: &std::path::Path, err: &str) -> Option<Stri
         .find(|l| l.contains("undefined:"))?
         .split("undefined:")
         .nth(1)?
-        .trim()
         .split_whitespace()
         .next()?
         .split('.')
@@ -917,19 +1076,110 @@ fn autofix_go_undefined_import(file: &std::path::Path, err: &str) -> Option<Stri
     Some(pkg.to_string())
 }
 
+/// AutoFix: يحذف Go import غير مستخدم
+fn autofix_go_unused_import(file: &std::path::Path, err: &str) -> Option<String> {
+    let pkg = err.lines()
+        .find(|l| l.contains("imported and not used"))?
+        .split('"')
+        .nth(1)?
+        .to_string();
+
+    if pkg.is_empty() {
+        return None;
+    }
+
+    let src = std::fs::read_to_string(file).ok()?;
+
+    let block_pattern = format!("\t\"{}\"", pkg);
+    let block_pattern_no_tab = format!("    \"{}\"", pkg);
+    
+    let new_src = if src.contains(&block_pattern) {
+        let lines: Vec<&str> = src.lines().collect();
+        let filtered: Vec<&str> = lines.iter()
+            .filter(|&&line| {
+                let trimmed = line.trim();
+                trimmed != format!("\"{}\"", pkg).as_str()
+            })
+            .cloned()
+            .collect();
+        let new = filtered.join("\n");
+        new.replace("import (\n)", "").replace("import (\n\n)", "")
+    } else if src.contains(&block_pattern_no_tab) {
+        src.lines()
+            .filter(|line| line.trim() != format!("\"{}\"", pkg).as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        let single_pattern = format!("import \"{}\"", pkg);
+        if src.contains(&single_pattern) {
+            src.lines()
+                .filter(|line| !line.trim().starts_with(&single_pattern))
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            return None;
+        }
+    };
+
+    let new_src = {
+        let mut cleaned = new_src.clone();
+        while let Some(start) = cleaned.find("import (") {
+            if let Some(end) = cleaned[start..].find(')') {
+                let block_content = &cleaned[start + 8..start + end];
+                if block_content.trim().is_empty() {
+                    cleaned = format!("{}{}", &cleaned[..start], &cleaned[start + end + 1..]);
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        cleaned
+    };
+
+    std::fs::write(file, &new_src).ok()?;
+    Some(pkg)
+}
+
+fn find_cargo_workspace(root: &std::path::Path) -> std::path::PathBuf {
+    if root.join("Cargo.toml").exists() {
+        return root.to_path_buf();
+    }
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for entry in entries.flatten() {
+            let sub = entry.path();
+            if sub.is_dir() && sub.join("Cargo.toml").exists() {
+                return sub;
+            }
+        }
+    }
+    root.to_path_buf()
+}
+
+fn sanitize_go_module_name(cmd: &str) -> String {
+    cmd.replace("go mod init main", "go mod init sel_tmp")
+}
+
+fn extract_module_name(stderr: &str) -> Option<String> {
+    stderr.lines()
+        .find(|l| l.contains("ModuleNotFoundError: No module named"))?
+        .split('\'')
+        .nth(1)
+        .map(|s| s.to_string())
+}
+
 /// تنظيف الكود من Unicode quotes
 fn sanitize_code(s: &str) -> String {
     let original_len = s.len();
     let result = s
-        .replace('\u{201C}', "\"")
-        .replace('\u{201D}', "\"")
-        .replace('\u{2018}', "'")
-        .replace('\u{2019}', "'")
+        .replace(['\u{201C}', '\u{201D}'], "\"")
+        .replace(['\u{2018}', '\u{2019}'], "'")
         .replace('\u{2014}', "--")
         .replace('\u{2013}', "-")
         .replace('\u{00A0}', " ")
-        .replace('\u{200B}', "")
-        .replace('\u{FEFF}', "")
+        .replace(['\u{200B}', '\u{FEFF}'], "")
+        .replace("\r\n", "\n")
         .to_string();
     
     if result.len() != original_len {

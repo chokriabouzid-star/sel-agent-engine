@@ -1,11 +1,13 @@
 #![allow(dead_code)]
 mod bench_realworld;
+mod failure;
 mod workspace_oracle;
 mod bench_compile;
 mod llm_engine;
-// src/main.rs — SEL Agent v7.3.0
+// src/main.rs — SEL Agent v7.4.0
 mod agent;
 mod chunker;
+mod constraint_engine;
 mod context;
 mod environment;
 mod evaluator;
@@ -15,10 +17,11 @@ mod goal_parser;
 mod memory;
 mod protocol;
 mod scaffold_engine;
-mod scanner;
 mod manifest;
+mod snapshot;
 mod types;
 mod constitution;
+mod decision;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -62,6 +65,8 @@ enum Commands {
         max_repairs: u8,
         #[arg(long, default_value = "1")]
         iterations: u8,
+        #[arg(long, value_delimiter = ',')]
+        focus: Vec<String>,
     },
     Scan {
         /// مسار المشروع
@@ -189,7 +194,7 @@ async fn run_health(api_key: &str) -> Result<()> {
     Ok(())
 }
 
-async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8) -> Result<()> {
+async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8, focus: &[String]) -> Result<()> {
     let all_cases: &[(&str, &str, &str)] = &[
         // Python
         ("python", "broken import",    "Create Python file importing from math_utils import add. Create math_utils.py with add(a,b) function. Write pytest test. Run tests."),
@@ -235,12 +240,16 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8) 
         ("v7", "v7_quickfix",    "Create a Python script using the 'requests' library to fetch 'https://httpbin.org/get'. Write a pytest test asserting status_code is 200. Do NOT use pip_install in your execution commands, let the ModuleNotFoundError happen so we test the agent's QuickFix. Run pytest."),
         ("v7", "v7_go_autofix",  "Create Go package main. Write func PrintMessage() that calls fmt.Println(\"Hello\"). STRICT RULE: You must NOT write `import \"fmt\"` anywhere in the file. Leave it missing! Write a test calling the function. Run go test."),
         ("v7", "v7_rust_quotes", "Create Rust library crate with edition 2021. Write pub fn greet() -> &'static str returning 'Hello' (STRICT RULE: you MUST use single quotes around Hello). Write tests module asserting greet() returns it. Run cargo test."),
-        ("v7", "v7_unicode",     "Create a Python function that uses a variable named \u{2018}msg\u{2019} and returns \u{201C}smart quotes\u{201D}. Write a pytest test checking its value. Run tests (the agent's sanitize_code should fix these Unicode bounds)."),
+        ("v7", "v7_unicode",     "Create a Python function that uses a variable named \u{2018}msg\u{2019} and returns \u{201C}smart quotes\u{201C}. Write a pytest test checking its value. Run tests (the agent's sanitize_code should fix these Unicode bounds)."),
     ];
 
     let cases: Vec<_> = all_cases
         .iter()
-        .filter(|(lang, _, _)| suite == "all" || *lang == suite)
+        .filter(|(lang, name, _)| {
+            let suite_match = suite == "all" || *lang == suite;
+            let focus_match = focus.is_empty() || focus.contains(&name.to_string());
+            suite_match && focus_match
+        })
         .collect();
 
     // v5.7: integration suite له دالة منفصلة
@@ -972,7 +981,7 @@ async fn run_plan(api_key: &str,
         }
     }
 
-    let avg_repairs = if tasks.len() > 0 {
+    let avg_repairs = if !tasks.is_empty() {
         total_repairs as f64 / tasks.len() as f64
     } else {
         0.0
@@ -1003,8 +1012,9 @@ async fn main() -> Result<()> {
             suite,
             max_repairs,
             iterations,
+            focus,
         } => {
-            run_bench("", &suite, max_repairs, iterations).await?;
+            run_bench("", &suite, max_repairs, iterations, &focus).await?;
         }
         Commands::Stress { max_repairs } => {
             run_stress("", max_repairs).await?;
@@ -1101,7 +1111,7 @@ async fn main() -> Result<()> {
 // ─── scan command (v6.2) ───────────────────────────────────────────────────
 
 fn cmd_scan(workspace: &str, json: bool) {
-    use crate::scanner::scan_project;
+    use crate::context::Scanner;
     use std::path::Path;
 
     let path = Path::new(workspace);
@@ -1110,7 +1120,7 @@ fn cmd_scan(workspace: &str, json: bool) {
         std::process::exit(1);
     }
 
-    let profile = scan_project(path);
+    let profile = Scanner::scan(path);
 
     if json {
         println!("{}", serde_json::to_string_pretty(&profile).unwrap());

@@ -21,9 +21,27 @@ pub struct FileEntry {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum FileKind { Source, Test, Config }
 
+/// v7.4: File ownership policy — enforced in executor.rs
+#[derive(Debug, Clone, PartialEq)]
+pub enum FilePolicy {
+    Mutable,    // source — LLM writes and modifies
+    ReadOnly,   // test/spec — LLM reads only
+    Protected,  // config/scaffold — fully protected
+}
+
+impl FileEntry {
+    pub fn policy(&self) -> FilePolicy {
+        match self.kind {
+            FileKind::Test   => FilePolicy::ReadOnly,
+            FileKind::Config => FilePolicy::Protected,
+            FileKind::Source => FilePolicy::Mutable,
+        }
+    }
+}
+
 impl ProjectManifest {
     pub fn generate(workspace: &Path) -> Self {
-        let profile  = crate::scanner::scan_project(workspace);
+        let profile  = crate::context::Scanner::scan(workspace);
         let language = format!("{}", profile.language);
         let files    = Self::scan_files(workspace);
         Self { language, files }
@@ -99,13 +117,12 @@ impl ProjectManifest {
                 }
                 "py" => {
                     // دوال وكلاسات على مستوى أعلى (بدون indent)
-                    if !line.starts_with(' ') && !line.starts_with('\t') {
-                        if t.starts_with("def ") || t.starts_with("class ") {
+                    if !line.starts_with(' ') && !line.starts_with('\t')
+                        && (t.starts_with("def ") || t.starts_with("class ")) {
                             if let Some(n) = Self::ident_after_keyword(t) {
                                 if !n.starts_with('_') { out.push(n); }
                             }
                         }
-                    }
                 }
                 "rs" => {
                     if t.starts_with("pub fn ")
@@ -193,7 +210,7 @@ impl ProjectManifest {
         line.split_whitespace().nth(1)
             .map(|w| {
                 // قطع عند أول ( أو : أو )
-                let end = w.find(|c: char| c == '(' || c == ':' || c == ')')
+                let end = w.find(['(', ':', ')'])
                     .unwrap_or(w.len());
                 w[..end].to_string()
             })

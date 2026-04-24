@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 pub struct Agent {
     state: AgentState,
-    ctx: ExecutionContext,
+    pub ctx: ExecutionContext,
     executor: SafeExecutor,
     llm: LlmEngine,
     goal: String,
@@ -21,6 +21,7 @@ pub struct Agent {
     context_config: ContextConfig,
     failure_memory: crate::memory::FailureMemory, // v5.8
     pub accumulated_stats: crate::llm_engine::LlmCallStats, // v6.1
+    initial_snapshot: Option<crate::snapshot::Snapshot>, // v7.4.1
 }
 
 impl Agent {
@@ -43,29 +44,18 @@ impl Agent {
             context_config,
             failure_memory: crate::memory::FailureMemory::load(),
             accumulated_stats: crate::llm_engine::LlmCallStats::default(),
+            initial_snapshot: None,
         }
     }
     pub fn new_with_model(
-        _api_key: String,
+        api_key: String,
         _model_alias: String,
         workspace: PathBuf,
         goal: String,
         max_repairs: u8,
         context_config: ContextConfig,
     ) -> Self {
-        Self {
-            state: AgentState::Planning,
-            ctx: ExecutionContext::new(max_repairs),
-            executor: SafeExecutor::new(workspace, 120),
-            llm: crate::llm_engine::LlmEngine::from_env(),
-            goal,
-            plan: Vec::new(),
-            previous_error: None,
-            repair_fingerprints: Vec::new(),
-            context_config,
-            failure_memory: crate::memory::FailureMemory::load(),
-            accumulated_stats: crate::llm_engine::LlmCallStats::default(),
-        }
+        Self::new(api_key, workspace, goal, max_repairs, context_config)
     }
 
     pub fn call_stats(&self) -> &crate::llm_engine::LlmCallStats {
@@ -87,8 +77,6 @@ impl Agent {
         success: Option<bool>,
         mutation: Option<f64>,
     ) {
-        let _model = std::env::var("SEL_MODEL")
-            .unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string());
         let body = serde_json::json!({
             "event_type": event_type,
             "goal": &self.goal,
@@ -97,23 +85,21 @@ impl Agent {
             "success": success,
             "mutation": mutation,
             "repairs": self.ctx.repair_attempts,
-            "model": "auto",  // provider managed by LlmEngine
+            "model": "auto",
             "timestamp": ""
         });
         let url = std::env::var("SEL_OBSERVATORY")
             .unwrap_or_else(|_| "http://localhost:8777".to_string());
-        let _ = std::process::Command::new("curl")
-            .args([
-                "-s",
-                "-X",
-                "POST",
-                &format!("{}/api/event", url),
-                "-H",
-                "Content-Type: application/json",
-                "-d",
-                &body.to_string(),
-            ])
-            .output();
+        let url = format!("{}/api/event", url);
+        // Fire-and-forget: non-blocking send via tokio::spawn
+        tokio::spawn(async move {
+            let _ = reqwest::Client::new()
+                .post(&url)
+                .json(&body)
+                .timeout(std::time::Duration::from_secs(2))
+                .send()
+                .await;
+        });
     }
 
     pub fn mutation_score(&self) -> f64 {
@@ -125,41 +111,70 @@ impl Agent {
     }
 
     // ══════════════════════════════════════════════════════════
-    // Goal Validator v1.2
-    fn validate_goal(goal: &str) -> Option<String> {
-        let g = goal.to_lowercase();
-        let len = goal.trim().len();
-        if len < 10 {
-            return Some("Goal too short.".to_string());
+    // Goal Validator — delegated to decision module
+    // ══════════════════════════════════════════════════════════
+    
+    // v1.3: Unified Mutation Check Helper
+    fn is_impl_file(path: &str) -> bool {
+        let p = path.to_lowercase();
+        let ext_ok = p.ends_with(".py") || p.ends_with(".go") || p.ends_with(".js") || p.ends_with(".ts") || p.ends_with(".rs");
+        if !ext_ok { return false; }
+        
+        let is_config = p.contains("cargo.toml") || p.contains("go.mod") || p.contains("package.json") || p.contains("tsconfig") || p.contains("jest.config");
+        let is_test = p.contains("test") || p.contains("spec");
+        
+        !is_config && !is_test
+    }
+    
+    async fn run_mutation_check(&mut self) -> Option<crate::types::FailedStep> {
+        if self.ctx.skip_mutation { return None; }
+        
+        let impl_source = self.plan.iter().find_map(|c| match c {
+            crate::protocol::Cmd::WriteFile { path, .. } if Self::is_impl_file(path) => Some(path.clone()),
+            crate::protocol::Cmd::PatchFile { path, .. } if Self::is_impl_file(path) => Some(path.clone()),
+            _ => None,
+        });
+        
+        if let Some(src) = impl_source {
+            use crate::executor::MutationResult;
+            println!("\n🧬 Mutation check on {}...", src);
+            match self.executor.mutation_check(&src).await {
+                MutationResult::Weak(orig_line, mutd_line) => {
+                    self.ctx.mutations_total += 1;
+                    println!("   ⚠️  Tests are WEAK — triggering repair (Mutation Enforcement v1.3).");
+                    println!("     Survived mutation: [{}] → [{}]", orig_line, mutd_line);
+                    
+                    Some(crate::types::FailedStep {
+                        step_index:   0,
+                        label:        "mutation_check".into(),
+                        stderr:       format!(
+                            "WEAK TESTS: Tests passed on mutated code in '{}'.
+                             SURVIVED MUTATION DIFF:
+                             - Original : {}
+                             + Mutated  : {}
+                             The tests did NOT catch this change.
+                             Add assertions that distinguish these two behaviors.",
+                            src, orig_line, mutd_line
+                        ),
+                        exit_code:    -3,
+                        culprit_file: Some(src),
+                    })
+                }
+                MutationResult::Strong => {
+                    println!("   ✅ Tests are solid.");
+                    self.send_event("mutation", None, None, None, Some(1.0));
+                    self.ctx.mutations_total += 1;
+                    self.ctx.mutations_killed += 1;
+                    None
+                }
+                MutationResult::Skipped => {
+                    println!("   ⏭  Mutation check skipped.");
+                    None
+                }
+            }
+        } else {
+            None
         }
-        let real_keywords = [
-            "fix",
-            "implement",
-            "refactor",
-            "update",
-            "migrate",
-            "failing",
-            "crate",
-            "existing",
-            "workspace",
-        ];
-        if real_keywords.iter().any(|kw| g.contains(kw)) {
-            return None;
-        }
-        let has_test = g.contains("test")
-            || g.contains("pytest")
-            || g.contains("assert")
-            || g.contains("spec")
-            || g.contains("verify");
-        if !has_test {
-            return Some("Goal has no test requirement — add tests to verify.".to_string());
-        }
-        let vague = (g.contains("test") || g.contains("assert"))
-            && (g.contains("some value") || g.contains("correct value"));
-        if vague {
-            return Some("Ambiguous values — specify exact expected values.".to_string());
-        }
-        None
     }
 
     // ══════════════════════════════════════════════════════════
@@ -229,239 +244,30 @@ impl Agent {
         unreachable!()
     }
     // ══════════════════════════════════════════════════════════
-
+    // v5.6: Context & validation — delegated to decision module
     // ══════════════════════════════════════════════════════════
-    // v5.6: Unique Patch Enforcer
-    fn build_lang_hint(&self) -> String {
-        let ws = &self.executor.workspace;
-        if ws.join("Cargo.toml").exists() {
-            "\nCRITICAL: This is a RUST project (Cargo.toml exists). Write ONLY Rust code. Do NOT create Python or JS files.".to_string()
-        } else if ws.join("package.json").exists() {
-            "\nCRITICAL: This is a Node.js project (package.json exists). Write ONLY JS/TS code."
-                .to_string()
-        } else if ws.join("go.mod").exists() {
-            "\nCRITICAL: This is a Go project (go.mod exists). Write ONLY Go code.".to_string()
-        } else {
-            String::new()
-        }
-    }
 
-    fn build_skeleton_context(&self) -> String {
-        let ws = &self.executor.workspace;
-        let mut map = String::new();
-        // v5.8.1: أضف محتوى Cargo.toml دائماً في Planning
-        if let Ok(toml) = std::fs::read_to_string(ws.join("Cargo.toml")) {
-            map.push_str(&format!(
-                "CURRENT Cargo.toml CONTENT (use patch_file with EXACT text):\n```\n{}\n```\n\n",
-                toml.trim()
-            ));
-        }
-        // v5.8.2: أضف محتوى src/lib.rs دائماً في Planning
-        if let Ok(lib) = std::fs::read_to_string(ws.join("src/lib.rs")) {
-            map.push_str(&format!(
-                "CURRENT src/lib.rs CONTENT (use patch_file with EXACT text):\n```\n{}\n```\n\n",
-                lib.trim()
-            ));
-        }
-        if let Ok(toml) = std::fs::read_to_string(ws.join("Cargo.toml")) {
-            if let Some(name) = toml
-                .lines()
-                .find(|l| l.trim().starts_with("name"))
-                .and_then(|l| l.split('"').nth(1))
-            {
-                map.push_str(&format!("CRATE NAME: {}\n", name));
-                map.push_str(&format!("TEST IMPORT: use {}::\n\n", name));
-            }
-        }
-        let src_dir = ws.join("src");
-        if src_dir.exists() {
-            let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&src_dir)
-                .into_iter()
-                .flatten()
-                .filter_map(|e| e.ok())
-                .map(|e| e.path())
-                .filter(|p| p.extension().map(|x| x == "rs").unwrap_or(false))
-                .collect();
-            files.sort();
-            for path in files {
-                let rel = path
-                    .strip_prefix(ws)
-                    .unwrap_or(&path)
-                    .to_string_lossy()
-                    .to_string();
-                if let Ok(src) = std::fs::read_to_string(&path) {
-                    let skeleton: Vec<String> = src
-                        .lines()
-                        .filter(|l| {
-                            let t = l.trim();
-                            t.starts_with("pub struct ")
-                                || t.starts_with("pub enum ")
-                                || t.starts_with("pub fn ")
-                                || t.starts_with("fn ")
-                                || t.starts_with("pub mod ")
-                                || t.starts_with("mod ")
-                                || t.starts_with("pub use ")
-                                || t.starts_with("impl ")
-                        })
-                        .map(|l| {
-                            let t = l.trim();
-                            let sig = if t.contains('{') {
-                                t.splitn(2, '{').next().unwrap_or(t).trim().to_string() + " { ... }"
-                            } else {
-                                t.to_string()
-                            };
-                            format!("  {}", sig)
-                        })
-                        .collect();
-                    if !skeleton.is_empty() {
-                        map.push_str(&format!("FILE: {}\n{}\n\n", rel, skeleton.join("\n")));
-                    }
-                }
-            }
-        }
-        if !map.is_empty() {
-            map.push_str("CRITICAL RULES (violations = build failure):\n");
-            map.push_str("- NEVER use write_file on existing files — use patch_file only\n");
-            map.push_str("- NEVER redefine functions already listed above\n");
-            map.push_str(
-                "- NEVER guess the crate name — use exactly what CRATE NAME shows above\n",
-            );
-        }
-        map
-    }
 
-    // v6.6: Auto-Context Injection — يقرأ كل ملفات الـ workspace الموجودة
-    fn build_workspace_context(&self) -> String {
-        let ws = &self.executor.workspace;
-        let mut ctx = String::new();
 
-        // الامتدادات المدعومة
-        let supported = ["ts", "js", "py", "go", "rs", "toml", "json", "mod"];
 
-        // اقرأ كل الملفات بشكل recursive (حد 50 ملف، حد 300 سطر لكل ملف)
-        let mut files: Vec<std::path::PathBuf> = walkdir::WalkDir::new(ws)
-            .max_depth(4)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .map(|e| e.path().to_path_buf())
-            .filter(|p| p.is_file())
-            .filter(|p| {
-                let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
-                supported.contains(&ext)
-            })
-            .filter(|p| {
-                // تجاهل node_modules, venv, dist, target
-                let s = p.to_string_lossy();
-                !s.contains("node_modules")
-                    && !s.contains("/venv/")
-                    && !s.contains("/dist/")
-                    && !s.contains("/target/")
-                    && !s.contains("/.")
-                    && !s.contains("package-lock")
-            })
-            .take(50)
-            .collect();
-        files.sort();
-
-        if files.is_empty() {
-            return String::new();
-        }
-
-        ctx.push_str("=== EXISTING WORKSPACE FILES (read carefully before planning) ===\n");
-        ctx.push_str("CRITICAL: Use patch_file (NOT write_file) for ALL files listed below.\n\n");
-
-        // سقف صارم: 4000 token إجمالي للـ context (حوالي 16000 حرف)
-        const MAX_CONTEXT_CHARS: usize = 16_000;
-        let mut total_chars = 0usize;
-
-        for path in &files {
-            if total_chars >= MAX_CONTEXT_CHARS {
-                ctx.push_str("... (remaining files omitted — context limit reached)\n");
-                break;
-            }
-            let rel = path.strip_prefix(ws).unwrap_or(path).to_string_lossy();
-            if let Ok(src) = std::fs::read_to_string(path) {
-                let lines: Vec<&str> = src.lines().collect();
-                // حد 60 سطر لكل ملف بدل 300
-                let max_lines = 60usize;
-                let preview: Vec<&str> = lines.iter().take(max_lines).cloned().collect();
-                let file_content = format!(
-                    "--- FILE: {} ({} lines) ---\n{}\n{}\n",
-                    rel,
-                    lines.len(),
-                    preview.join("\n"),
-                    if lines.len() > max_lines {
-                        format!("... ({} more lines)", lines.len() - max_lines)
-                    } else {
-                        String::new()
-                    }
-                );
-                // لا تضف إذا سيتجاوز الحد
-                if total_chars + file_content.len() > MAX_CONTEXT_CHARS {
-                    ctx.push_str(&format!(
-                        "--- FILE: {} (skipped — context limit) ---\n\n",
-                        rel
-                    ));
-                    break;
-                }
-                total_chars += file_content.len();
-                ctx.push_str(&file_content);
-            }
-        }
-
-        ctx.push_str("=== END OF EXISTING FILES ===\n\n");
-        ctx
-    }
-
-    fn build_ref_context(&self) -> String {
-        if let Some(ref ref_path) = self.context_config.ref_file {
-            crate::context::read_ref_file(ref_path)
-                .map(|s| format!("\nREFERENCE FILE (use exact signatures):\n{}\n", s))
-                .unwrap_or_default()
-        } else {
-            String::new()
-        }
-    }
-
-    fn validate_patch_uniqueness(&self, plan: &[Cmd]) -> Vec<String> {
-        let mut issues = Vec::new();
-        for cmd in plan {
-            if let Cmd::PatchFile { path, search, .. } = cmd {
-                let full_path = self.executor.workspace.join(path);
-                if !full_path.exists() {
-                    continue;
-                }
-                let content = match std::fs::read_to_string(&full_path) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        issues.push(format!("Could not read '{}': {}", path, e));
-                        continue;
-                    }
-                };
-                let count = content.matches(search.as_str()).count();
-                if count == 0 {
-                    issues.push(format!(
-                        "search block not found in '{}' — copy text VERBATIM from the file",
-                        path
-                    ));
-                } else if count > 1 {
-                    issues.push(format!(
-                        "search block found {} times in '{}' — add more surrounding context lines",
-                        count, path
-                    ));
-                }
-            }
-        }
-        issues
-    }
 
     fn validate_plan_with_oracle(&self, plan: &[Cmd]) -> Vec<String> {
         let mut issues = Vec::new();
+        let mut has_test = false;
+
         for cmd in plan {
+            if cmd.is_run_tests() {
+                has_test = true;
+            }
             if let Err(e) = self.executor.oracle.validate_plan_cmd(cmd) {
                 issues.push(e);
             }
         }
+
+        if !has_test {
+            issues.push("PLAN ERROR: Every plan MUST include at least one run_tests command to verify the changes.".to_string());
+        }
+
         issues
     }
 
@@ -492,20 +298,21 @@ impl Agent {
              Provide corrected execution plan.",
             issues.join("\n")
         );
+        let ws = &self.executor.workspace;
         let existing_files = if self.context_config.ref_file.is_some() {
-            self.build_skeleton_context()
+            crate::decision::build_skeleton_context(ws)
         } else {
             String::new()
         };
-        let ref_context = self.build_ref_context();
-        let lang_hint = self.build_lang_hint();
+        let ref_context = crate::decision::build_ref_context(&self.context_config);
+        let lang_hint = crate::decision::build_lang_hint(ws);
         let prompt = crate::constitution::CONSTITUTION.to_string() + &format!(
             "{}{}{}\nGoal: {}\n\nFEEDBACK:\n{}",
             existing_files, ref_context, lang_hint, self.goal, feedback
         );
         match self.plan_with_resilience(prompt).await {
             Ok(new_plan) => {
-                let new_issues = self.validate_patch_uniqueness(&new_plan);
+                let new_issues = crate::decision::validate_patch_uniqueness(&self.executor.workspace, &new_plan);
                 if new_issues.is_empty() {
                     println!("   ✅ v5.6 Replan successful — all patches unique");
                     Ok(new_plan)
@@ -520,6 +327,9 @@ impl Agent {
 
     pub async fn run(&mut self) -> Result<()> {
         self.ctx.start_time = Some(std::time::Instant::now());
+        // v7.4.1: Take initial snapshot to allow final rollback on complete failure
+        self.initial_snapshot = Some(crate::snapshot::Snapshot::take(&self.executor.workspace));
+
         self.send_event("start", None, None, None, None);
         // v5.8.1: امسح الـ cache في بداية كل run — كل جلسة تبدأ نظيفة
         let ws = self.executor.workspace.clone();
@@ -550,8 +360,8 @@ impl Agent {
             match self.state.clone() {
                 // ─── Planning ─────────────────────────────────
                 AgentState::Planning => {
-                    // Goal Validator v1.2 — يرفض الـ goal الغامض صامتاً
-                    if let Some(reason) = Self::validate_goal(&self.goal) {
+                    // Goal Validator v1.2 — delegated to decision module
+                    if let Some(reason) = crate::decision::validate_goal(&self.goal) {
                         println!("\n❌ Invalid goal: {}", reason);
                         println!("SEL_FAILED: {}", reason);
                         self.state = AgentState::Failed(reason.to_string());
@@ -587,22 +397,20 @@ impl Agent {
                     });
                     let env_context = ecm.to_planning_context();
                     let constraints = ecm.derive_constraints();
-                    // v5.6: استخدام helpers المستخرجة
-                    let lang_hint = self.build_lang_hint();
-                    // v5.6: استخدام build_skeleton_context helper
+                    // v5.6: delegated to decision module
+                    let ws = &self.executor.workspace;
+                    let lang_hint = crate::decision::build_lang_hint(ws);
                     // v6.6: Auto-Context Injection
-                    // استخدم workspace context إذا كانت هناك ملفات موجودة
-                    let ws_ctx = self.build_workspace_context();
+                    let ws_ctx = crate::decision::build_workspace_context(ws);
                     let existing_files = if !ws_ctx.is_empty() {
                         ws_ctx
                     } else if self.context_config.ref_file.is_some() {
-                        self.build_skeleton_context()
+                        crate::decision::build_skeleton_context(ws)
                     } else {
                         String::new()
                     };
 
-                    // v5.6: استخدام build_ref_context helper
-                    let ref_context = self.build_ref_context();
+                    let ref_context = crate::decision::build_ref_context(&self.context_config);
 
                     let prompt = crate::constitution::CONSTITUTION.to_string() + &format!(
                         "{}{}{}\n{}\n{}\nGoal: {}\nProvide the complete execution plan.",
@@ -611,12 +419,30 @@ impl Agent {
                     // Protocol Resilience v1.3
                     match self.plan_with_resilience(prompt).await {
                         Ok(commands) => {
+                            // v7.4: Constraint Engine — filter invalid commands
+                            let commands_count = commands.len();
+                            let env = crate::constraint_engine::ProjectEnv::detect(&self.executor.workspace);
+                            let state = crate::constraint_engine::ProjectState::scan(&self.executor.workspace);
+                            let commands = match crate::constraint_engine::apply(commands, &env, &state) {
+                                crate::constraint_engine::ConstraintResult::Ok(filtered) => {
+                                    if filtered.len() < commands_count {
+                                        println!("   🛡️ Constraint Engine: filtered {} commands",
+                                            commands_count - filtered.len());
+                                    }
+                                    filtered
+                                }
+                                crate::constraint_engine::ConstraintResult::Fatal(reason) => {
+                                    println!("   ⛔ Constraint Engine: {}", reason);
+                                    self.state = AgentState::Failed(reason);
+                                    continue;
+                                }
+                            };
                             println!("   ✓ {} commands", commands.len());
                             // 🛡️ Pre-Execution Oracle Validation
                             let mut issues = self.validate_plan_with_oracle(&commands);
                             
-                            // v5.6: Unique Patch Enforcer
-                            let patch_issues = self.validate_patch_uniqueness(&commands);
+                            // v5.6: Unique Patch Enforcer — delegated to decision module
+                            let patch_issues = crate::decision::validate_patch_uniqueness(&self.executor.workspace, &commands);
                             issues.extend(patch_issues);
 
                             if !issues.is_empty() {
@@ -652,6 +478,8 @@ impl Agent {
                 // تجمع الأخطاء — لا تتوقف عند أول فشل
                 AgentState::Executing => {
                     self.ctx.reset_for_repair();
+                    // v7.4: Snapshot — save workspace state before execution
+                    let mut snapshot = crate::snapshot::Snapshot::take(&self.executor.workspace);
                     let plan = self.plan.clone();
                     let total = plan.len();
 
@@ -694,74 +522,10 @@ impl Agent {
                                     "Goal complete"
                                 };
                                 // ─── Mutation Check v1.3 ───
-                                let impl_source = self.plan.iter().find_map(|c| match c {
-                                    crate::protocol::Cmd::WriteFile { path, .. }
-                                        if (path.ends_with(".py")
-                                            || path.ends_with(".go")
-                                            || path.ends_with(".js")
-                                            || path.ends_with(".ts")
-                                            || path.ends_with(".rs"))
-                                            && !path.contains("test")
-                                            && !path.contains("Cargo.toml")
-                                            && !path.contains("go.mod")
-                                            && !path.contains("package.json")
-                                            && !path.contains("jest.config")
-                                            && !path.contains("tsconfig") =>
-                                    {
-                                        Some(path.clone())
-                                    }
-                                    _ => None,
-                                });
-                                let mut mutation_passed = true;
-                                if !self.ctx.skip_mutation {
-                                if let Some(src) = impl_source {
-                                    use crate::executor::MutationResult;
-                                    println!("\n🧬 Mutation check on {}...", src);
-                                    match self.executor.mutation_check(&src).await {
-                                        MutationResult::Weak(orig_line, mutd_line) => {
-                                            self.ctx.mutations_total += 1;
-                                            println!("   ⚠️  Tests are WEAK — triggering repair (Mutation Enforcement v1.3).");
-                                            println!(
-                                                "     Survived mutation: [{}] → [{}]",
-                                                orig_line, mutd_line
-                                            );
-                                            mutation_passed = false;
-                                            self.ctx.failed_steps.push(crate::types::FailedStep {
-                                                step_index:   0,
-                                                label:        "mutation_check".into(),
-                                                stderr:       format!(
-                                                    "WEAK TESTS: Tests passed on mutated code in '{}'.
-                                                     SURVIVED MUTATION DIFF:
-                                                     - Original : {}
-                                                     + Mutated  : {}
-                                                     The tests did NOT catch this change.
-                                                     Add assertions that distinguish these two behaviors.",
-                                                    src, orig_line, mutd_line
-                                                ),
-                                                exit_code:    -3,
-                                                culprit_file: Some(src.clone()),
-                                            });
-                                        }
-                                        MutationResult::Strong => {
-                                            println!("   ✅ Tests are solid.");
-                                            self.send_event(
-                                                "mutation",
-                                                None,
-                                                None,
-                                                None,
-                                                Some(1.0),
-                                            );
-                                            self.ctx.mutations_total += 1;
-                                            self.ctx.mutations_killed += 1;
-                                        }
-                                        MutationResult::Skipped => {
-                                            println!("   ⏭  Mutation check skipped.")
-                                        }
-                                    }
-                                }
-                                } // end skip_mutation guard
-                                // ─────────────────────────────
-                                if mutation_passed {
+                                if let Some(fail) = self.run_mutation_check().await {
+                                    self.ctx.failed_steps.push(fail);
+                                    self.state = AgentState::Repairing;
+                                } else {
                                     self.ctx.save_hashes(&self.executor.workspace);
                                     println!(
                                         "\n✅ {}",
@@ -780,9 +544,8 @@ impl Agent {
                                         Some(self.mutation_score()),
                                     );
                                     self.state = AgentState::Done;
-                                } else {
-                                    self.state = AgentState::Repairing;
                                 }
+                                // ─────────────────────────────
                             } else {
                                 println!("   ⛔ done rejected — tests must pass first");
                                 self.ctx.failed_steps.push(FailedStep {
@@ -857,66 +620,29 @@ impl Agent {
                     if matches!(self.state, AgentState::Executing) {
                         if self.ctx.tests_passed {
                             // ─── Mutation Check v1.3 ───
-                            let py_source = self.plan.iter().find_map(|c| match c {
-                                crate::protocol::Cmd::WriteFile { path, .. }
-                                    if path.ends_with(".py") && !path.contains("test") =>
-                                {
-                                    Some(path.clone())
-                                }
-                                _ => None,
-                            });
-                            if let Some(src) = py_source {
-                                use crate::executor::MutationResult;
-                                println!("\n🧬 Mutation check on {}...", src);
-                                match self.executor.mutation_check(&src).await {
-                                    MutationResult::Weak(orig_line, mutd_line) => {
-                                        println!("   ⚠️  Tests are WEAK — triggering repair (Mutation Enforcement v1.3).");
-                                        println!(
-                                            "     Survived mutation: [{}] → [{}]",
-                                            orig_line, mutd_line
-                                        );
-                                        self.ctx.failed_steps.push(crate::types::FailedStep {
-                                            step_index:   0,
-                                            label:        "mutation_check".into(),
-                                            stderr:       format!(
-                                                "WEAK TESTS: Tests passed on mutated code in '{}'.
-                                                 SURVIVED MUTATION DIFF:
-                                                 - Original : {}
-                                                 + Mutated  : {}
-                                                 The tests did NOT catch this change.
-                                                 Add assertions that distinguish these two behaviors.",
-                                                src, orig_line, mutd_line
-                                            ),
-                                            exit_code:    -3,
-                                            culprit_file: Some(src.clone()),
-                                        });
-                                        self.state = AgentState::Repairing;
-                                    }
-                                    MutationResult::Strong => {
-                                        self.ctx.mutations_total += 1;
-                                        self.ctx.mutations_killed += 1;
-                                        println!(" ✅ Tests are solid.");
-                                        self.ctx.save_hashes(&self.executor.workspace);
-                                        println!("\n✅ Goal complete! Tests passed.");
-                                        println!("SEL_SUCCESS");
-                                        self.state = AgentState::Done;
-                                    }
-                                    MutationResult::Skipped => {
-                                        println!(" ⏭  Skipped.");
-                                        self.ctx.save_hashes(&self.executor.workspace);
-                                        println!("\n✅ Goal complete! Tests passed.");
-                                        println!("SEL_SUCCESS");
-                                        self.state = AgentState::Done;
-                                    }
-                                }
+                            if let Some(fail) = self.run_mutation_check().await {
+                                self.ctx.failed_steps.push(fail);
+                                snapshot.rollback(); // v7.4: rollback on mutation failure
+                                self.state = AgentState::Repairing;
                             } else {
+                                snapshot.commit(); // v7.4: accept changes on success
                                 self.ctx.save_hashes(&self.executor.workspace);
                                 println!("\n✅ Goal complete! Tests passed.");
                                 println!("SEL_SUCCESS");
                                 self.state = AgentState::Done;
                             }
                         } else {
+                            // v7.4.1: Deferred Rollback — DO NOT rollback here.
+                            // Accept current changes so Repair phase can patch them.
+                            snapshot.commit(); 
                             self.state = AgentState::Repairing;
+                        }
+                    } else {
+                        // State changed during execution (e.g., to Done or Repairing)
+                        if matches!(self.state, AgentState::Done) {
+                            snapshot.commit();
+                        } else {
+                            snapshot.rollback();
                         }
                     }
                 }
@@ -1356,7 +1082,7 @@ impl Agent {
                     // v5.1: Reference File Support
                     let ref_file_context = if let Some(ref ref_path) = self.context_config.ref_file
                     {
-                        crate::context::read_ref_file(&ref_path)
+                        crate::context::read_ref_file(ref_path)
                             .map(|content| {
                                 format!(
                                     "\n\nREFERENCE FILE ({}):\n```\n{}\n```",
@@ -1378,6 +1104,24 @@ impl Agent {
                     // Protocol Resilience v1.3
                     match self.plan_with_resilience(prompt).await {
                         Ok(commands) => {
+                            // v7.4: Constraint Engine — filter repair commands too
+                            let commands_count = commands.len();
+                            let env = crate::constraint_engine::ProjectEnv::detect(&self.executor.workspace);
+                            let ce_state = crate::constraint_engine::ProjectState::scan(&self.executor.workspace);
+                            let commands = match crate::constraint_engine::apply(commands, &env, &ce_state) {
+                                crate::constraint_engine::ConstraintResult::Ok(filtered) => {
+                                    if filtered.len() < commands_count {
+                                        println!("   🛡️ Constraint Engine (repair): filtered {} commands",
+                                            commands_count - filtered.len());
+                                    }
+                                    filtered
+                                }
+                                crate::constraint_engine::ConstraintResult::Fatal(reason) => {
+                                    println!("   ⛔ Constraint Engine (repair): {}", reason);
+                                    self.state = AgentState::Failed(reason);
+                                    continue;
+                                }
+                            };
                             println!("   ✓ Repair plan: {} commands", commands.len());
                             self.plan = commands;
                             self.state = AgentState::Executing;
@@ -1455,11 +1199,17 @@ impl Agent {
                         -1.0
                     };
                     let _ = report_run(&self.goal, true, repairs as i64, elapsed, ms).await;
-                    return Err(anyhow::anyhow!("SEL_FAILED"));
+                    return Ok(());
                 }
                 AgentState::Failed(reason) => {
                     println!("\n❌ Agent failed: {}", reason);
                     println!("SEL_FAILED: {}", reason.lines().next().unwrap_or("unknown"));
+
+                    // v7.4.1: Final Rollback on failure
+                    if let Some(mut snap) = self.initial_snapshot.take() {
+                        snap.rollback();
+                    }
+
                     let repairs = self.ctx.repair_attempts as i64;
                     let elapsed = self
                         .ctx
