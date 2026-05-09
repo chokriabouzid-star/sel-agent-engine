@@ -60,7 +60,11 @@ const TSCONFIG_JSON: &str = r#"{
 }"#;
 
 // ─── نقطة الدخول ──────────────────────────────────────────
-pub async fn prepare(workspace: &Path, goal: &str) -> ScaffoldResult {
+pub async fn prepare(workspace: &Path, goal: &str, replay_mode: bool) -> ScaffoldResult {
+    if replay_mode {
+        return prepare_from_cache(workspace, goal).await;
+    }
+
     let parsed = goal_parser::parse(workspace, goal);
     let kind = parsed.kind.clone();
 
@@ -79,6 +83,185 @@ pub async fn prepare(workspace: &Path, goal: &str) -> ScaffoldResult {
             logic_hint: String::new(),
             files_created: vec![],
         },
+    }
+}
+
+pub fn get_cache_dir() -> std::path::PathBuf {
+    dirs::cache_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("~/.cache"))
+        .join("sel-agent/scaffold")
+}
+
+async fn prepare_from_cache(workspace: &Path, goal: &str) -> ScaffoldResult {
+    let cache_dir = get_cache_dir();
+    let parsed = goal_parser::parse(workspace, goal);
+
+    match &parsed.kind {
+        ProjectKind::TypeScript => {
+            let pkg_path = workspace.join("package.json");
+            let pkg_content = if pkg_path.exists() {
+                normalize_existing_package_json(&pkg_path)
+            } else {
+                PACKAGE_JSON_TS.to_string()
+            };
+            std::fs::write(&pkg_path, &pkg_content).ok();
+
+            let ts_path = workspace.join("tsconfig.json");
+            if !ts_path.exists() {
+                std::fs::write(&ts_path, TSCONFIG_JSON).ok();
+            }
+
+            let jest_cfg = workspace.join("jest.config.js");
+            let jest_cfg_ts = workspace.join("jest.config.ts");
+            std::fs::remove_file(jest_cfg).ok();
+            std::fs::remove_file(jest_cfg_ts).ok();
+
+            let cached_nm = cache_dir.join("node/node_modules");
+            if cached_nm.exists() {
+                let target = workspace.join("node_modules");
+                if !target.exists() {
+                    let _ = std::os::unix::fs::symlink(&cached_nm, &target);
+                    println!("   ⚡ Scaffold cache hit: node_modules symlinked");
+                }
+                let mut created = vec!["package.json".to_string(), "node_modules".to_string()];
+                if ts_path.exists() {
+                    created.push("tsconfig.json".to_string());
+                }
+                if !parsed.extra_deps.is_empty() {
+                    // v7.5.7: Offline Replay Check - only install if missing
+                    let mut missing_deps = vec![];
+                    for dep in &parsed.extra_deps {
+                        let pkg_name = if dep.starts_with('@') {
+                            dep.clone()
+                        } else {
+                            dep.split('@').next().unwrap_or(dep).to_string()
+                        };
+                        if !workspace.join("node_modules").join(&pkg_name).exists() {
+                            missing_deps.push(dep.clone());
+                        }
+                    }
+
+                    if !missing_deps.is_empty() {
+                        println!(
+                            "   📦 Cache hit: installing missing extra deps: {}",
+                            missing_deps.join(", ")
+                        );
+                        let mut args = vec!["install", "--no-save"];
+                        let extra_refs: Vec<&str> =
+                            missing_deps.iter().map(|s| s.as_str()).collect();
+                        args.extend(extra_refs);
+                        let _ = tokio::process::Command::new("npm")
+                            .args(&args)
+                            .current_dir(workspace)
+                            .output()
+                            .await;
+                    }
+                }
+                return ScaffoldResult {
+                    kind: ProjectKind::TypeScript,
+                    ready: true,
+                    logic_hint: build_ts_logic_hint(workspace),
+                    files_created: created,
+                };
+            }
+            let res = scaffold_typescript(workspace, &parsed.extra_deps).await;
+            if workspace.join("node_modules").exists() && res.ready {
+                std::fs::create_dir_all(cached_nm.parent().unwrap()).unwrap();
+                let _ = tokio::process::Command::new("rm")
+                    .args(["-rf", cached_nm.to_str().unwrap()])
+                    .output()
+                    .await;
+                let _ = tokio::process::Command::new("cp")
+                    .args(["-R", "node_modules", cached_nm.to_str().unwrap()])
+                    .current_dir(workspace)
+                    .output()
+                    .await;
+            }
+            res
+        }
+        ProjectKind::Python => {
+            let cached_venv = cache_dir.join("python/venv");
+            if cached_venv.exists() && cached_venv.join("bin/pytest").exists() {
+                let target = workspace.join("venv");
+                if !target.exists() {
+                    let _ = std::os::unix::fs::symlink(&cached_venv, &target);
+                    println!("   ⚡ Scaffold cache hit: venv symlinked");
+                }
+                if !parsed.extra_deps.is_empty() {
+                    // v7.5.7: Offline Replay Check - only install if missing
+                    let mut missing_deps = vec![];
+                    for dep in &parsed.extra_deps {
+                        let module_name = match dep.as_str() {
+                            "fastapi" => "fastapi",
+                            "uvicorn[standard]" => "uvicorn",
+                            "flask" => "flask",
+                            "httpx" => "httpx",
+                            "requests" => "requests",
+                            _ => dep.as_str(),
+                        };
+                        let out = tokio::process::Command::new("venv/bin/python3")
+                            .args(["-c", &format!("import {}", module_name)])
+                            .current_dir(workspace)
+                            .output()
+                            .await;
+
+                        if !out.map(|o| o.status.success()).unwrap_or(false) {
+                            missing_deps.push(dep.clone());
+                        }
+                    }
+
+                    if !missing_deps.is_empty() {
+                        println!(
+                            "   📦 Cache hit: installing missing extra deps: {}",
+                            missing_deps.join(", ")
+                        );
+                        let mut pip_args = vec!["install", "-q"];
+                        let extra_refs: Vec<&str> =
+                            missing_deps.iter().map(|s| s.as_str()).collect();
+                        pip_args.extend(extra_refs);
+                        let _ = tokio::process::Command::new("venv/bin/pip")
+                            .args(&pip_args)
+                            .current_dir(workspace)
+                            .output()
+                            .await;
+                    }
+                }
+                return ScaffoldResult {
+                    kind: ProjectKind::Python,
+                    ready: true,
+                    logic_hint: build_py_logic_hint(workspace),
+                    files_created: vec!["venv".to_string()],
+                };
+            }
+            let res = scaffold_python(workspace, &parsed.extra_deps).await;
+            if workspace.join("venv").exists() && res.ready {
+                std::fs::create_dir_all(cached_venv.parent().unwrap()).unwrap();
+                let _ = tokio::process::Command::new("rm")
+                    .args(["-rf", cached_venv.to_str().unwrap()])
+                    .output()
+                    .await;
+                let _ = tokio::process::Command::new("cp")
+                    .args(["-R", "venv", cached_venv.to_str().unwrap()])
+                    .current_dir(workspace)
+                    .output()
+                    .await;
+            }
+            res
+        }
+        _ => {
+            // For other types, or if Unknown, fallback to normal prepare
+            let kind = parsed.kind.clone();
+            match &kind {
+                ProjectKind::TypeScript => scaffold_typescript(workspace, &parsed.extra_deps).await,
+                ProjectKind::Python => scaffold_python(workspace, &parsed.extra_deps).await,
+                _ => ScaffoldResult {
+                    kind,
+                    ready: false,
+                    logic_hint: String::new(),
+                    files_created: vec![],
+                },
+            }
+        }
     }
 }
 
@@ -131,6 +314,11 @@ async fn scaffold_typescript(workspace: &Path, extra_deps: &[String]) -> Scaffol
         let mut npm_args: Vec<&str> = vec!["install", "--save-dev"];
         let ts_deps: Vec<&str> = TS_JEST_DEPS.split_whitespace().collect();
         npm_args.extend_from_slice(&ts_deps);
+
+        // v7.5.8: Pre-install common benchmark deps so the cache is fully offline-capable
+        let common_bench_deps = ["express", "@types/express", "supertest", "@types/supertest"];
+        npm_args.extend_from_slice(&common_bench_deps);
+
         let extra_refs: Vec<&str> = extra_deps.iter().map(|s| s.as_str()).collect();
         npm_args.extend_from_slice(&extra_refs);
         if !extra_deps.is_empty() {
@@ -149,7 +337,10 @@ async fn scaffold_typescript(workspace: &Path, extra_deps: &[String]) -> Scaffol
             }
             Ok(o) => {
                 let err = String::from_utf8_lossy(&o.stderr);
-                eprintln!("   ❌ TypeScript Scaffold FATAL: npm install failed with status {}", o.status);
+                eprintln!(
+                    "   ❌ TypeScript Scaffold FATAL: npm install failed with status {}",
+                    o.status
+                );
                 eprintln!("   💡 Details: {}", &err[..err.len().min(200)]);
                 return ScaffoldResult {
                     kind: ProjectKind::TypeScript,
@@ -200,13 +391,51 @@ async fn scaffold_python(workspace: &Path, extra_deps: &[String]) -> ScaffoldRes
             println!("   ✅ venv created");
             created.push("venv".to_string());
 
-            // 2) تثبيت pytest مباشرة بعد إنشاء venv
-            let _ = tokio::process::Command::new("venv/bin/pip")
-                .args(["install", "pytest==8.1.1", "pytest-cov==5.0.0", "-q"])
+            // 2) تثبيت pytest مباشرة بعد إنشاء venv (مع مكتبات البانش الشائعة لتجهيز الكاش الأوفلاين)
+            let pip_out = tokio::process::Command::new("venv/bin/pip")
+                .args([
+                    "install",
+                    "pytest==8.1.1",
+                    "pytest-cov==5.0.0",
+                    "flask",
+                    "fastapi",
+                    "uvicorn[standard]",
+                    "httpx",
+                    "requests",
+                    "-q",
+                ])
                 .current_dir(workspace)
                 .output()
                 .await;
-            println!("   ✅ pytest installed (pinned)");
+
+            match pip_out {
+                Ok(o) if o.status.success() => {
+                    println!("   ✅ pytest & common benchmark deps installed (pinned)");
+                }
+                Ok(o) => {
+                    let err = String::from_utf8_lossy(&o.stderr);
+                    eprintln!(
+                        "   ❌ Python Scaffold FATAL: pip install failed with status {}",
+                        o.status
+                    );
+                    eprintln!("   💡 Details: {}", &err[..err.len().min(200)]);
+                    return ScaffoldResult {
+                        kind: ProjectKind::Python,
+                        ready: false,
+                        logic_hint: format!("pip install failed: {}", err),
+                        files_created: created,
+                    };
+                }
+                Err(e) => {
+                    eprintln!("   ❌ Python Scaffold FATAL: pip install failed: {}", e);
+                    return ScaffoldResult {
+                        kind: ProjectKind::Python,
+                        ready: false,
+                        logic_hint: format!("pip install error: {}", e),
+                        files_created: created,
+                    };
+                }
+            }
 
             // تثبيت extra_deps من GoalParser
             if !extra_deps.is_empty() {
@@ -214,12 +443,12 @@ async fn scaffold_python(workspace: &Path, extra_deps: &[String]) -> ScaffoldRes
                 let mut pip_args = vec!["install", "-q"];
                 let extra_refs: Vec<&str> = extra_deps.iter().map(|s| s.as_str()).collect();
                 pip_args.extend_from_slice(&extra_refs);
-                let pip_out = tokio::process::Command::new("venv/bin/pip")
+                let pip_out2 = tokio::process::Command::new("venv/bin/pip")
                     .args(&pip_args)
                     .current_dir(workspace)
                     .output()
                     .await;
-                match pip_out {
+                match pip_out2 {
                     Ok(o) if o.status.success() => println!("   ✅ Extra deps installed"),
                     Ok(o) => println!(
                         "   ⚠️  Extra deps warning: {}",

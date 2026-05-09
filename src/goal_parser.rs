@@ -127,9 +127,12 @@ fn detect_sub_kind(kind: &ProjectKind, goal: &str) -> SubKind {
 
 fn detect_extra_deps(kind: &ProjectKind, sub_kind: &SubKind, goal: &str) -> Vec<String> {
     let g = goal.to_lowercase();
-    
-    // v7.4 Fix: Bypass extra_deps extraction for QuickFix tests
-    if g.contains("do not use pip_install") || g.contains("do not use pip install") || g.contains("strict rule") {
+
+    // v7.5 Fix: Bypass extra_deps extraction for QuickFix tests
+    if g.contains("do not use pip_install")
+        || g.contains("do not use pip install")
+        || g.contains("strict rule")
+    {
         return vec![];
     }
 

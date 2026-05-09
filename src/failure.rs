@@ -41,7 +41,11 @@ impl FailureKind {
             return Self::InfraError;
         }
         // Go errors
-        if s.contains("undefined:") || s.contains("cannot use") || s.contains("no required module") || s.contains("cannot find package") {
+        if s.contains("undefined:")
+            || s.contains("cannot use")
+            || s.contains("no required module")
+            || s.contains("cannot find package")
+        {
             return Self::TypeError;
         }
         if s.contains("syntax error:") && (s.contains(".go:") || s.contains("unexpected")) {
@@ -51,16 +55,28 @@ impl FailureKind {
             return Self::AssertionError;
         }
         // Rust errors
-        if s.contains("could not find `Cargo.toml`") || s.contains("error[E") || s.contains("error:") && s.contains("-->") {
-            if s.contains("E0308") || s.contains("mismatched types") { return Self::TypeError; }
+        if s.contains("could not find `Cargo.toml`")
+            || s.contains("error[E")
+            || s.contains("error:") && s.contains("-->")
+        {
+            if s.contains("E0308") || s.contains("mismatched types") {
+                return Self::TypeError;
+            }
             return Self::BuildError;
         }
         // Python errors
-        if s.contains("ModuleNotFoundError") || s.contains("ImportError") || s.contains("No module named") {
+        if s.contains("ModuleNotFoundError")
+            || s.contains("ImportError")
+            || s.contains("No module named")
+        {
             return Self::ImportError;
         }
         if s.contains("SyntaxError") || s.contains("was never closed") {
             return Self::SyntaxError;
+        }
+        // v7.5.1: NameError (standalone) — missing import or undefined name
+        if s.contains("NameError") && s.contains("is not defined") {
+            return Self::ImportError;
         }
         if s.contains("collected 0 items") || s.contains("Interrupted: 1 error during collection") {
             if s.contains("NameError") || s.contains("is not defined") {

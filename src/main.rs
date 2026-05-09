@@ -1,10 +1,13 @@
 #![allow(dead_code)]
-mod bench_realworld;
-mod failure;
-mod workspace_oracle;
+mod bench_cases;
 mod bench_compile;
-mod llm_engine;
-// src/main.rs — SEL Agent v7.4.0
+mod bench_realworld;
+mod bench_suite;
+mod failure;
+pub mod llm;
+mod trajectory_index;
+mod workspace_oracle;
+// src/main.rs — SEL Agent v7.9.5
 mod agent;
 mod chunker;
 mod constraint_engine;
@@ -14,15 +17,20 @@ mod evaluator;
 mod executor;
 mod goal_parser;
 
+mod constitution;
+mod decision;
+mod manifest;
 mod memory;
 mod protocol;
 mod scaffold_engine;
-mod manifest;
 mod snapshot;
+mod state_handlers;
 mod types;
-mod constitution;
-mod decision;
+pub mod cache;
+pub mod cost;
+pub mod diagnostic;
 
+use crate::llm::LLMProvider;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
@@ -31,7 +39,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 #[derive(Parser)]
-#[command(name = "sel-agent", version = "7.3.0")]
+#[command(name = "sel-agent", version = "7.9.5")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -52,6 +60,10 @@ enum Commands {
         ref_file: Option<PathBuf>,
         #[arg(long, value_delimiter = ',')]
         focus: Vec<String>,
+        #[arg(long)]
+        record: bool,
+        #[arg(long)]
+        replay: bool,
     },
     Health,
     Stress {
@@ -67,6 +79,12 @@ enum Commands {
         iterations: u8,
         #[arg(long, value_delimiter = ',')]
         focus: Vec<String>,
+        #[arg(long)]
+        record: bool,
+        #[arg(long)]
+        replay: bool,
+        #[arg(long, default_value = "false")]
+        quick: bool,
     },
     Scan {
         /// مسار المشروع
@@ -98,12 +116,20 @@ enum Commands {
         tier: Option<u8>,
         #[arg(long, default_value = "6")]
         max_repairs: u8,
+        #[arg(long)]
+        record: bool,
+        #[arg(long)]
+        replay: bool,
+    },
+    Quota {
+        #[arg(long)]
+        status: bool,
     },
 }
 
 async fn run_health(api_key: &str) -> Result<()> {
     println!("\n╔══════════════════════════════════════════╗");
-    println!("║   SEL Agent v7.3.0 — Health Check                   ║");
+    println!("║   SEL Agent v7.9.5 — Health Check                   ║");
     println!("╚══════════════════════════════════════════╝\n");
     // Provider info في الـ bench
     {
@@ -150,7 +176,9 @@ async fn run_health(api_key: &str) -> Result<()> {
             .or_else(|_| std::env::var("GEMINI_API_KEY"))
             .or_else(|_| std::env::var("GROQ_API_KEY"))
             .unwrap_or_default()
-    } else { api_key.to_string() };
+    } else {
+        api_key.to_string()
+    };
     let api_key = api_key_str.as_str();
     let key_preview = if api_key.len() > 8 {
         format!("{}...", &api_key[..8])
@@ -167,12 +195,19 @@ async fn run_health(api_key: &str) -> Result<()> {
     );
     pb.enable_steady_tick(Duration::from_millis(100));
 
-    let mut llm = llm_engine::LlmEngine::from_env();
+    let llm = llm::live::LiveProvider::from_env();
     let test_msg = types::Message::user("Reply with exactly: PONG".to_string());
-    match llm.call(&[test_msg]).await {
+    let req = llm::LLMRequest {
+        system: llm::SYSTEM_PROMPT.to_string(),
+        messages: vec![test_msg],
+        temperature: 0.0,
+        seed: Some(42),
+        model: "default".into(),
+    };
+    match llm.complete(req).await {
         Ok(resp) => {
             pb.finish_and_clear();
-            if !resp.is_empty() {
+            if !resp.content.is_empty() {
                 println!("🤖 Model:        {}", "✅ Responding".green());
             } else {
                 println!("🤖 Model:        {}", "⚠️  Empty response".yellow());
@@ -194,79 +229,45 @@ async fn run_health(api_key: &str) -> Result<()> {
     Ok(())
 }
 
-async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8, focus: &[String]) -> Result<()> {
-    let all_cases: &[(&str, &str, &str)] = &[
-        // Python
-        ("python", "broken import",    "Create Python file importing from math_utils import add. Create math_utils.py with add(a,b) function. Write pytest test. Run tests."),
-        ("python", "wrong assertion",  "Create Python function double(x) returning x*2. Write pytest test asserting double(3)==6. Run tests."),
-        ("python", "wrong signature",  "Create Python function greet(name) returning f'Hi {name}'. Write pytest test expecting greet('Alice')=='Hi Alice'. Run tests."),
-        ("python", "wrong logic",      "Create Python function is_even(n) returning n%2==0. Write pytest test for is_even(4)==True and is_even(3)==False. Run tests."),
-        ("python", "type mismatch",    "Create Python function add(a,b) returning a+b for integers. Write pytest test expecting add(2,3)==5. Run tests."),
-        ("python", "missing closing",  "Create Python function factorial(n) with base case n==0 returns 1. Write pytest test for factorial(5)==120. Run tests."),
-        ("python", "undefined func",   "Create Python module with helper() returning 42. Write pytest test asserting helper()==42. Run tests."),
-        ("python", "wrong logic 2",    "Create Python function max_of_three(a,b,c) returning max(a,b,c). Write pytest test. Run tests."),
-        ("python", "syntax error",     "Create Python function add(a,b) returning a+b with correct syntax. Write pytest test. Run tests."),
-        ("python", "wrong return",     "Create Python function reverse_string(s) returning s[::-1]. Write pytest test expecting reverse_string('hello')=='olleh'. Run tests."),
-        ("python", "missing function", "Create Python class Stack with push(item) and pop() methods. Write pytest test. Run tests."),
-        ("python", "runtime error",    "Create Python function divide(a,b) returning None if b==0 else a/b. Write pytest tests: test divide(10,2)==5.0 AND divide(10,0)==None (both branches required). Run tests."),
-        // Go
-        ("go", "go add",       "Create Go package main with Add(a,b int) int. Create go.mod with module gotest and go 1.21. Write _test.go testing Add(2,3)==5 and Add(-1,1)==0. Run go test."),
-        ("go", "go fizzbuzz",  "Create Go package main with FizzBuzz(n int) string returning Fizz/Buzz/FizzBuzz/number. Create go.mod module gotest go 1.21. Write _test.go with 4 test cases using only t.Errorf (no fmt import). Run go test."),
-        ("go", "go reverse",   "Create Go package main with Reverse(s string) string. Create go.mod module gotest go 1.21. Write _test.go using only t.Errorf (no fmt): test Reverse(\"hello\")=\"olleh\" and Reverse(\"\")=\"\". Run go test."),
-        ("go", "go divide",    "Create Go package main with Divide(a,b float64) (float64,error) returning error if b==0. Create go.mod module gotest go 1.21. Write _test.go testing normal and zero cases. Run go test."),
-        // Node
-        ("node", "node add",        "Create Node.js CommonJS module math.js exporting add(a,b). Create package.json with jest. Write math.test.js testing add(2,3)===5 and add(-1,1)===0. Run npm test."),
-        ("node", "node palindrome", "Create Node.js CommonJS module palindrome.js exporting isPalindrome(s). Create package.json with jest. Write test file testing racecar==true and hello==false. Run npm test."),
-        ("node", "node factorial",  "Create Node.js CommonJS module factorial.js exporting factorial(n) with base case 0==1. Create package.json with jest. Write test for factorial(5)==120 and factorial(0)==1. Run npm test."),
-        ("node", "node filter",     "Create Node.js CommonJS module filter.js exporting filterEven(arr) returning even numbers. Create package.json with jest. Write test with arrays including empty array case. Run npm test."),
-        // TypeScript
-        ("typescript", "ts add",        "Create TypeScript file math.ts exporting function add(a:number,b:number):number. Create package.json with jest and ts-jest. Create tsconfig.json. Write math.test.ts testing add(2,3)===5 and add(-1,1)===0. Run npm test."),
-        ("typescript", "ts palindrome", "Create TypeScript file palindrome.ts exporting function isPalindrome(s:string):boolean. Create package.json with jest and ts-jest. Create tsconfig.json. Write palindrome.test.ts testing racecar===true and hello===false. Run npm test."),
-        ("typescript", "ts factorial",  "Create TypeScript file factorial.ts exporting function factorial(n:number):number with base case 0 returns 1. Create package.json with jest and ts-jest. Create tsconfig.json. Write factorial.test.ts testing factorial(5)===120 and factorial(0)===1. Run npm test."),
-        ("typescript", "ts stack",      "Create TypeScript file stack.ts exporting class Stack<T> with push(item:T) pop():T|undefined and isEmpty():boolean. Create package.json with jest and ts-jest. Create tsconfig.json. Write stack.test.ts with push/pop/isEmpty tests. Run npm test."),
-        // Rust
-        ("rust", "rust add",     "Create Rust library crate. Write Cargo.toml with name=rustadd edition=2021. Write src/lib.rs with pub fn add(a:i32,b:i32)->i32. Write tests module inside lib.rs testing add(2,3)==5 and add(-1,1)==0. Run cargo test."),
-        ("rust", "rust fizzbuzz","Create Rust library crate. Write Cargo.toml name=rustfizz edition=2021. Write src/lib.rs with pub fn fizzbuzz(n:u32)->String returning Fizz Buzz FizzBuzz or number. Write tests module with 4 cases. Run cargo test."),
-        ("rust", "rust reverse", "Create Rust library crate. Write Cargo.toml name=rustreverse edition=2021. Write src/lib.rs with pub fn reverse(s:&str)->String. Write tests module testing hello->olleh and empty string. Run cargo test."),
-        ("rust", "rust stack",   "Create Rust library crate. Write Cargo.toml name=ruststack edition=2021. Write src/lib.rs with pub struct Stack and impl with push pop is_empty. Write tests module. Run cargo test."),
-        // Flask / FastAPI
-        ("python", "flask hello",   "Create Python Flask app in app.py with GET /hello route returning JSON {\"message\":\"hello world\"}. Create requirements.txt containing only: flask. Write test_app.py using Flask test client: assert response.status_code==200 and response.get_json()[\"message\"]==\"hello world\". Run pytest."),
-        ("python", "fastapi route", "Create Python FastAPI app in main.py with GET /hello route returning {\"message\":\"hello\"}. Create requirements.txt containing: fastapi httpx. Write test_main.py using TestClient from fastapi.testclient: assert response.status_code==200 and response.json()[\"message\"]==\"hello\". Run pytest."),
-        // Express multi-file
-        ("node", "express api",     "Create Node.js Express app in app.js exporting the express app with GET /ping route returning JSON {ok:true}. Create package.json with jest supertest express. Write app.test.js using supertest: assert status 200 and body.ok===true. Run npm test."),
-        // TypeScript Express
-        ("typescript", "ts express", "Create TypeScript Express app. Write app.ts exporting express app with GET /health route returning JSON {status:\"ok\"}. Create package.json with ts-jest jest typescript express @types/express supertest @types/supertest. Create tsconfig.json. Write app.test.ts using supertest: assert status 200 and body.status===\"ok\". Run npm test."),
-        // v7 Feature Checks
-        ("v7", "v7_quickfix",    "Create a Python script using the 'requests' library to fetch 'https://httpbin.org/get'. Write a pytest test asserting status_code is 200. Do NOT use pip_install in your execution commands, let the ModuleNotFoundError happen so we test the agent's QuickFix. Run pytest."),
-        ("v7", "v7_go_autofix",  "Create Go package main. Write func PrintMessage() that calls fmt.Println(\"Hello\"). STRICT RULE: You must NOT write `import \"fmt\"` anywhere in the file. Leave it missing! Write a test calling the function. Run go test."),
-        ("v7", "v7_rust_quotes", "Create Rust library crate with edition 2021. Write pub fn greet() -> &'static str returning 'Hello' (STRICT RULE: you MUST use single quotes around Hello). Write tests module asserting greet() returns it. Run cargo test."),
-        ("v7", "v7_unicode",     "Create a Python function that uses a variable named \u{2018}msg\u{2019} and returns \u{201C}smart quotes\u{201C}. Write a pytest test checking its value. Run tests (the agent's sanitize_code should fix these Unicode bounds)."),
-    ];
-
-    let cases: Vec<_> = all_cases
-        .iter()
-        .filter(|(lang, name, _)| {
-            let suite_match = suite == "all" || *lang == suite;
-            let focus_match = focus.is_empty() || focus.contains(&name.to_string());
-            suite_match && focus_match
-        })
+async fn run_bench(
+    api_key: &str,
+    suite: &str,
+    max_repairs: u8,
+    iterations: u8,
+    focus: &[String],
+    record: bool,
+    replay: bool,
+) -> Result<Vec<String>> {
+    let cases = crate::bench_cases::suite_cases(suite);
+    let cases: Vec<_> = cases
+        .into_iter()
+        .filter(|c| focus.is_empty() || focus.contains(&c.name.to_string()))
         .collect();
 
     // v5.7: integration suite له دالة منفصلة
     // v7.1: compile suite
     if suite == "compile" {
-        return run_compile_bench(max_repairs).await;
+        run_compile_bench(max_repairs).await?;
+        return Ok(Vec::new());
     }
     if suite == "integration" {
-        return run_integration_bench("", max_repairs).await;
+        run_integration_bench("", max_repairs).await?;
+        return Ok(Vec::new());
     }
 
     if cases.is_empty() {
-        println!(
-            "❌ Unknown suite '{}'. Use: python, go, node, rust, typescript, integration, all",
-            suite
-        );
-        return Ok(());
+        if !focus.is_empty() {
+            println!(
+                "❌ No cases matched the focus filter '{:?}' in suite '{}'.",
+                focus, suite
+            );
+        } else {
+            println!(
+                "❌ Unknown suite '{}'. Use: python, go, node, rust, typescript, integration, all",
+                suite
+            );
+        }
+        return Ok(Vec::new());
     }
 
     println!("\n╔══════════════════════════════════════════╗");
@@ -279,7 +280,9 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8, 
     let mut total_repairs = 0usize;
     let mut mutation_killed = 0u32;
     let mut mutation_total = 0u32;
+    let mut failed_cases = Vec::new();
     let tmpdir = std::env::temp_dir();
+    let bench_start_time = std::time::Instant::now();
 
     for iter in 0..iterations {
         if iterations > 1 {
@@ -289,29 +292,64 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8, 
                 iterations
             );
         }
-        for (i, (_lang, name, goal)) in cases.iter().enumerate() {
+        for (i, case) in cases.iter().enumerate() {
+            let name = &case.name;
+            let goal = &case.goal;
             let workspace = tmpdir.join(format!("sel-bench-{}-{}", iter, i));
             let _ = std::fs::remove_dir_all(&workspace);
             std::fs::create_dir_all(&workspace).ok();
+            
+            let completed = iter as usize * total + i;
+            let eta_str = if completed > 0 {
+                let elapsed = bench_start_time.elapsed().as_secs_f32();
+                let avg_secs = elapsed / completed as f32;
+                let remaining = total_runs - completed;
+                let eta = avg_secs * remaining as f32;
+                format!("(avg: {:.1}s, ETA: ~{:.0}s)", avg_secs, eta)
+            } else {
+                "(ETA: calc...)".to_string()
+            };
+
             let pb = ProgressBar::new_spinner();
             pb.set_style(
                 ProgressStyle::default_spinner()
                     .template(&format!(
-                        "{{spinner:.cyan}} 🔬 [{}/{}] {}...",
-                        iter + 1,
-                        iterations,
-                        name
+                        "{{spinner:.cyan}} 🔬 [{:02}/{:02}] {}... {}",
+                        completed + 1,
+                        total_runs,
+                        name,
+                        eta_str
                     ))
                     .unwrap(),
             );
             pb.enable_steady_tick(Duration::from_millis(80));
 
-            let mut agent = crate::agent::Agent::new(
+            let base_llm = Box::new(crate::llm::live::LiveProvider::from_env());
+            // v7.9.5: Unified trajectory path — always use fixtures/trajectories/
+            let traj_base = std::env::current_dir()
+                .unwrap_or_default()
+                .join("fixtures")
+                .join("trajectories");
+            let llm: Box<dyn crate::llm::LLMProvider> = if replay {
+                let replay_dir = traj_base.join(name.replace(" ", "_"));
+                Box::new(crate::llm::replay::ReplayProvider::new(replay_dir))
+            } else if record {
+                let record_dir = traj_base.join(name.replace(" ", "_"));
+                Box::new(crate::llm::record::RecorderProvider::new(
+                    base_llm, record_dir,
+                ))
+            } else {
+                base_llm
+            };
+
+            let mut agent = crate::agent::Agent::new_with_model(
                 api_key.to_string(),
+                "default".to_string(),
                 workspace.clone(),
                 goal.to_string(),
                 max_repairs,
                 types::ContextConfig::default(),
+                llm,
             );
             let ok = agent.run().await.is_ok();
             pb.finish_and_clear();
@@ -338,6 +376,8 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8, 
             );
             if ok {
                 passed += 1;
+            } else {
+                failed_cases.push(name.clone());
             }
         }
     }
@@ -383,7 +423,7 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8, 
     // POST to Observatory
     let model =
         std::env::var("SEL_MODEL").unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string());
-    let version = std::env::var("SEL_VERSION").unwrap_or_else(|_| "v1.9".to_string());
+    let version = std::env::var("SEL_VERSION").unwrap_or_else(|_| "v7.9.5".to_string());
     let body = serde_json::json!({
         "version": version,
         "suite": suite,
@@ -403,50 +443,24 @@ async fn run_bench(api_key: &str, suite: &str, max_repairs: u8, iterations: u8, 
         .send()
         .await;
 
-    Ok(())
+    Ok(failed_cases)
 }
 
 async fn run_stress(api_key: &str, max_repairs: u8) -> Result<()> {
     println!("\n╔══════════════════════════════════════════╗");
-    println!("║   SEL Agent v7.3.0 — Stress Test                     ║");
+    println!("║   SEL Agent v7.6.0 — Stress Test                     ║");
     println!("╚══════════════════════════════════════════╝\n");
 
-    let cases: &[(&str, &str)] = &[
-        ("broken import",    "Create Python file importing from math_utils import add. Create math_utils.py with add(a,b) function. Write pytest test. Run tests."),
-        ("wrong assertion",  "Create Python function double(x) returning x*2. Write pytest test asserting double(3)==6. Run tests."),
-        ("wrong signature",  "Create Python function greet(name) returning f'Hi {name}'. Write pytest test expecting greet('Alice')=='Hi Alice'. Run tests."),
-        ("wrong logic",      "Create Python function is_even(n) returning n%2==0. Write pytest test for is_even(4)==True and is_even(3)==False. Run tests."),
-        ("type mismatch",    "Create Python function add(a,b) returning a+b for integers. Write pytest test expecting add(2,3)==5. Run tests."),
-        ("missing closing",  "Create Python function factorial(n) with base case n==0 returns 1. Write pytest test for factorial(5)==120. Run tests."),
-        ("undefined func",   "Create Python module with helper() returning 42. Write pytest test asserting helper()==42. Run tests."),
-        ("wrong logic 2",    "Create Python function max_of_three(a,b,c) returning max(a,b,c). Write pytest test. Run tests."),
-        ("syntax error",     "Create Python function add(a,b) returning a+b with correct syntax. Write pytest test. Run tests."),
-        ("wrong return",     "Create Python function reverse_string(s) returning s[::-1]. Write pytest test expecting reverse_string('hello')=='olleh'. Run tests."),
-        ("missing function", "Create Python class Stack with push(item) and pop() methods. Write pytest test. Run tests."),
-        ("runtime error",    "Create Python function divide(a,b) returning None if b==0 else a/b. Write pytest tests: test divide(10,2)==5.0 AND divide(10,0)==None (both branches required). Run tests."),
-        // Go cases
-        ("go add",           "Create Go package main with Add(a,b int) int. Create go.mod with module gotest and go 1.21. Write _test.go testing Add(2,3)==5 and Add(-1,1)==0. Run go test."),
-        ("go fizzbuzz",      "Create Go package main with FizzBuzz(n int) string returning Fizz/Buzz/FizzBuzz/number. Create go.mod module gotest go 1.21. Write _test.go with 4 test cases using only t.Errorf (no fmt import). Run go test."),
-        ("go reverse",       "Create Go package main with Reverse(s string) string. Create go.mod module gotest go 1.21. Write _test.go using only t.Errorf (no fmt): test Reverse(\"hello\")=\"olleh\" and Reverse(\"\")=\"\". Run go test."),
-        ("go divide",        "Create Go package main with Divide(a,b float64) (float64,error) returning error if b==0. Create go.mod module gotest go 1.21. Write _test.go testing normal and zero cases. Run go test."),
-        // Node cases
-        ("node add",         "Create Node.js CommonJS module math.js exporting add(a,b). Create package.json with jest. Write math.test.js testing add(2,3)===5 and add(-1,1)===0. Run npm test."),
-        ("node palindrome",  "Create Node.js CommonJS module palindrome.js exporting isPalindrome(s). Create package.json with jest. Write test file testing racecar==true and hello==false. Run npm test."),
-        ("node factorial",   "Create Node.js CommonJS module factorial.js exporting factorial(n) with base case 0==1. Create package.json with jest. Write test for factorial(5)==120 and factorial(0)==1. Run npm test."),
-        ("node filter",      "Create Node.js CommonJS module filter.js exporting filterEven(arr) returning even numbers. Create package.json with jest. Write test with arrays including empty array case. Run npm test."),
-        // Rust cases
-        ("rust add",         "Create Rust library crate. Write Cargo.toml with name=rustadd edition=2021. Write src/lib.rs with pub fn add(a:i32,b:i32)->i32. Write tests module inside lib.rs testing add(2,3)==5 and add(-1,1)==0. Run cargo test."),
-        ("rust fizzbuzz",    "Create Rust library crate. Write Cargo.toml name=rustfizz edition=2021. Write src/lib.rs with pub fn fizzbuzz(n:u32)->String returning Fizz Buzz FizzBuzz or number. Write tests module with 4 cases. Run cargo test."),
-        ("rust reverse",     "Create Rust library crate. Write Cargo.toml name=rustreverse edition=2021. Write src/lib.rs with pub fn reverse(s:&str)->String. Write tests module testing hello->olleh and empty string. Run cargo test."),
-        ("rust stack",       "Create Rust library crate. Write Cargo.toml name=ruststack edition=2021. Write src/lib.rs with pub struct Stack and impl with push pop is_empty. Write tests module. Run cargo test."),
-    ];
+    let cases = crate::bench_cases::suite_cases("all");
 
     let total = cases.len();
     let mut passed = 0usize;
     let mut total_repairs = 0usize;
     let tmpdir = std::env::temp_dir();
 
-    for (i, (name, goal)) in cases.iter().enumerate() {
+    for (i, case) in cases.iter().enumerate() {
+        let name = &case.name;
+        let goal = &case.goal;
         let workspace = tmpdir.join(format!("sel-stress-{}", i));
         let _ = std::fs::remove_dir_all(&workspace);
 
@@ -673,7 +687,7 @@ async fn run_integration_bench(api_key: &str, max_repairs: u8) -> Result<()> {
 
 async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<()> {
     println!("\n╔══════════════════════════════════════════╗");
-    println!("║   SEL Agent v7.3.0 — Model Comparison       ║");
+    println!("║   SEL Agent v7.6.0 — Model Comparison       ║");
     println!("╚══════════════════════════════════════════╝\n");
     println!("   Models:  {:?}", models);
     println!("   Suite:   {}", suite);
@@ -694,19 +708,7 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
         timeouts: u32,
     }
 
-    let all_cases: &[(&str, &str, &str)] = &[
-        ("python", "broken import",   "Create Python file importing from math_utils import add. Create math_utils.py with add(a,b) function. Write pytest test. Run tests."),
-        ("python", "wrong logic",     "Create Python function is_even(n) returning n%2==0. Write pytest test for is_even(4)==True and is_even(3)==False. Run tests."),
-        ("python", "wrong return",    "Create Python function reverse_string(s) returning s[::-1]. Write pytest test expecting reverse_string('hello')=='olleh'. Run tests."),
-        ("rust",   "rust add",        "Create Rust library crate. Write Cargo.toml with name=rustadd edition=2021. Write src/lib.rs with pub fn add(a:i32,b:i32)->i32. Write tests module inside lib.rs testing add(2,3)==5 and add(-1,1)==0. Run cargo test."),
-        ("go",     "go add",          "Create Go package main with Add(a,b int) int. Create go.mod with module gotest and go 1.21. Write _test.go testing Add(2,3)==5 and Add(-1,1)==0. Run go test."),
-        ("node",   "node add",        "Create Node.js CommonJS module math.js exporting add(a,b). Create package.json with jest. Write math.test.js testing add(2,3)===5 and add(-1,1)===0. Run npm test."),
-    ];
-
-    let cases: Vec<_> = all_cases
-        .iter()
-        .filter(|(lang, _, _)| suite == "all" || *lang == suite)
-        .collect();
+    let cases = crate::bench_cases::suite_cases(suite);
 
     if cases.is_empty() {
         println!(
@@ -725,7 +727,7 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
             model_alias
         );
 
-        let model_cfg = crate::llm_engine::ModelConfig::from_alias(model_alias);
+        let model_cfg = crate::llm::ModelConfig::from_alias(model_alias);
         let api_key = std::env::var(&model_cfg.env_key).unwrap_or_else(|_| {
             println!(
                 "   ⚠ {} غير موجود — تخطي النموذج {}",
@@ -749,7 +751,9 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
         let total = cases.len();
         let start = std::time::Instant::now();
 
-        for (i, (_lang, name, goal)) in cases.iter().enumerate() {
+        for (i, case) in cases.iter().enumerate() {
+            let name = &case.name;
+            let goal = &case.goal;
             let workspace = tmpdir.join(format!("sel-cmp-{}-{}", model_alias, i));
             let _ = std::fs::remove_dir_all(&workspace);
             std::fs::create_dir_all(&workspace).expect("failed to create workspace");
@@ -767,6 +771,12 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
             );
             pb.enable_steady_tick(Duration::from_millis(80));
 
+            let cfg = crate::llm::ModelConfig::from_alias(&model_alias);
+            let llm = Box::new(crate::llm::live::LiveProvider::from_config(
+                cfg,
+                api_key.clone(),
+            ));
+
             let mut agent = crate::agent::Agent::new_with_model(
                 api_key.clone(),
                 model_alias.clone(),
@@ -774,6 +784,7 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
                 goal.to_string(),
                 max_repairs,
                 types::ContextConfig::default(),
+                llm,
             );
             let run_result = agent.run().await;
             let ok = run_result.is_ok();
@@ -886,7 +897,8 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
     Ok(())
 }
 
-async fn run_plan(api_key: &str,
+async fn run_plan(
+    api_key: &str,
     workspace: &std::path::Path,
     plan_file: &std::path::Path,
     max_repairs: u8,
@@ -1006,15 +1018,22 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Health => {
-            run_health(&crate::llm_engine::LlmEngine::from_env().primary_name()).await?;
+            run_health(&crate::llm::live::LiveProvider::from_env().primary_name()).await?;
         }
         Commands::Bench {
             suite,
             max_repairs,
             iterations,
             focus,
+            record,
+            replay,
+            quick,
         } => {
-            run_bench("", &suite, max_repairs, iterations, &focus).await?;
+            if quick {
+                run_quick_bench("", &suite, max_repairs, iterations, &focus).await?;
+            } else {
+                run_bench("", &suite, max_repairs, iterations, &focus, record, replay).await?;
+            }
         }
         Commands::Stress { max_repairs } => {
             run_stress("", max_repairs).await?;
@@ -1036,8 +1055,20 @@ async fn main() -> Result<()> {
         } => {
             run_plan("", &workspace, &plan, max_repairs).await?;
         }
-        Commands::BenchRealWorld { tier, max_repairs } => {
-            crate::bench_realworld::run_bench_realworld("", tier, max_repairs).await?;
+        Commands::BenchRealWorld {
+            tier,
+            max_repairs,
+            record,
+            replay,
+        } => {
+            crate::bench_realworld::run_bench_realworld("", tier, max_repairs, record, replay)
+                .await?;
+        }
+        Commands::Quota { status } => {
+            if status {
+                let mgr = crate::llm::quota::QuotaManager::load();
+                crate::llm::quota::print_quota_status(&mgr);
+            }
         }
         Commands::Run {
             workspace,
@@ -1046,14 +1077,16 @@ async fn main() -> Result<()> {
             dry_run,
             ref_file,
             focus,
+            record,
+            replay,
         } => {
             println!("\n╔══════════════════════════════════════════╗");
-            println!("║   SEL Agent v7.3.0 — State Machine Engine   ║");
+            println!("║   SEL Agent v7.9.5 — State Machine Engine   ║");
             println!("╚══════════════════════════════════════════╝");
             println!("\n📋 Goal: \"{}\"", goal);
             // Provider info
             {
-                let engine = crate::llm_engine::LlmEngine::from_env();
+                let engine = crate::llm::live::LiveProvider::from_env();
                 engine.print_info();
             }
             println!("   Workspace:   {}", workspace.display());
@@ -1067,10 +1100,17 @@ async fn main() -> Result<()> {
 
             if dry_run {
                 println!("   Mode:         🔍 DRY RUN\n");
-                let mut llm = llm_engine::LlmEngine::from_env();
+                let llm = llm::live::LiveProvider::from_env();
                 let prompt = format!("Goal: {}\n\nProvide the complete execution plan.", goal);
-                match llm.call(&[types::Message::user(prompt)]).await {
-                    Ok(response) => match protocol::parse(&response) {
+                let req = llm::LLMRequest {
+                    system: llm::SYSTEM_PROMPT.to_string(),
+                    messages: vec![types::Message::user(prompt)],
+                    temperature: 0.0,
+                    seed: Some(42),
+                    model: "default".into(),
+                };
+                match llm.complete(req).await {
+                    Ok(response) => match protocol::parse(&response.content) {
                         Ok(plan) => {
                             println!("📋 Plan preview ({} commands):\n", plan.commands.len());
                             for (i, cmd) in plan.commands.iter().enumerate() {
@@ -1086,6 +1126,51 @@ async fn main() -> Result<()> {
             }
 
             std::fs::create_dir_all(&workspace)?;
+
+            // Trajectory directory for Run - Dataset Collection Mode
+            let traj_dir = if record || replay {
+                let slug = goal
+                    .to_lowercase()
+                    .chars()
+                    .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+                    .collect::<String>()
+                    .replace(" ", "_");
+                let slug = if slug.len() > 30 {
+                    slug[..30].to_string()
+                } else {
+                    slug
+                };
+
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+
+                let cache = crate::cache::PersistentCache::new()?;
+                let dir = if replay {
+                    cache.trajectories_dir().join(format!("run_{}", slug))
+                } else {
+                    cache.trajectories_dir().join(format!("{}_{}", slug, now))
+                };
+                Some(dir)
+            } else {
+                None
+            };
+
+            let live = crate::llm::live::LiveProvider::from_env();
+            let provider: Box<dyn crate::llm::LLMProvider> = if replay {
+                let dir = traj_dir.ok_or_else(|| anyhow::anyhow!("Trajectory dir missing"))?;
+                Box::new(crate::llm::replay::ReplayProvider::new(&dir))
+            } else if record {
+                let dir = traj_dir.ok_or_else(|| anyhow::anyhow!("Trajectory dir missing"))?;
+                Box::new(crate::llm::record::RecorderProvider::new(
+                    Box::new(live),
+                    &dir,
+                ))
+            } else {
+                Box::new(live)
+            };
+
             // v5.4: توسيع ~ في مسار ref-file
             let ref_file_expanded = ref_file.as_ref().map(|p| {
                 let s = p.to_string_lossy();
@@ -1101,7 +1186,16 @@ async fn main() -> Result<()> {
                 focus_paths: focus.clone(),
                 ..Default::default()
             };
-            let mut ag = agent::Agent::new(String::new(), workspace, goal, max_repairs, ctx_config);
+
+            let mut ag = agent::Agent::new_with_model(
+                String::new(),
+                String::new(),
+                workspace,
+                goal,
+                max_repairs,
+                ctx_config,
+                provider,
+            );
             ag.run().await?;
         }
     }
@@ -1185,7 +1279,7 @@ fn confidence_bar(c: f32) -> String {
 // ══════════════════════════════════════════════════════
 
 async fn run_compile_bench(max_repairs: u8) -> Result<()> {
-    use crate::bench_compile::{all_cases, setup_case, check_result};
+    use crate::bench_compile::{all_cases, check_result, setup_case};
 
     println!("\n╔══════════════════════════════════════════╗");
     println!("║   SEL Bench — suite: compile (v7.1)      ║");
@@ -1210,7 +1304,9 @@ async fn run_compile_bench(max_repairs: u8) -> Result<()> {
             ProgressStyle::default_spinner()
                 .template(&format!(
                     "{{spinner:.cyan}} 🔬 [{}/{}] {}...",
-                    i + 1, total, case.name
+                    i + 1,
+                    total,
+                    case.name
                 ))
                 .unwrap(),
         );
@@ -1235,17 +1331,29 @@ async fn run_compile_bench(max_repairs: u8) -> Result<()> {
 
         let status = if check.passed { "✅" } else { "❌" };
         let mut notes = Vec::new();
-        if check.created_wrong_files { notes.push("wrong_files".to_string()); }
-        if !check.mutation_ok { notes.push("mutation_fail".to_string()); }
-        if repairs > 2 { notes.push(format!("repairs:{}", repairs)); }
-        let note_str = if notes.is_empty() { "ok".to_string() } else { notes.join(", ") };
+        if check.created_wrong_files {
+            notes.push("wrong_files".to_string());
+        }
+        if !check.mutation_ok {
+            notes.push("mutation_fail".to_string());
+        }
+        if repairs > 2 {
+            notes.push(format!("repairs:{}", repairs));
+        }
+        let note_str = if notes.is_empty() {
+            "ok".to_string()
+        } else {
+            notes.join(", ")
+        };
 
         println!(
             "   {} {:<28} repairs:{}  {}",
             status, case.name, repairs, note_str
         );
 
-        if check.passed { passed += 1; }
+        if check.passed {
+            passed += 1;
+        }
         results.push((
             case.name.to_string(),
             status.to_string(),
@@ -1263,12 +1371,18 @@ async fn run_compile_bench(max_repairs: u8) -> Result<()> {
     println!("\n╔══════════════════════════════════════════╗");
     println!("║   Compile Bench Results                   ║");
     println!("╠══════════════════════════════════════════╣");
-    println!("║  Passed:  {}/{}  ({:.0}%)                   ║", passed, total, rate);
+    println!(
+        "║  Passed:  {}/{}  ({:.0}%)                   ║",
+        passed, total, rate
+    );
     println!("╠══════════════════════════════════════════╣");
 
     for (name, status, repairs, _, note) in &results {
-        println!("║  {} {:<22} r:{} {}",
-            status, name, repairs,
+        println!(
+            "║  {} {:<22} r:{} {}",
+            status,
+            name,
+            repairs,
             if note.len() > 15 { &note[..15] } else { note }
         );
     }
@@ -1284,4 +1398,61 @@ async fn run_compile_bench(max_repairs: u8) -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn run_quick_bench(
+    api_key: &str,
+    suite: &str,
+    max_repairs: u8,
+    iterations: u8,
+    focus: &[String],
+) -> Result<Vec<String>> {
+    println!("\n🚀 Quick Mode: Stage 1 — Running Replay for '{}'", suite);
+    let failed = run_bench(api_key, suite, max_repairs, iterations, focus, false, true).await?;
+
+    if failed.is_empty() {
+        println!("\n✅ Quick Mode: All cases passed via Replay. System is stable.");
+        return Ok(Vec::new());
+    }
+
+    println!(
+        "\n🔄 Quick Mode: Stage 2 — {} cases failed. Re-recording...",
+        failed.len()
+    );
+    println!("   Failed: {:?}", failed);
+
+    // Stage 3: Re-record failed ones only
+    run_bench(
+        api_key,
+        suite,
+        max_repairs,
+        iterations,
+        &failed,
+        true,
+        false,
+    )
+    .await?;
+
+    println!("\n🧪 Quick Mode: Stage 3 — Verifying failures via Replay...");
+    let final_failed = run_bench(
+        api_key,
+        suite,
+        max_repairs,
+        iterations,
+        &failed,
+        false,
+        true,
+    )
+    .await?;
+
+    if final_failed.is_empty() {
+        println!("\n✨ Quick Mode: All failed cases successfully re-recorded and verified.");
+    } else {
+        println!(
+            "\n⚠️  Quick Mode: Some cases still failing after re-record: {:?}",
+            final_failed
+        );
+    }
+
+    Ok(final_failed)
 }

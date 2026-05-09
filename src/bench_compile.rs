@@ -33,7 +33,13 @@ pub fn setup_case(name: &str, ws: &Path) {
     }
 }
 
-pub fn check_result(name: &str, ws: &Path, ok: bool, repairs: usize, mutation: f64) -> CompileCheck {
+pub fn check_result(
+    name: &str,
+    ws: &Path,
+    ok: bool,
+    repairs: usize,
+    mutation: f64,
+) -> CompileCheck {
     let mut result = CompileCheck {
         passed: ok,
         repairs,
@@ -55,7 +61,9 @@ pub fn check_result(name: &str, ws: &Path, ok: bool, repairs: usize, mutation: f
             if path_exists(ws, "*.go") {
                 result.created_wrong_files = true;
                 result.passed = false;
-                result.notes.push("created .go files in Python project".into());
+                result
+                    .notes
+                    .push("created .go files in Python project".into());
             }
         }
         _ => {}
@@ -108,7 +116,8 @@ pub fn check_result(name: &str, ws: &Path, ok: bool, repairs: usize, mutation: f
                     let has_correct_add = content.contains("a + b")
                         && content.lines().any(|l| {
                             l.contains("Add") && l.contains("func")
-                                || (l.contains("return") && l.contains("a + b")
+                                || (l.contains("return")
+                                    && l.contains("a + b")
                                     && !l.contains("Multiply"))
                         });
 
@@ -116,9 +125,7 @@ pub fn check_result(name: &str, ws: &Path, ok: bool, repairs: usize, mutation: f
                     let has_correct_multiply = content.contains("a * b");
 
                     // لا يزال فيه الأخطاء القديمة؟
-                    let still_has_subtract = content.lines().any(|l| {
-                        l.contains("a - b")
-                    });
+                    let still_has_subtract = content.lines().any(|l| l.contains("a - b"));
 
                     if still_has_subtract {
                         result.passed = false;
@@ -145,7 +152,9 @@ pub fn check_result(name: &str, ws: &Path, ok: bool, repairs: usize, mutation: f
             } else if mutation < 1.0 {
                 result.mutation_ok = false;
                 result.passed = false;
-                result.notes.push(format!("mutation {:.0}% < 100%", mutation * 100.0));
+                result
+                    .notes
+                    .push(format!("mutation {:.0}% < 100%", mutation * 100.0));
             }
         }
 
@@ -162,7 +171,8 @@ pub fn check_result(name: &str, ws: &Path, ok: bool, repairs: usize, mutation: f
             if let Ok(content) = std::fs::read_to_string(ws.join("calculator.py")) {
                 // divide يجب أن يستخدم / أو //
                 let has_divide_op = content.lines().any(|l| {
-                    l.contains("return") && (l.contains("a / b") || l.contains("a // b"))
+                    l.contains("return")
+                        && (l.contains("a / b") || l.contains("a // b"))
                         && !l.contains("a * b")
                 });
                 // power يجب أن يستخدم **
@@ -194,7 +204,9 @@ pub fn check_result(name: &str, ws: &Path, ok: bool, repairs: usize, mutation: f
             if let Ok(content) = std::fs::read_to_string(ws.join("models.py")) {
                 if !content.contains("class User:") {
                     result.passed = false;
-                    result.notes.push("models.py was incorrectly modified".into());
+                    result
+                        .notes
+                        .push("models.py was incorrectly modified".into());
                 }
             }
         }
@@ -310,7 +322,10 @@ pub fn all_cases() -> Vec<CompileCase> {
 // ══════════════════════════════════════════════════════
 
 fn setup_go_undefined_import(ws: &Path) {
-    let _ = std::fs::write(ws.join("main.go"), "package main\n\nfunc Hello() string {\n\treturn fmt.Sprintf(\"hello\")\n}\n");
+    let _ = std::fs::write(
+        ws.join("main.go"),
+        "package main\n\nfunc Hello() string {\n\treturn fmt.Sprintf(\"hello\")\n}\n",
+    );
     let _ = std::fs::write(ws.join("main_test.go"), "package main\n\nimport \"testing\"\n\nfunc TestHello(t *testing.T) {\n\tif Hello() != \"hello\" {\n\t\tt.Errorf(\"got %q\", Hello())\n\t}\n}\n");
     go_mod_init(ws);
 }
@@ -329,12 +344,18 @@ fn setup_go_wrong_logic(ws: &Path) {
 }
 
 fn setup_python_module_missing(ws: &Path) {
-    let _ = std::fs::write(ws.join("app.py"), "import requests\n\ndef fetch(url):\n    return requests.get(url).status_code\n");
+    let _ = std::fs::write(
+        ws.join("app.py"),
+        "import requests\n\ndef fetch(url):\n    return requests.get(url).status_code\n",
+    );
     let _ = std::fs::write(ws.join("test_app.py"), "from app import fetch\n\ndef test_fetch_callable():\n    assert callable(fetch)\n\ndef test_fetch_type():\n    assert fetch.__name__ == \"fetch\"\n");
 }
 
 fn setup_python_wrong_logic(ws: &Path) {
-    let _ = std::fs::write(ws.join("calculator.py"), "def divide(a, b):\n    return a * b\n\ndef power(base, exp):\n    return base + exp\n");
+    let _ = std::fs::write(
+        ws.join("calculator.py"),
+        "def divide(a, b):\n    return a * b\n\ndef power(base, exp):\n    return base + exp\n",
+    );
     let _ = std::fs::write(ws.join("test_calculator.py"), "from calculator import divide, power\n\ndef test_divide():\n    assert divide(10, 2) == 5\n    assert divide(9, 3) == 3\n    assert divide(0, 5) == 0\n\ndef test_power():\n    assert power(2, 3) == 8\n    assert power(3, 2) == 9\n    assert power(5, 0) == 1\n");
 }
 

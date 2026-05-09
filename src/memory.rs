@@ -6,12 +6,12 @@ const MEMORY_FILE: &str = ".sel_memory.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryEntry {
-    pub failure_kind:    String,
+    pub failure_kind: String,
     pub error_signature: String,
     pub normalized_hash: u64,
-    pub successful_fix:  String,
-    pub count:           u32,
-    pub last_seen:       String,
+    pub successful_fix: String,
+    pub count: u32,
+    pub last_seen: String,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -59,7 +59,7 @@ pub fn hash_normalized(s: &str) -> u64 {
 #[derive(Debug, Clone)]
 pub enum QuickFix {
     InstallPackage { command: String },
-    AddGoImport    { symbol:  String },
+    AddGoImport { symbol: String },
 }
 
 /// إصلاح فوري بدون LLM
@@ -70,18 +70,18 @@ pub fn quick_fix(error: &str) -> Option<QuickFix> {
     if lower.contains("modulenotfounderror") || lower.contains("no module named") {
         let module = extract_module_name(error)?;
         let pkg = match module.as_str() {
-            "fastapi"    => "fastapi uvicorn",
-            "uvicorn"    => "uvicorn[standard]",
+            "fastapi" => "fastapi uvicorn",
+            "uvicorn" => "uvicorn[standard]",
             "sqlalchemy" => "sqlalchemy",
-            "pydantic"   => "pydantic",
-            "jose"       => "python-jose",
-            "passlib"    => "passlib bcrypt",
-            "dotenv"     => "python-dotenv",
-            "httpx"      => "httpx",
-            "pytest"     => "pytest",
-            "requests"   => "requests",
-            "flask"      => "flask",
-            _            => return None,
+            "pydantic" => "pydantic",
+            "jose" => "python-jose",
+            "passlib" => "passlib bcrypt",
+            "dotenv" => "python-dotenv",
+            "httpx" => "httpx",
+            "pytest" => "pytest",
+            "requests" => "requests",
+            "flask" => "flask",
+            _ => return None,
         };
         return Some(QuickFix::InstallPackage {
             command: format!("pip install {}", pkg),
@@ -92,9 +92,8 @@ pub fn quick_fix(error: &str) -> Option<QuickFix> {
     if lower.contains("undefined:") {
         let sym = extract_go_undefined(error)?;
         let go_std = [
-            "fmt","errors","strings","strconv","sort",
-            "math","os","io","log","time","sync",
-            "context","bytes","bufio",
+            "fmt", "errors", "strings", "strconv", "sort", "math", "os", "io", "log", "time",
+            "sync", "context", "bytes", "bufio",
         ];
         if go_std.contains(&sym.as_str()) {
             return Some(QuickFix::AddGoImport { symbol: sym });
@@ -167,29 +166,22 @@ impl FailureMemory {
     }
 
     /// حفظ repair ناجح — يستخدم normalized_hash للتجميع
-    pub fn record_success(
-        &mut self,
-        failure_kind: &str,
-        error_sig: &str,
-        fix_summary: &str,
-    ) {
+    pub fn record_success(&mut self, failure_kind: &str, error_sig: &str, fix_summary: &str) {
         let normalized = normalize_error(error_sig);
         let hash = hash_normalized(&normalized);
 
-        if let Some(entry) = self.entries.iter_mut()
-            .find(|e| e.normalized_hash == hash)
-        {
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.normalized_hash == hash) {
             entry.count += 1;
             entry.last_seen = today_str();
             entry.successful_fix = fix_summary.chars().take(200).collect();
         } else {
             self.entries.push(MemoryEntry {
-                failure_kind:    failure_kind.to_string(),
+                failure_kind: failure_kind.to_string(),
                 error_signature: normalized,
                 normalized_hash: hash,
-                successful_fix:  fix_summary.chars().take(200).collect(),
-                count:           1,
-                last_seen:       today_str(),
+                successful_fix: fix_summary.chars().take(200).collect(),
+                count: 1,
+                last_seen: today_str(),
             });
         }
 
@@ -204,7 +196,9 @@ impl FailureMemory {
     pub fn get_hints(&self, failure_kind: &str, error_sig: &str) -> String {
         let hash = hash_normalized(&normalize_error(error_sig));
 
-        let relevant: Vec<&MemoryEntry> = self.entries.iter()
+        let relevant: Vec<&MemoryEntry> = self
+            .entries
+            .iter()
             .filter(|e| e.normalized_hash == hash || e.failure_kind == failure_kind)
             .collect();
 

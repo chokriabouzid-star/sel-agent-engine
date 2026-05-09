@@ -12,6 +12,7 @@ pub enum AgentState {
     Planning,
     Executing,
     Repairing,
+    WaitingForUserInput(String),
     Done,
     Failed(String),
 }
@@ -19,6 +20,11 @@ pub enum AgentState {
 // ══════════════════════════════════════════════════════
 // سياق التنفيذ — الحالة الفعلية للنظام
 // ══════════════════════════════════════════════════════
+
+#[derive(Debug, Clone)]
+pub struct MutationContext {
+    pub surviving: String,
+}
 
 #[derive(Debug, Default)]
 pub struct ExecutionContext {
@@ -35,6 +41,8 @@ pub struct ExecutionContext {
     pub last_failed_steps: Vec<FailedStep>, // v5.8: نسخة احتياطية قبل المسح
     pub current_failure_kind: Option<FailureKind>, // v6.4
     pub skip_mutation: bool, // v6.5: disable mutation enforcement for real-world bench
+    pub last_mutation_context: Option<MutationContext>, // v7.5.2
+    pub checklist_run_tests_injected: bool, // v7.6.1: Prevent infinite run_tests injections
 }
 
 impl ExecutionContext {
@@ -53,6 +61,9 @@ impl ExecutionContext {
             self.last_failed_steps = self.failed_steps.clone(); // v5.8
         }
         self.failed_steps.clear();
+        self.last_mutation_context = None;
+        self.mutations_total = 0;
+        self.mutations_killed = 0;
     }
     pub fn has_failures(&self) -> bool {
         !self.failed_steps.is_empty()
@@ -119,20 +130,14 @@ impl FailedStep {
             // Go: file.go:42
             if line.contains(".go:") {
                 if let Some(pos) = line.find(".go:") {
-                    let start = line[..pos]
-                        .rfind(['/', ' '])
-                        .map(|i| i + 1)
-                        .unwrap_or(0);
+                    let start = line[..pos].rfind(['/', ' ']).map(|i| i + 1).unwrap_or(0);
                     return Some(line[start..pos + 3].to_string());
                 }
             }
             // Node.js: file.js:42
             if line.contains(".js:") && !line.contains("node_modules") {
                 if let Some(pos) = line.find(".js:") {
-                    let start = line[..pos]
-                        .rfind(['/', ' '])
-                        .map(|i| i + 1)
-                        .unwrap_or(0);
+                    let start = line[..pos].rfind(['/', ' ']).map(|i| i + 1).unwrap_or(0);
                     return Some(line[start..pos + 3].to_string());
                 }
             }
@@ -170,6 +175,27 @@ impl ExecResult {
             stdout: String::new(),
             stderr: msg.into(),
             duration_ms: 0,
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════
+// BenchCase
+// ══════════════════════════════════════════════════════
+
+#[derive(Debug, Clone)]
+pub struct BenchCase {
+    pub name: String,
+    pub lang: String,
+    pub goal: String,
+}
+
+impl BenchCase {
+    pub fn new(name: &str, lang: &str, goal: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            lang: lang.to_string(),
+            goal: goal.to_string(),
         }
     }
 }
@@ -222,11 +248,9 @@ impl std::fmt::Display for SafetyError {
 
 pub use crate::failure::FailureKind;
 
-
 // ══════════════════════════════════════════════════════
 // Execution Context
 // ══════════════════════════════════════════════════════
-
 
 impl ExecutionContext {
     pub fn load_hashes(&mut self, workspace: &std::path::Path) {
@@ -273,5 +297,3 @@ impl Default for ContextConfig {
         }
     }
 }
-
-

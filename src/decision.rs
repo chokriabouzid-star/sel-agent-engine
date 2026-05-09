@@ -1,9 +1,9 @@
 // src/decision.rs — v1.0: Decision & Validation Logic
 // منطق التحقق وبناء السياق — مستخرج من agent.rs لتقليل التعقيد
 
-use std::path::Path;
 use crate::protocol::Cmd;
 use crate::types::ContextConfig;
+use std::path::Path;
 
 // ══════════════════════════════════════════════════════════
 // Goal Validator v1.2
@@ -80,6 +80,75 @@ pub fn validate_patch_uniqueness(workspace: &Path, plan: &[Cmd]) -> Vec<String> 
             }
         }
     }
+    issues
+}
+
+// ══════════════════════════════════════════════════════════
+// Plan Integrity Validator v7.5
+// ══════════════════════════════════════════════════════════
+
+/// يتحقق من سلامة الخطة (عدم التكرار، اكتمال التعريفات)
+pub fn validate_plan_integrity(plan: &[Cmd]) -> Vec<String> {
+    let mut issues = Vec::new();
+    let mut written_files = std::collections::HashSet::new();
+
+    for cmd in plan {
+        match cmd {
+            Cmd::WriteFile { path, .. } => {
+                if !written_files.insert(path.clone()) {
+                    issues.push(format!(
+                        "PLAN ERROR: Duplicate write_file for '{}' in one plan. Combine into ONE write_file command.",
+                        path
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Rust Completeness & Cargo Template Check v7.5
+    let mut has_cargo_new = false;
+    for cmd in plan {
+        if let Cmd::Run { command } = cmd {
+            if command.contains("cargo new") || command.contains("cargo init") {
+                has_cargo_new = true;
+            }
+        }
+    }
+
+    for cmd in plan {
+        match cmd {
+            Cmd::WriteFile { path, content } => {
+                if path.ends_with(".rs")
+                    && (content.contains("#[cfg(test)]") || content.contains("mod tests"))
+                {
+                    if content.contains("Stack::new()")
+                        && !content.contains("struct Stack")
+                        && !content.contains("use ")
+                    {
+                        issues.push(format!(
+                            "COMPLETENESS ERROR in '{}': Test uses 'Stack' but 'struct Stack' is not defined or imported.",
+                            path
+                        ));
+                    }
+                }
+            }
+            Cmd::PatchFile { path, .. } => {
+                if has_cargo_new
+                    && (path.ends_with("src/lib.rs")
+                        || path.ends_with("src/main.rs")
+                        || path.ends_with("Cargo.toml"))
+                {
+                    issues.push(format!(
+                        "PLAN ERROR: You used 'cargo new' which creates a dummy '{}'. You MUST use write_file to completely replace it, DO NOT use patch_file.",
+                        path
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+
     issues
 }
 
@@ -182,11 +251,197 @@ pub fn build_skeleton_context(workspace: &Path) -> String {
         map.push_str("CRITICAL RULES (violations = build failure):\n");
         map.push_str("- NEVER use write_file on existing files — use patch_file only\n");
         map.push_str("- NEVER redefine functions already listed above\n");
-        map.push_str(
-            "- NEVER guess the crate name — use exactly what CRATE NAME shows above\n",
-        );
+        map.push_str("- NEVER guess the crate name — use exactly what CRATE NAME shows above\n");
     }
     map
+}
+
+// ══════════════════════════════════════════════════════════
+// Pre-Repair Checklist v7.5.1
+// ══════════════════════════════════════════════════════════
+
+pub enum ChecklistResult {
+    Handled,
+    ContinueToLlm,
+}
+
+/// يتحقق من المشاكل الشائعة التي يمكن إصلاحها تلقائياً بدون LLM
+pub fn pre_repair_checklist(
+    plan: &mut Vec<Cmd>,
+    ctx: &mut crate::types::ExecutionContext,
+    workspace: &Path,
+) -> ChecklistResult {
+    if ctx.failed_steps.is_empty() {
+        return ChecklistResult::ContinueToLlm;
+    }
+
+    let first_fail = &ctx.failed_steps[0];
+    let stderr = &first_fail.stderr;
+    let kind = crate::failure::FailureKind::classify(stderr);
+
+    // Check 1: Missing run_tests in plan but tests exist
+    // GUARD: only inject ONCE per session to prevent infinite loop
+    if matches!(
+        kind,
+        crate::failure::FailureKind::ImportError | crate::failure::FailureKind::AssertionError
+    ) && !plan.iter().any(|c| c.is_run_tests())
+        && !ctx.checklist_run_tests_injected
+    {
+        let test_target = if workspace.join("venv/bin/pytest").exists() {
+            "venv/bin/pytest"
+        } else if workspace.join("pytest").exists() {
+            "pytest"
+        } else {
+            ""
+        };
+        if !test_target.is_empty() {
+            println!(
+                "   ⚡ Pre-Repair: injecting missing run_tests for '{}'",
+                test_target
+            );
+            let done_pos = plan.iter().position(|c| c.is_done()).unwrap_or(plan.len());
+            plan.insert(
+                done_pos,
+                Cmd::RunTests {
+                    target: test_target.to_string(),
+                },
+            );
+            ctx.failed_steps.clear();
+            ctx.checklist_run_tests_injected = true;
+            return ChecklistResult::Handled;
+        }
+    }
+
+    // Check 2: Python NameError → auto-add import
+    if matches!(kind, crate::failure::FailureKind::ImportError)
+        && stderr.contains("NameError")
+        && stderr.contains("is not defined")
+    {
+        if try_auto_import_fix(plan, stderr) {
+            println!("   ⚡ Pre-Repair: auto-import fix applied");
+            ctx.failed_steps.clear();
+            return ChecklistResult::Handled;
+        }
+    }
+
+    // Check 3: Rust E0762 (unterminated character literal) → re-sanitize .rs file
+    if (stderr.contains("E0762") || stderr.contains("unterminated character literal"))
+        && !ctx.checklist_run_tests_injected
+    {
+        // Find the culprit .rs file from the error
+        if let Some(culprit) = crate::types::FailedStep::extract_culprit(stderr) {
+            if culprit.ends_with(".rs") {
+                let full_path = workspace.join(&culprit);
+                if let Ok(content) = std::fs::read_to_string(&full_path) {
+                    // Apply lifetime sanitizer
+                    let fixed = content
+                        .replace("\"static str", "&'static str")
+                        .replace("\u{201C}static", "&'static")
+                        .replace("\u{2018}static", "'static")
+                        .replace("-> \"static", "-> &'static")
+                        .replace("-> \u{201C}static", "-> &'static")
+                        .replace("-> 'static str", "-> &'static str");
+                    if fixed != content {
+                        println!("   🔧 AutoFix E0762: sanitizing Unicode quotes in {}", culprit);
+                        let _ = std::fs::write(&full_path, &fixed);
+                        plan.clear();
+                        plan.push(Cmd::RunTests {
+                            target: "cargo test".to_string(),
+                        });
+                        ctx.failed_steps.clear();
+                        ctx.checklist_run_tests_injected = true;
+                        return ChecklistResult::Handled;
+                    }
+                }
+            }
+        }
+    }
+
+    // Check 4: All failures are patch_file "search block not found"
+    let all_patch_errors = ctx.failed_steps.iter().all(|f| {
+        f.stderr.contains("search block not found")
+            || f.stderr.contains("patch_file validation failed")
+    });
+
+    if all_patch_errors && ctx.repair_attempts <= 2 {
+        println!("   ⚡ Pre-Repair: switching patch_file → write_file strategy");
+        let mut new_plan: Vec<Cmd> = Vec::new();
+        for cmd in plan.iter() {
+            match cmd {
+                Cmd::PatchFile {
+                    path,
+                    search,
+                    replace,
+                } => {
+                    let full = workspace.join(path);
+                    if let Ok(content) = std::fs::read_to_string(&full) {
+                        if content.contains(search) {
+                            new_plan.push(cmd.clone());
+                        } else {
+                            println!("     → {} converted to write_file", path);
+                            new_plan.push(Cmd::WriteFile {
+                                path: path.clone(),
+                                content: content + "\n" + replace,
+                            });
+                        }
+                    } else {
+                        new_plan.push(Cmd::WriteFile {
+                            path: path.clone(),
+                            content: replace.clone(),
+                        });
+                    }
+                }
+                other => new_plan.push(other.clone()),
+            }
+        }
+        *plan = new_plan;
+        ctx.failed_steps.clear();
+        return ChecklistResult::Handled;
+    }
+
+    ChecklistResult::ContinueToLlm
+}
+
+fn try_auto_import_fix(plan: &mut Vec<Cmd>, stderr: &str) -> bool {
+    if let Some(name_start) = stderr.find("NameError: name '") {
+        let rest = &stderr[name_start + 17..];
+        if let Some(name_end) = rest.find("' is not defined") {
+            let missing_module = &rest[..name_end];
+            let stdlib = [
+                "os",
+                "sys",
+                "json",
+                "math",
+                "re",
+                "datetime",
+                "time",
+                "random",
+                "subprocess",
+                "logging",
+                "asyncio",
+                "collections",
+                "itertools",
+                "functools",
+                "pathlib",
+                "typing",
+            ];
+
+            if stdlib.contains(&missing_module) {
+                if let Some(culprit) = crate::types::FailedStep::extract_culprit(stderr) {
+                    println!(
+                        "     → injecting 'import {}' into {}",
+                        missing_module, culprit
+                    );
+                    let fix_cmd = Cmd::Run {
+                        command: format!("sed -i '1s/^/import {}\\n/' {}", missing_module, culprit),
+                    };
+                    plan.insert(0, fix_cmd);
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 // ══════════════════════════════════════════════════════════
@@ -241,7 +496,10 @@ pub fn build_workspace_context(workspace: &Path) -> String {
             ctx.push_str("... (remaining files omitted — context limit reached)\n");
             break;
         }
-        let rel = path.strip_prefix(workspace).unwrap_or(path).to_string_lossy();
+        let rel = path
+            .strip_prefix(workspace)
+            .unwrap_or(path)
+            .to_string_lossy();
         if let Ok(src) = std::fs::read_to_string(path) {
             let lines: Vec<&str> = src.lines().collect();
             // حد 60 سطر لكل ملف بدل 300

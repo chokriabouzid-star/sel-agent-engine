@@ -1,4 +1,4 @@
-// src/snapshot.rs — v7.4: Workspace Snapshots
+// src/snapshot.rs — v7.5: Workspace Snapshots
 // Uses Git-based snapshot strategy (git stash) as requested for atomic rollbacks
 
 use std::path::{Path, PathBuf};
@@ -28,9 +28,33 @@ impl Snapshot {
             .current_dir(workspace)
             .output();
 
+        // v7.6.1: Protect infrastructure dirs from git stash --include-untracked
+        // venv/ and node_modules/ are INFRA, not application data — must survive snapshot cycles
+        let gitignore = workspace.join(".gitignore");
+        let existing = std::fs::read_to_string(&gitignore).unwrap_or_default();
+        if !existing.contains("venv/") {
+            let mut content = existing;
+            if !content.is_empty() && !content.ends_with('\n') {
+                content.push('\n');
+            }
+            content.push_str("venv/\nnode_modules/\n__pycache__/\ntarget/\n");
+            let _ = std::fs::write(&gitignore, content);
+            // Re-add so .gitignore is tracked
+            let _ = Command::new("git")
+                .args(&["add", ".gitignore"])
+                .current_dir(workspace)
+                .output();
+        }
+
         // Perform stash
         let output = Command::new("git")
-            .args(&["stash", "push", "--include-untracked", "-m", "sel_agent_snapshot"])
+            .args(&[
+                "stash",
+                "push",
+                "--include-untracked",
+                "-m",
+                "sel_agent_snapshot",
+            ])
             .current_dir(workspace)
             .output();
 
@@ -54,14 +78,18 @@ impl Snapshot {
 
     /// Rollback workspace to pre-change state
     pub fn rollback(&mut self) {
-        if !self.active { return; }
-        
+        if !self.active {
+            return;
+        }
+
+        let had_venv = self.workspace.join("venv").exists();
+
         // Discard any current changes made during the failed step
         let _ = Command::new("git")
             .args(&["reset", "--hard"])
             .current_dir(&self.workspace)
             .output();
-            
+
         let _ = Command::new("git")
             .args(&["clean", "-fd"])
             .current_dir(&self.workspace)
@@ -77,13 +105,31 @@ impl Snapshot {
         } else {
             println!("   ⏪ Snapshot: reset workspace (no stash needed)");
         }
+
+        if had_venv && !self.workspace.join("venv").exists() {
+            let cache_venv = crate::scaffold_engine::get_cache_dir().join("python/venv");
+            if cache_venv.exists() {
+                let _ = std::os::unix::fs::symlink(&cache_venv, self.workspace.join("venv"));
+            } else {
+                let _ = Command::new("python3")
+                    .args(&["-m", "venv", "venv"])
+                    .current_dir(&self.workspace)
+                    .output();
+                let _ = Command::new("venv/bin/pip")
+                    .args(&["install", "pytest", "-q"])
+                    .current_dir(&self.workspace)
+                    .output();
+            }
+        }
         self.active = false;
     }
 
     /// Commit — accept the changes, discard backup
     pub fn commit(&mut self) {
-        if !self.active { return; }
-        
+        if !self.active {
+            return;
+        }
+
         if self.has_stashed {
             // Drop the stash since we're keeping the new changes
             let _ = Command::new("git")
@@ -99,6 +145,7 @@ impl Snapshot {
 impl Drop for Snapshot {
     fn drop(&mut self) {
         if self.active && self.has_stashed {
+            let had_venv = self.workspace.join("venv").exists();
             // Abnormal exit, try to rollback
             let _ = Command::new("git")
                 .args(&["reset", "--hard"])
@@ -112,6 +159,22 @@ impl Drop for Snapshot {
                 .args(&["stash", "pop"])
                 .current_dir(&self.workspace)
                 .output();
+
+            if had_venv && !self.workspace.join("venv").exists() {
+                let cache_venv = crate::scaffold_engine::get_cache_dir().join("python/venv");
+                if cache_venv.exists() {
+                    let _ = std::os::unix::fs::symlink(&cache_venv, self.workspace.join("venv"));
+                } else {
+                    let _ = Command::new("python3")
+                        .args(&["-m", "venv", "venv"])
+                        .current_dir(&self.workspace)
+                        .output();
+                    let _ = Command::new("venv/bin/pip")
+                        .args(&["install", "pytest", "-q"])
+                        .current_dir(&self.workspace)
+                        .output();
+                }
+            }
         }
     }
 }

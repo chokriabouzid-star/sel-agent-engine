@@ -1,0 +1,2 @@
+Goal: Rename attribute `User.name` -> `User.full_name`.
+Update service.greet and tests accordingly.

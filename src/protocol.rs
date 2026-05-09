@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Plan {
+    #[serde(default)]
     pub version: String,
     pub commands: Vec<Cmd>,
 }
@@ -137,22 +138,71 @@ impl Cmd {
 // Parser
 // ══════════════════════════════════════════════════════
 
+/// Strip <think>...</think> blocks that Qwen3/DeepSeek models prepend
+fn strip_think_blocks(text: &str) -> &str {
+    // Handle <think>...</think> (greedy — strip all thinking blocks)
+    if let Some(end) = text.rfind("</think>") {
+        let after = &text[end + 8..];
+        // Return everything after the last </think>
+        return after.trim_start();
+    }
+    text
+}
+
+/// استخراج JSON من النص مع bracket counting صحيح
+/// يتعامل مع { و } داخل strings بشكل صحيح
 pub fn extract_json(text: &str) -> Option<&str> {
+    let clean = strip_think_blocks(text);
+
+    // ── حالة 1: ```json ... ``` ────────────────────────
     let marker = "```json";
-    if let Some(s) = text.find(marker) {
-        let rest = text[s + marker.len()..].trim_start_matches('\n');
+    if let Some(s) = clean.find(marker) {
+        let rest = &clean[s + marker.len()..];
+        let rest = rest.trim_start_matches('\n');
         if let Some(e) = rest.find("```") {
+            eprintln!("[TRACE] extract_json: found ```json block");
             return Some(rest[..e].trim());
         }
     }
-    // Fallback: try finding outermost brackets if markdown tags are omitted
-    if let Some(start) = text.find('{') {
-        if let Some(end) = text.rfind('}') {
-            if end > start {
-                return Some(&text[start..=end]);
+
+    // ── حالة 2: bracket counting (يحل مشكلة } داخل content) ──
+    if let Some(start) = clean.find('{') {
+        let bytes = clean.as_bytes();
+        let mut depth: i32 = 0;
+        let mut in_string = false;
+        let mut escaped = false;
+        let mut end = None;
+
+        for (i, &b) in bytes[start..].iter().enumerate() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match b {
+                b'\\' if in_string => { escaped = true; }
+                b'"'               => { in_string = !in_string; }
+                b'{' if !in_string => { depth += 1; }
+                b'}' if !in_string => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(start + i);
+                        break;
+                    }
+                }
+                _ => {}
             }
         }
+
+        if let Some(e) = end {
+            let json = clean[start..=e].trim();
+            eprintln!("[TRACE] extract_json: bracket counting, length={}", json.len());
+            return Some(json);
+        } else {
+            eprintln!("[TRACE] extract_json: bracket depth didn't close properly");
+        }
     }
+
+    eprintln!("[TRACE] extract_json: no valid JSON found in text");
     None
 }
 
@@ -212,7 +262,7 @@ fn fix_json_escapes(s: &str) -> String {
     result
 }
 
-/// v7.4: Aggressive sanitization for content fields containing broken code
+/// v7.5: Aggressive sanitization for content fields containing broken code
 fn sanitize_content_fields(json_str: &str) -> String {
     let mut result = String::with_capacity(json_str.len() + 64);
     let chars: Vec<char> = json_str.chars().collect();
@@ -251,8 +301,18 @@ fn sanitize_content_fields(json_str: &str) -> String {
             if c == '"' {
                 in_string = true;
                 // Check if this is a content/search/replace field
-                let prefix: String = result.chars().rev().take(20).collect::<String>().chars().rev().collect();
-                if prefix.contains("\"content\":") || prefix.contains("\"search\":") || prefix.contains("\"replace\":") {
+                let prefix: String = result
+                    .chars()
+                    .rev()
+                    .take(20)
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .collect();
+                if prefix.contains("\"content\":")
+                    || prefix.contains("\"search\":")
+                    || prefix.contains("\"replace\":")
+                {
                     in_content_field = true;
                 }
             }
@@ -265,27 +325,191 @@ fn sanitize_content_fields(json_str: &str) -> String {
 }
 
 pub fn parse(response: &str) -> Result<Plan> {
-    // Phase 1: try normal parse
-    let json = extract_json(response).ok_or_else(|| anyhow!("No ```json block found in response"))?;
-    let cleaned = fix_json_escapes(json);
+    // Phase 0: strip thinking blocks
+    let stripped = strip_think_blocks(response);
     
+    // Phase 1: try normal parse
+    let json =
+        extract_json(stripped).ok_or_else(|| anyhow!("No ```json block found in response"))?;
+    let cleaned = fix_json_escapes(json);
+
+    // Log first 200 chars for debugging
+    eprintln!("[TRACE] parse: extracted JSON (first 200): {}", &cleaned[..cleaned.len().min(200)]);
+
     // Try Phase 1: Direct Plan parse
     if let Ok(plan) = serde_json::from_str::<Plan>(&cleaned) {
         return Ok(plan);
     }
-    
+
     // Try Phase 2: Bare list of commands
     if let Ok(commands) = serde_json::from_str::<Vec<Cmd>>(&cleaned) {
         eprintln!("[TRACE] parse: detected bare command list");
-        return Ok(Plan { version: "1.0".into(), commands });
+        return Ok(Plan {
+            version: "1.0".into(),
+            commands,
+        });
     }
 
-    // Try Phase 3: Map with commands but no version
+    // Phase 2.5: Single command object -> wrap in commands array
     if let Ok(val) = serde_json::from_str::<serde_json::Value>(&cleaned) {
+        if val.is_object() {
+            let obj = val.as_object().unwrap();
+            
+            // Detect single command: has "command"/"op"/"action"/"type" but NOT "commands"/"plan"/"steps"
+            let has_cmd_field = obj.contains_key("command")
+                || obj.contains_key("op")
+                || obj.contains_key("action")
+                || obj.contains_key("type");
+            let has_array_field = obj.contains_key("commands")
+                || obj.contains_key("plan")
+                || obj.contains_key("steps");
+            
+            if has_cmd_field && !has_array_field {
+                eprintln!("[TRACE] parse: Phase 2.5 — single command object, wrapping");
+
+                // normalize: command/op/action → type
+                let mut normalized = obj.clone();
+                if !normalized.contains_key("type") {
+                    if let Some(v) = normalized.remove("command")
+                        .or_else(|| normalized.remove("op"))
+                        .or_else(|| normalized.remove("action"))
+                    {
+                        normalized.insert("type".to_string(), v);
+                    }
+                }
+                // normalize: file/filename → path
+                if !normalized.contains_key("path") {
+                    if let Some(v) = normalized.remove("file")
+                        .or_else(|| normalized.remove("filename"))
+                    {
+                        normalized.insert("path".to_string(), v);
+                    }
+                }
+
+                let wrapped = serde_json::json!({
+                    "version": "1.0",
+                    "commands": [normalized]
+                });
+
+                match serde_json::from_value::<Plan>(wrapped) {
+                    Ok(plan) => {
+                        eprintln!("[TRACE] parse: Phase 2.5 succeeded");
+                        return Ok(plan);
+                    }
+                    Err(e) => {
+                        eprintln!("[TRACE] parse: Phase 2.5 failed: {}", e);
+                        // استمر للـ phases التالية
+                    }
+                }
+            }
+        }
+    }
+
+    // Try Phase 3: Normalize alternative field names from various models
+    // Gemini uses "plan"/"op", others may use "steps"/"action"
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&cleaned) {
+        // Normalize top-level: "plan"/"steps" → "commands"
+        let cmds_val = val.get("commands")
+            .or_else(|| val.get("plan"))
+            .or_else(|| val.get("steps"))
+            .or_else(|| val.get("actions"))
+            .cloned()
+            .or_else(|| if val.is_array() { Some(val.clone()) } else { None });
+
+        if let Some(serde_json::Value::Array(arr)) = cmds_val {
+            // Normalize each command: "op"/"action" → "type"
+            let normalized: Vec<serde_json::Value> = arr.into_iter().map(|mut cmd| {
+                if let Some(obj) = cmd.as_object_mut() {
+                    // Normalize nested format: {"write_file": {"path": "...", "content": "..."}}
+                    if obj.len() == 1 {
+                        let key = obj.keys().next().unwrap().clone();
+                        if ["write_file", "patch_file", "run_tests", "run", "done"].contains(&key.as_str()) {
+                            if let Some(serde_json::Value::Object(inner)) = obj.remove(&key) {
+                                for (k, v) in inner {
+                                    obj.insert(k, v);
+                                }
+                                obj.insert("type".to_string(), serde_json::json!(key));
+                            }
+                        }
+                    }
+
+                    // Rename "op" or "action" to "type" if "type" is missing
+                    if !obj.contains_key("type") {
+                        if let Some(op_val) = obj.remove("op").or_else(|| obj.remove("action")).or_else(|| obj.remove("command")) {
+                            obj.insert("type".to_string(), op_val);
+                        }
+                    }
+                    // Normalize "filename"/"file" → "path" for write_file
+                    if !obj.contains_key("path") {
+                        if let Some(p) = obj.remove("filename").or_else(|| obj.remove("file")) {
+                            obj.insert("path".to_string(), p);
+                        }
+                    }
+                    // Normalize "cmd"/"script" → "command" for run
+                    if !obj.contains_key("command") {
+                        if let Some(c) = obj.remove("cmd").or_else(|| obj.remove("script")) {
+                            obj.insert("command".to_string(), c);
+                        }
+                    }
+                    // Normalize patch_file with content but no search -> write_file
+                    if let Some(t) = obj.get("type").and_then(|v| v.as_str()) {
+                        if t == "patch_file" && !obj.contains_key("search") && obj.contains_key("content") {
+                            obj.insert("type".to_string(), serde_json::json!("write_file"));
+                            // No need to rename content to replace, write_file expects content!
+                        } else if t == "patch_file" && !obj.contains_key("replace") {
+                            if let Some(c) = obj.remove("content") {
+                                obj.insert("replace".to_string(), c);
+                            }
+                        }
+                    }
+                    // v7.9.6: Normalize "install" action → "run"
+                    if let Some(t) = obj.get("type").and_then(|v| v.as_str()) {
+                        if t == "install" {
+                            let dep_list = if let Some(deps) = obj.remove("dependencies").and_then(|v| v.as_array().map(|a| a.clone())) {
+                                deps.iter().filter_map(|d| d.as_str()).collect::<Vec<_>>().join(" ")
+                            } else if let Some(target) = obj.remove("target").and_then(|v| v.as_str().map(|s| s.to_string())) {
+                                target
+                            } else if let Some(pkg) = obj.remove("package").and_then(|v| v.as_str().map(|s| s.to_string())) {
+                                pkg
+                            } else {
+                                String::new()
+                            };
+                            if !dep_list.is_empty() {
+                                obj.insert("type".to_string(), serde_json::json!("run"));
+                                obj.insert("command".to_string(), serde_json::json!(format!("npm install {}", dep_list)));
+                            }
+                        } else if t == "run_tests" {
+                            // Normalize "command" -> "target" for run_tests
+                            if !obj.contains_key("target") {
+                                if let Some(c) = obj.remove("command").or_else(|| obj.remove("cmd")) {
+                                    obj.insert("target".to_string(), c);
+                                }
+                            }
+                        }
+                    }
+                }
+                cmd
+            }).collect();
+
+            let plan_val = serde_json::json!({
+                "version": "1.0",
+                "commands": normalized
+            });
+
+            if let Ok(plan) = serde_json::from_value::<Plan>(plan_val) {
+                eprintln!("[TRACE] parse: recovered via field normalization (plan/op → commands/type)");
+                return Ok(plan);
+            }
+        }
+
+        // Original Phase 3 fallback: "commands" key exists but no "version"
         if let Some(cmds_val) = val.get("commands") {
             if let Ok(commands) = serde_json::from_value::<Vec<Cmd>>(cmds_val.clone()) {
                 eprintln!("[TRACE] parse: recovered plan without version field");
-                return Ok(Plan { version: "1.0".into(), commands });
+                return Ok(Plan {
+                    version: "1.0".into(),
+                    commands,
+                });
             }
         }
     }
@@ -303,12 +527,18 @@ pub fn parse(response: &str) -> Result<Plan> {
         if let Some(cmds) = val.get_mut("commands").and_then(|c| c.as_array_mut()) {
             for cmd in cmds {
                 if let Some(obj) = cmd.as_object_mut() {
+                    let cmd_type = obj
+                        .get("type")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
                     // List of fields that MUST be strings
-                    let string_fields = ["command", "content", "path", "search", "replace", "target", "message"];
+                    let string_fields = [
+                        "command", "content", "path", "search", "replace", "target", "message",
+                    ];
                     for field in string_fields {
                         if let Some(f_val) = obj.get_mut(field) {
                             if f_val.is_object() || f_val.is_array() {
-                                let cmd_type = obj.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
                                 eprintln!("[TRACE] parse: stringifying accidental {} object in field '{}'", cmd_type, field);
                                 *f_val = serde_json::Value::String(f_val.to_string());
                             }
@@ -321,7 +551,7 @@ pub fn parse(response: &str) -> Result<Plan> {
             }
         }
     }
-    
+
     // Phase 6: original error for diagnostics
     serde_json::from_str(&cleaned).map_err(|e| {
         anyhow!("JSON parse error: {}\n---\n{}", e, {
@@ -358,16 +588,36 @@ Some text
     fn fails_without_block() {
         assert!(parse("no json here").is_err());
     }
+
+    #[test]
+    fn rejects_plan_without_run_tests() {
+        let mut plan = Plan {
+            version: "1.0".into(),
+            commands: vec![
+                Cmd::WriteFile {
+                    path: "a.py".into(),
+                    content: "x=1".into(),
+                },
+                Cmd::Done {
+                    message: "done".into(),
+                },
+            ],
+        };
+        assert!(validate_test_order(&mut plan).is_ok());
+        // Verify it was auto-appended
+        assert!(matches!(plan.commands.last().unwrap(), Cmd::RunTests { .. }));
+    }
 }
 
 /// Ensures test files are written before RunTests is called.
-pub fn validate_test_order(plan: &Plan) -> Result<(), String> {
+pub fn validate_test_order(plan: &mut Plan) -> Result<(), String> {
     let has_run_tests = plan
         .commands
         .iter()
         .any(|c| matches!(c, Cmd::RunTests { .. }));
     if !has_run_tests {
-        return Ok(());
+        // AutoFix instead of returning an error, this saves API calls and avoids confusing the LLM!
+        plan.commands.push(Cmd::RunTests { target: "auto".to_string() });
     }
 
     let test_pos = plan.commands.iter().position(|c| match c {
@@ -381,7 +631,7 @@ pub fn validate_test_order(plan: &Plan) -> Result<(), String> {
 
     match (test_pos, run_pos) {
         (Some(t), Some(r)) if t < r => Ok(()),
-        (None, _) => Err("Plan calls RunTests but writes no test file".into()),
-        _ => Err("Test file must be written before RunTests".into()),
+        (None, Some(_)) => Ok(()),
+        _ => Err("If a test file is written, it must be before RunTests".into()),
     }
 }

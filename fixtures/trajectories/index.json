@@ -1,0 +1,504 @@
+{
+  "entries": [
+    {
+      "task_id": "broken_import",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-08T18:08:59.686567037+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "wrong_assertion",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-08T18:14:57.200855187+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "wrong_signature",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-07T18:36:51.577721373+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "wrong_logic",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 3,
+      "recorded_at": "2026-05-08T18:58:27.877408925+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "type_mismatch",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 3,
+      "recorded_at": "2026-05-08T18:59:31.415435170+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "missing_closing",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 3,
+      "recorded_at": "2026-05-08T19:00:30.051210973+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "undefined_func",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 3,
+      "recorded_at": "2026-05-08T19:02:39.300524573+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "wrong_logic_2",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 3,
+      "recorded_at": "2026-05-08T19:03:41.541733452+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "syntax_error",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-08T19:04:20.195325926+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "wrong_return",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 3,
+      "recorded_at": "2026-05-08T19:05:20.516631450+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "missing_function",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-08T19:06:13.984972702+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "runtime_error",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 3,
+      "recorded_at": "2026-05-08T19:08:20.890551944+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "go_add",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 3,
+      "recorded_at": "2026-05-08T21:28:11.455236455+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "go_fizzbuzz",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 3,
+      "recorded_at": "2026-05-08T19:08:44.463408363+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "go_reverse",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
+      ],
+      "interaction_count": 3,
+      "recorded_at": "2026-05-08T19:08:57.193860272+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "go_divide",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-08T19:09:04.630407299+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "node_add",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-06T22:41:49.501333150+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "node_palindrome",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-06T22:42:33.524266557+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "node_factorial",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-06T22:43:14.552764647+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "node_filter",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-06T22:44:11.225752245+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "ts_add",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-06T22:44:50.797351735+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "ts_palindrome",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-06T22:45:38.457843461+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "ts_factorial",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-06T22:46:35.114627170+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "ts_stack",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-06T22:47:52.873336923+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "rust_add",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-06T22:48:14.944364981+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "rust_fizzbuzz",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-06T22:48:22.418509481+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "rust_reverse",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-06T22:48:28.364123528+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "rust_stack",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-06T22:48:37.730190544+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "flask_hello",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-06T22:49:15.099386855+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "fastapi_route",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-06T22:50:22.504111949+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "express_api",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 3,
+      "recorded_at": "2026-05-06T22:51:00.507903048+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "ts_express",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 3,
+      "recorded_at": "2026-05-06T22:51:53.053746495+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "v7_quickfix",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json"
+      ],
+      "interaction_count": 4,
+      "recorded_at": "2026-05-06T22:52:47.218149513+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "v7_go_autofix",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-06T22:52:55.358598424+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "v7_rust_quotes",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 3,
+      "recorded_at": "2026-05-06T22:53:10.506592606+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "compile-check_python",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-06T23:30:32.795234524+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "compile-check_go",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-06T23:31:23.351737369+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "compile-check_rust",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-06T23:34:30.602581408+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "compile-check_typescript",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 3,
+      "recorded_at": "2026-05-07T00:44:35.188820203+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "quickfix_go_imports",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-07T00:45:21.979226837+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "quickfix_python_requests",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json"
+      ],
+      "interaction_count": 5,
+      "recorded_at": "2026-05-07T01:12:54.809589998+00:00",
+      "constitution_hash": "4525836e4f0338a5",
+      "has_repairs": true,
+      "language": "trajectories"
+    }
+  ]
+}

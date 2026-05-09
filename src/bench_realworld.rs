@@ -1,4 +1,4 @@
-// src/bench_realworld.rs — v7.3 Feature-Targeted Benchmark
+// src/bench_realworld.rs — v7.5 Feature-Targeted Benchmark
 // يختبر: Compile-First | quick_fix | Language Guard | Real-World Patterns
 
 use crate::agent;
@@ -52,9 +52,11 @@ pub async fn run_bench_realworld(
     _api_key: &str,
     tier: Option<u8>,
     max_repairs: u8,
+    record: bool,
+    replay: bool,
 ) -> Result<()> {
     println!("\n╔═══════════════════════════════════════════════════════════════════╗");
-    println!("║   SEL Agent v7.3.0 — Feature-Targeted Benchmark                   ║");
+    println!("║   SEL Agent v7.9.5 — Feature-Targeted Benchmark                   ║");
     println!("║   Compile-First | quick_fix | Language Guard | Real-World         ║");
     println!("╚═══════════════════════════════════════════════════════════════════╝\n");
 
@@ -86,6 +88,12 @@ pub async fn run_bench_realworld(
         let workspace = tmpdir.join(format!("sel-bench-v73-{}-{}", i, std::process::id()));
         let _ = std::fs::remove_dir_all(&workspace);
         std::fs::create_dir_all(&workspace)?;
+
+        // Trajectory Path for real-world bench
+        let traj_dir = std::env::current_dir()?
+            .join("fixtures")
+            .join("trajectories")
+            .join(case.name.to_lowercase().replace(" ", "_").replace(":", ""));
 
         // كتابة reference tests
         if let Some((filename, content)) = case.reference_tests {
@@ -120,12 +128,26 @@ pub async fn run_bench_realworld(
         );
         pb.enable_steady_tick(Duration::from_millis(80));
 
-        let mut ag = agent::Agent::new(
+        let live = crate::llm::live::LiveProvider::from_env();
+        let provider: Box<dyn crate::llm::LLMProvider> = if replay {
+            Box::new(crate::llm::replay::ReplayProvider::new(&traj_dir))
+        } else if record {
+            Box::new(crate::llm::record::RecorderProvider::new(
+                Box::new(live),
+                &traj_dir,
+            ))
+        } else {
+            Box::new(live)
+        };
+
+        let mut ag = agent::Agent::new_with_model(
+            String::new(),
             String::new(),
             workspace.clone(),
             case.goal.to_string(),
             max_repairs,
             types::ContextConfig::default(),
+            provider,
         );
         ag.ctx.skip_mutation = true;
 
@@ -134,9 +156,7 @@ pub async fn run_bench_realworld(
         let case_dur = case_start.elapsed();
         pb.finish_and_clear();
 
-        let entry = feature_stats
-            .entry(case.tests_feature)
-            .or_insert((0, 0));
+        let entry = feature_stats.entry(case.tests_feature).or_insert((0, 0));
         entry.1 += 1;
 
         match result {
@@ -203,7 +223,7 @@ pub async fn run_bench_realworld(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Cases — مصممة لاختبار ميزات v7.3
+// Cases — مصممة لاختبار ميزات v7.5
 // ═══════════════════════════════════════════════════════════════════════════
 
 fn build_cases() -> Vec<BenchCase> {
@@ -726,13 +746,20 @@ fn print_test_plan(cases: &[BenchCase]) {
 
     for (tier, name) in &tier_names {
         if let Some(tier_cases) = by_tier.get(tier) {
-            println!("  {} Tier {} — {} ({} cases)",
-                "●".yellow(), tier, name.bold(), tier_cases.len());
+            println!(
+                "  {} Tier {} — {} ({} cases)",
+                "●".yellow(),
+                tier,
+                name.bold(),
+                tier_cases.len()
+            );
             for c in tier_cases {
-                println!("      {} [{:12}] {}",
+                println!(
+                    "      {} [{:12}] {}",
                     "→".dimmed(),
                     c.lang.blue(),
-                    c.tests_feature.magenta());
+                    c.tests_feature.magenta()
+                );
             }
         }
     }
@@ -751,15 +778,29 @@ fn print_results(
     feature_stats: &std::collections::HashMap<&str, (usize, usize)>,
     tier: Option<u8>,
 ) {
-    let pct = if total > 0 { (passed as f64 / total as f64) * 100.0 } else { 0.0 };
-    let avg_r = if passed > 0 { total_repairs as f64 / passed as f64 } else { 0.0 };
+    let pct = if total > 0 {
+        (passed as f64 / total as f64) * 100.0
+    } else {
+        0.0
+    };
+    let avg_r = if passed > 0 {
+        total_repairs as f64 / passed as f64
+    } else {
+        0.0
+    };
 
     println!("\n╔══════════════════════════════════════════════════════════════╗");
-    println!("║   SEL Agent v7.3 — Benchmark Results                        ║");
+    println!("║   SEL Agent v7.9.5 — Benchmark Results                        ║");
     println!("╠══════════════════════════════════════════════════════════════╣");
-    println!("║  Tier    : {}",
-        tier.map_or("ALL".to_string(), |t| format!("Tier {}", t)));
-    println!("║  Time    : {}m {}s", elapsed.as_secs() / 60, elapsed.as_secs() % 60);
+    println!(
+        "║  Tier    : {}",
+        tier.map_or("ALL".to_string(), |t| format!("Tier {}", t))
+    );
+    println!(
+        "║  Time    : {}m {}s",
+        elapsed.as_secs() / 60,
+        elapsed.as_secs() % 60
+    );
     println!("║  Result  : {}/{} ({:.1}%)", passed, total, pct);
     println!("║  AvgFix  : {:.1} repairs/success", avg_r);
     println!("╠══════════════════════════════════════════════════════════════╣");
@@ -770,23 +811,37 @@ fn print_results(
     sorted.sort_by_key(|(k, _)| *k);
 
     for (feature, (p, t)) in &sorted {
-        let fpct = if *t > 0 { (*p as f64 / *t as f64) * 100.0 } else { 0.0 };
+        let fpct = if *t > 0 {
+            (*p as f64 / *t as f64) * 100.0
+        } else {
+            0.0
+        };
         let filled = (fpct / 10.0) as usize;
         let bar_raw = format!("{}{}", "█".repeat(filled), "░".repeat(10 - filled));
-        let bar = if fpct >= 80.0 { bar_raw.green().to_string() }
-                  else if fpct >= 50.0 { bar_raw.yellow().to_string() }
-                  else { bar_raw.red().to_string() };
+        let bar = if fpct >= 80.0 {
+            bar_raw.green().to_string()
+        } else if fpct >= 50.0 {
+            bar_raw.yellow().to_string()
+        } else {
+            bar_raw.red().to_string()
+        };
         println!("║  {:<38} {} {}/{}", feature, bar, p, t);
     }
 
     println!("╠══════════════════════════════════════════════════════════════╣");
 
     let verdict = if pct >= 90.0 {
-        format!("  {} STABLE — ready for v7.4 planning", "✅".green())
+        format!("  {} STABLE — ready for v7.5 planning", "✅".green())
     } else if pct >= 70.0 {
-        format!("  {} FUNCTIONAL — investigate failures before proceeding", "⚠️".yellow())
+        format!(
+            "  {} FUNCTIONAL — investigate failures before proceeding",
+            "⚠️".yellow()
+        )
     } else {
-        format!("  {} UNSTABLE — fix issues before any new feature", "❌".red())
+        format!(
+            "  {} UNSTABLE — fix issues before any new feature",
+            "❌".red()
+        )
     };
 
     println!("║  {}  ║", verdict);

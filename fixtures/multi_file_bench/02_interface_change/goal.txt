@@ -1,0 +1,1 @@
+Goal: Change public API of User (rename field `name` -> `full_name`) and fix callers.

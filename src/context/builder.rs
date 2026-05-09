@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub const MAX_REPAIR_TOKENS: usize = 8_000;
-pub const MAX_CONTEXT_FILES: usize = 50; 
+pub const MAX_CONTEXT_FILES: usize = 50;
 const CHARS_PER_TOKEN: usize = 4;
 const MIN_SCORE: u8 = 2;
 const SMALL_FILE_LINES: usize = 200;
@@ -51,20 +51,36 @@ pub struct BudgetReport {
 
 impl BudgetReport {
     pub fn reduction_pct(&self) -> u8 {
-        if self.tokens_before == 0 { return 0; }
+        if self.tokens_before == 0 {
+            return 0;
+        }
         let saved = self.tokens_before.saturating_sub(self.tokens_after);
         ((saved * 100) / self.tokens_before) as u8
     }
 
     pub fn print(&self) {
         println!("\n📊 Context Budget:");
-        println!("  Files:  {} total → {} selected", self.total_files, self.selected_files);
-        println!("  Tokens: {} → {} (-{}%)", self.tokens_before, self.tokens_after, self.reduction_pct());
+        println!(
+            "  Files:  {} total → {} selected",
+            self.total_files, self.selected_files
+        );
+        println!(
+            "  Tokens: {} → {} (-{}%)",
+            self.tokens_before,
+            self.tokens_after,
+            self.reduction_pct()
+        );
     }
 }
 
-pub fn select_repair_files(workspace_files: &[PathBuf], ctx: &RepairContext) -> (Vec<ScoredFile>, BudgetReport) {
-    let mut scored: Vec<ScoredFile> = workspace_files.iter().filter_map(|path| read_and_score(path, ctx)).collect();
+pub fn select_repair_files(
+    workspace_files: &[PathBuf],
+    ctx: &RepairContext,
+) -> (Vec<ScoredFile>, BudgetReport) {
+    let mut scored: Vec<ScoredFile> = workspace_files
+        .iter()
+        .filter_map(|path| read_and_score(path, ctx))
+        .collect();
     scored.sort_by(|a, b| b.score.cmp(&a.score));
 
     let total_files = scored.len();
@@ -74,9 +90,13 @@ pub fn select_repair_files(workspace_files: &[PathBuf], ctx: &RepairContext) -> 
     let mut tokens_after = 0usize;
 
     for file in scored {
-        if file.score < MIN_SCORE { break; }
+        if file.score < MIN_SCORE {
+            break;
+        }
         let file_tokens = estimate_tokens(&file.content);
-        if tokens_after + file_tokens > ctx.max_tokens { break; }
+        if tokens_after + file_tokens > ctx.max_tokens {
+            break;
+        }
         tokens_after += file_tokens;
         selected.push(file);
     }
@@ -99,7 +119,15 @@ pub fn select_repair_files(workspace_files: &[PathBuf], ctx: &RepairContext) -> 
     }
 
     let selected_files = selected.len();
-    (selected, BudgetReport { total_files, selected_files, tokens_before, tokens_after })
+    (
+        selected,
+        BudgetReport {
+            total_files,
+            selected_files,
+            tokens_before,
+            tokens_after,
+        },
+    )
 }
 
 fn read_and_score(path: &Path, ctx: &RepairContext) -> Option<ScoredFile> {
@@ -111,16 +139,29 @@ fn read_and_score(path: &Path, ctx: &RepairContext) -> Option<ScoredFile> {
             match get_file_content_smart(path, &locs) {
                 Ok(SmartContent::Chunk(chunk)) => format!(
                     "// ⚠️ CHUNKED: {} ({} lines, showing {}-{})\n{}",
-                    path.display(), line_count, chunk.start_line, chunk.end_line, chunk.content
+                    path.display(),
+                    line_count,
+                    chunk.start_line,
+                    chunk.end_line,
+                    chunk.content
                 ),
                 Ok(SmartContent::FullFile(c)) => c,
                 Err(_) => raw,
             }
-        } else { raw }
-    } else { raw };
-    
+        } else {
+            raw
+        }
+    } else {
+        raw
+    };
+
     let (score, reasons) = compute_score(path, &content, ctx);
-    Some(ScoredFile { path: path.to_path_buf(), content, score, reasons })
+    Some(ScoredFile {
+        path: path.to_path_buf(),
+        content,
+        score,
+        reasons,
+    })
 }
 
 fn compute_score(path: &Path, content: &str, ctx: &RepairContext) -> (u8, Vec<String>) {
@@ -129,43 +170,59 @@ fn compute_score(path: &Path, content: &str, ctx: &RepairContext) -> (u8, Vec<St
     let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
 
     if let Some(ref config) = ctx.context_config {
-        if config.focus_paths.iter().any(|fp| path.to_string_lossy().contains(fp)) {
+        if config
+            .focus_paths
+            .iter()
+            .any(|fp| path.to_string_lossy().contains(fp))
+        {
             score += 10;
             reasons.push("focus path".to_string());
         }
     }
 
     if ctx.culprit_files.iter().any(|c| c == filename) {
-        score += 8; reasons.push("culprit file".to_string());
+        score += 8;
+        reasons.push("culprit file".to_string());
     }
     if ctx.stderr.contains(filename) {
-        score += 5; reasons.push("mentioned in error".to_string());
+        score += 5;
+        reasons.push("mentioned in error".to_string());
     }
     if ctx.recent_edits.contains(&path.to_path_buf()) {
-        score += 3; reasons.push("recently edited".to_string());
+        score += 3;
+        reasons.push("recently edited".to_string());
     }
     if imports_errored_file(content, &ctx.stderr) {
-        score += 2; reasons.push("imports errored file".to_string());
+        score += 2;
+        reasons.push("imports errored file".to_string());
     }
     if content.lines().count() < SMALL_FILE_LINES {
-        score += 1; reasons.push("small file".to_string());
+        score += 1;
+        reasons.push("small file".to_string());
     }
 
     (score, reasons)
 }
 
 fn imports_errored_file(content: &str, stderr: &str) -> bool {
-    let errored_stems: Vec<&str> = stderr.split_whitespace()
+    let errored_stems: Vec<&str> = stderr
+        .split_whitespace()
         .filter(|w| w.contains('.'))
         .filter_map(|w| {
             let clean = w.trim_matches(|c: char| !c.is_alphanumeric() && c != '_' && c != '.');
             clean.split('.').next()
-        }).collect();
+        })
+        .collect();
 
     for stem in &errored_stems {
         for line in content.lines().take(30) {
             let line = line.trim();
-            if (line.starts_with("use ") || line.starts_with("import ") || line.starts_with("from ") || line.contains("require(")) && line.contains(stem) {
+            if (line.starts_with("use ")
+                || line.starts_with("import ")
+                || line.starts_with("from ")
+                || line.contains("require("))
+                && line.contains(stem)
+            {
                 return true;
             }
         }
@@ -180,7 +237,11 @@ pub fn estimate_tokens(text: &str) -> usize {
 pub fn read_ref_file(ref_file: &Path) -> Option<String> {
     match std::fs::read_to_string(ref_file) {
         Ok(content) => {
-            println!("📄 Loaded ref file: {} ({} lines)", ref_file.display(), content.lines().count());
+            println!(
+                "📄 Loaded ref file: {} ({} lines)",
+                ref_file.display(),
+                content.lines().count()
+            );
             Some(content)
         }
         Err(e) => {

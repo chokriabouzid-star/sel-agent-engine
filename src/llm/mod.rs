@@ -1,0 +1,145 @@
+// src/llm/mod.rs
+pub mod live;
+pub mod record;
+pub mod replay;
+pub mod quota;
+pub mod spo;
+pub mod pattern_memory;
+
+
+use crate::types::Message;
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LLMRequest {
+    pub system: String,
+    pub messages: Vec<Message>,
+    pub temperature: f32,
+    pub seed: Option<u64>,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LLMResponse {
+    pub content: String,
+    pub tokens_in: u32,
+    pub tokens_out: u32,
+    pub finish_reason: String,
+    #[serde(default)]
+    pub provider_model: Option<String>,
+    #[serde(default)]
+    pub provider_used: String,
+    #[serde(default)]
+    pub task_kind: String,
+    #[serde(default)]
+    pub spo_version: String,
+}
+
+pub const SYSTEM_PROMPT: &str = r#"You are SEL Agent, an autonomous execution engine.
+CRITICAL: Respond ONLY with a valid JSON object matching the schema below. No markdown text outside the JSON block.
+
+SCHEMA:
+{"version":"1.0","commands":[
+  {"type":"run","command":"..."},
+  {"type":"write_file","path":"...","content":"..."},
+  {"type":"run_tests","target":"..."},
+  {"type":"patch_file","path":"...","search":"...","replace":"..."},
+  {"type":"done","message":"..."}
+]}
+
+RULES:
+- Python: Use venv/bin/pytest
+- Rust: run_tests target MUST be "cargo"
+- Rust: cargo new creates dummy src/lib.rs. ALWAYS use write_file to completely overwrite it, NEVER patch it.
+- Go: run_tests target MUST be "go", ALWAYS import "fmt"/"errors" if used
+- TS/Node: run_tests target MUST be "npm test"
+- STRONG TESTS: Write comprehensive tests with both positive and negative cases.
+
+JSON SAFETY — MANDATORY:
+1. Use \n for newlines inside content strings, NEVER raw line breaks.
+2. Use \" for quotes inside content, NEVER unescaped quotes.
+3. NEVER put arrow functions (=>) inside JSON content strings.
+4. Keep each content value SHORT (< 200 chars per line).
+5. For complex files: split into multiple write_file commands.
+6. NEVER use raw template literals (`...`) inside JSON strings.
+
+SPEC FILE PROTECTION — MANDATORY:
+- NEVER modify existing test files (test_*.py, *_test.go, *.test.ts, *.spec.ts).
+- If tests fail, fix the SOURCE code, NOT the tests.
+- Creating NEW test files is allowed; modifying EXISTING ones is FORBIDDEN.
+"#;
+
+#[derive(Debug, Clone, Default)]
+pub struct LlmCallStats {
+    pub retries: u32,
+    pub connection_errors: u32,
+    pub rate_limits: u32,
+    pub timeouts: u32,
+    pub total_latency_ms: u64,
+    pub tokens_in: u32,
+    pub tokens_out: u32,
+    pub successful_calls: u32,
+    pub last_model: String,
+}
+
+#[async_trait]
+pub trait LLMProvider: Send + Sync {
+    async fn complete(&self, req: LLMRequest) -> anyhow::Result<LLMResponse>;
+    fn mode(&self) -> &'static str;
+    fn get_stats(&self) -> LlmCallStats {
+        LlmCallStats::default()
+    }
+}
+
+pub fn classify_json_error(reason: &str) -> String {
+    if reason.contains("No ```json") || reason.contains("json block") {
+        "⚠️  [النموذج] رد بنص بدل JSON — إعادة بـ prompt مبسط".to_string()
+    } else if reason.contains("missing field") {
+        "⚠️  [النموذج] JSON ناقص حقل مطلوب".to_string()
+    } else {
+        format!(
+            "⚠️  [النموذج] فشل تحليل JSON — {}",
+            &reason[..reason.len().min(50)]
+        )
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ModelConfig {
+    pub model_id: String,
+    pub base_url: String,
+    pub env_key: String,
+}
+
+impl ModelConfig {
+    pub fn from_alias(alias: &str) -> Self {
+        match alias {
+            "kimi" | "kimi-k2" | "kimi-k2-instruct" => ModelConfig {
+                model_id: "moonshotai/kimi-k2-instruct-0905".to_string(),
+                base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
+                env_key: "GROQ_API_KEY".to_string(),
+            },
+            "llama" | "llama-70b" => ModelConfig {
+                model_id: "llama-3.3-70b-versatile".to_string(),
+                base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
+                env_key: "GROQ_API_KEY".to_string(),
+            },
+            "kimi-k2.5" | "kimi25" | "kimi-latest" => ModelConfig {
+                model_id: "kimi-k2.5".to_string(),
+                base_url: "https://api.moonshot.ai/v1/chat/completions".to_string(),
+                env_key: "MOONSHOT_API_KEY".to_string(),
+            },
+            "silicon" | "kimi-silicon" => ModelConfig {
+                model_id: "moonshotai/Kimi-K2.5".to_string(),
+                base_url: "https://api.siliconflow.cn/v1/chat/completions".to_string(),
+                env_key: "SILICONFLOW_API_KEY".to_string(),
+            },
+            _ => ModelConfig {
+                model_id: alias.to_string(),
+                base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
+                env_key: "GROQ_API_KEY".to_string(),
+            },
+        }
+    }
+}

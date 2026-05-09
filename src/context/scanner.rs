@@ -55,7 +55,8 @@ impl Scanner {
         let framework_bonus: f32 = if test_framework.is_some() { 0.1 } else { 0.0 };
 
         // 4. confidence
-        let confidence = (base_confidence + entry_bonus + test_bonus + framework_bonus).min(1.0_f32);
+        let confidence =
+            (base_confidence + entry_bonus + test_bonus + framework_bonus).min(1.0_f32);
 
         // 5. commands
         let (build_cmd, test_cmd) = Self::infer_commands(&language, &test_framework);
@@ -98,7 +99,12 @@ impl Scanner {
             return (Language::TypeScript, None, 0.4);
         }
 
-        let py_manifests = ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"];
+        let py_manifests = [
+            "pyproject.toml",
+            "setup.py",
+            "setup.cfg",
+            "requirements.txt",
+        ];
         for name in &py_manifests {
             let p = workspace.join(name);
             if p.exists() {
@@ -134,14 +140,22 @@ impl Scanner {
         match language {
             Language::Rust => {
                 let tests_dir = workspace.join("tests");
-                let has = tests_dir.exists() || Self::dir_contains_pattern(workspace.join("src"), "#[test]");
-                let framework = if has { Some("cargo test".to_string()) } else { None };
+                let has = tests_dir.exists()
+                    || Self::dir_contains_pattern(workspace.join("src"), "#[test]");
+                let framework = if has {
+                    Some("cargo test".to_string())
+                } else {
+                    None
+                };
                 (has, framework)
             }
             Language::Python => {
-                let pytest_ini = ["pytest.ini", "pyproject.toml", "setup.cfg"].iter().any(|f| workspace.join(f).exists());
+                let pytest_ini = ["pytest.ini", "pyproject.toml", "setup.cfg"]
+                    .iter()
+                    .any(|f| workspace.join(f).exists());
                 let tests_dir = workspace.join("tests").exists() || workspace.join("test").exists();
-                let has_test_files = Self::has_files_matching(workspace, "test_") || Self::has_files_matching(workspace, "_test.py");
+                let has_test_files = Self::has_files_matching(workspace, "test_")
+                    || Self::has_files_matching(workspace, "_test.py");
 
                 if pytest_ini || tests_dir || has_test_files {
                     (true, Some("pytest".to_string()))
@@ -151,7 +165,11 @@ impl Scanner {
             }
             Language::Go => {
                 let has = Self::has_files_matching(workspace, "_test.go");
-                let framework = if has { Some("go test".to_string()) } else { None };
+                let framework = if has {
+                    Some("go test".to_string())
+                } else {
+                    None
+                };
                 (has, framework)
             }
             Language::Node | Language::TypeScript => {
@@ -159,7 +177,13 @@ impl Scanner {
                 if pkg.exists() {
                     if let Ok(content) = fs::read_to_string(&pkg) {
                         if content.contains("\"test\"") {
-                            let fw = if content.contains("jest") { "jest" } else if content.contains("mocha") { "mocha" } else { "npm test" };
+                            let fw = if content.contains("jest") {
+                                "jest"
+                            } else if content.contains("mocha") {
+                                "mocha"
+                            } else {
+                                "npm test"
+                            };
                             return (true, Some(fw.to_string()));
                         }
                     }
@@ -170,14 +194,32 @@ impl Scanner {
         }
     }
 
-    fn infer_commands(language: &Language, test_framework: &Option<String>) -> (Option<String>, Option<String>) {
+    fn infer_commands(
+        language: &Language,
+        test_framework: &Option<String>,
+    ) -> (Option<String>, Option<String>) {
         match language {
-            Language::Rust => (Some("cargo build --release".to_string()), Some("cargo test".to_string())),
-            Language::Python => (None, test_framework.clone().or_else(|| Some("pytest".to_string()))),
-            Language::Go => (Some("go build ./...".to_string()), Some("go test ./...".to_string())),
+            Language::Rust => (
+                Some("cargo build --release".to_string()),
+                Some("cargo test".to_string()),
+            ),
+            Language::Python => (
+                None,
+                test_framework
+                    .clone()
+                    .or_else(|| Some("pytest".to_string())),
+            ),
+            Language::Go => (
+                Some("go build ./...".to_string()),
+                Some("go test ./...".to_string()),
+            ),
             Language::Node | Language::TypeScript => (
                 Some("npm install && npm run build".to_string()),
-                Some(test_framework.clone().unwrap_or_else(|| "npm test".to_string())),
+                Some(
+                    test_framework
+                        .clone()
+                        .unwrap_or_else(|| "npm test".to_string()),
+                ),
             ),
             Language::Unknown => (None, None),
         }
@@ -189,21 +231,31 @@ impl Scanner {
 
     fn has_files_with_ext(dir: &Path, ext: &str) -> bool {
         fs::read_dir(dir).ok().is_some_and(|entries| {
-            entries.filter_map(|e| e.ok()).any(|e| e.path().extension().and_then(|x| x.to_str()) == Some(ext))
+            entries
+                .filter_map(|e| e.ok())
+                .any(|e| e.path().extension().and_then(|x| x.to_str()) == Some(ext))
         })
     }
 
     fn has_files_matching(dir: &Path, pattern: &str) -> bool {
-        Self::walk_dir(dir, 3).iter().any(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.contains(pattern)))
+        Self::walk_dir(dir, 3).iter().any(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.contains(pattern))
+        })
     }
 
     fn dir_contains_pattern(dir: PathBuf, pattern: &str) -> bool {
-        Self::walk_dir(&dir, 2).iter().any(|p| fs::read_to_string(p).is_ok_and(|content| content.contains(pattern)))
+        Self::walk_dir(&dir, 2)
+            .iter()
+            .any(|p| fs::read_to_string(p).is_ok_and(|content| content.contains(pattern)))
     }
 
     fn walk_dir(dir: &Path, max_depth: usize) -> Vec<PathBuf> {
         let mut results = Vec::new();
-        if max_depth == 0 || !dir.is_dir() { return results; }
+        if max_depth == 0 || !dir.is_dir() {
+            return results;
+        }
         if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.filter_map(|e| e.ok()) {
                 let path = entry.path();

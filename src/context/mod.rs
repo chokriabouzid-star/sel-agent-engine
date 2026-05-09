@@ -1,5 +1,5 @@
-pub mod scanner;
 pub mod builder;
+pub mod scanner;
 
+pub use builder::read_ref_file;
 pub use scanner::Scanner;
-pub use builder::{RepairContext, select_repair_files, read_ref_file, MAX_REPAIR_TOKENS};

@@ -9,11 +9,11 @@
 //! الترتيب مهم:
 //! 1️⃣ environment::enforce → 2️⃣ config::deduplicate → 3️⃣ dependencies::normalize
 
-use crate::protocol::Cmd;
 use crate::context::Scanner;
+use crate::protocol::Cmd;
 use serde_json::Value;
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 // ============================================================================
 // أنواع البيانات الأساسية
@@ -38,14 +38,15 @@ impl ProjectEnv {
         if workspace.join("go.mod").exists() {
             return ProjectEnv::Go;
         }
-        if workspace.join("requirements.txt").exists()
-            || workspace.join("pyproject.toml").exists()
+        if workspace.join("requirements.txt").exists() || workspace.join("pyproject.toml").exists()
         {
             return ProjectEnv::Python;
         }
         if workspace.join("package.json").exists() {
             let has_ts = Scanner::has_ts_files(workspace);
-            return ProjectEnv::Node { has_typescript: has_ts };
+            return ProjectEnv::Node {
+                has_typescript: has_ts,
+            };
         }
         ProjectEnv::Unknown
     }
@@ -336,7 +337,9 @@ fn normalize_package_json(content: &str, state: &ProjectState, env: &ProjectEnv)
     } else {
         // إذا كان هناك jest.config.js، نزيل jest field من package.json
         if json.get("jest").is_some() {
-            eprintln!("🔒 Constraint: removing 'jest' field from package.json (jest.config.js exists)");
+            eprintln!(
+                "🔒 Constraint: removing 'jest' field from package.json (jest.config.js exists)"
+            );
             json.as_object_mut().and_then(|obj| obj.remove("jest"));
         }
     }
@@ -442,11 +445,7 @@ fn check_fatal(plan: &[Cmd], env: &ProjectEnv) -> Option<String> {
 // ============================================================================
 
 /// نقطة الدخول الرئيسية لتطبيق القيود
-pub fn apply(
-    plan: Vec<Cmd>,
-    env: &ProjectEnv,
-    state: &ProjectState,
-) -> ConstraintResult {
+pub fn apply(plan: Vec<Cmd>, env: &ProjectEnv, state: &ProjectState) -> ConstraintResult {
     // 1. فحص fatal أولاً
     if let Some(reason) = check_fatal(&plan, env) {
         return ConstraintResult::Fatal(reason);
@@ -459,7 +458,10 @@ pub fn apply(
     let mut processed = Vec::new();
     for cmd in plan {
         match cmd {
-            Cmd::WriteFile { ref path, ref content } => {
+            Cmd::WriteFile {
+                ref path,
+                ref content,
+            } => {
                 if let Some(new_cmd) = intercept_write_file(path, content, state, env) {
                     processed.push(new_cmd);
                 }

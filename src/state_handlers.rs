@@ -1,0 +1,675 @@
+// src/state_handlers.rs — v7.6: State Handlers
+use crate::executor::SafeExecutor;
+use crate::llm::{LLMProvider, LLMRequest};
+use crate::protocol::Cmd;
+use crate::types::{AgentState, ContextConfig, ExecutionContext, FailedStep, FailureKind, Message};
+use anyhow::Result;
+use std::path::Path;
+
+// ══════════════════════════════════════════════════════
+// PLANNING
+// ══════════════════════════════════════════════════════
+
+pub async fn do_planning(
+    ctx: &mut ExecutionContext,
+    llm: &dyn LLMProvider,
+    goal: &str,
+    workspace: &Path,
+    config: &ContextConfig,
+) -> Result<(Vec<Cmd>, AgentState)> {
+    if let Some(reason) = crate::decision::validate_goal(goal) {
+        return Ok((Vec::new(), AgentState::Failed(reason.to_string())));
+    }
+
+    let elapsed = ctx.start_time.map(|s| s.elapsed().as_secs_f32()).unwrap_or(0.0);
+    eprintln!("\n[{:.1}s] 🧠 Planning...", elapsed);
+    let ecm = crate::environment::EnvironmentCapabilities::probe();
+    let prompt = build_planning_prompt(goal, workspace, config, &ecm);
+
+    match plan_with_resilience(llm, prompt).await {
+        Ok(commands) => {
+            let commands_count = commands.len();
+            let env = crate::constraint_engine::ProjectEnv::detect(workspace);
+            let state = crate::constraint_engine::ProjectState::scan(workspace);
+            let commands = match crate::constraint_engine::apply(commands, &env, &state) {
+                crate::constraint_engine::ConstraintResult::Ok(filtered) => {
+                    if filtered.len() < commands_count {
+                        println!(
+                            "   🛡️ Constraint Engine: filtered {} commands",
+                            commands_count - filtered.len()
+                        );
+                    }
+                    filtered
+                }
+                crate::constraint_engine::ConstraintResult::Fatal(reason) => {
+                    println!("   ⛔ Constraint Engine: {}", reason);
+                    return Ok((Vec::new(), AgentState::Failed(reason)));
+                }
+            };
+            println!("   ✓ {} commands", commands.len());
+
+            let mut issues = crate::decision::validate_plan_integrity(&commands);
+            let patch_issues = crate::decision::validate_patch_uniqueness(workspace, &commands);
+            issues.extend(patch_issues);
+
+            if !issues.is_empty() {
+                match replan_with_feedback(ctx, llm, goal, workspace, config, commands, issues)
+                    .await
+                {
+                    Ok(valid_commands) => {
+                        println!("   ✓ Final plan: {} commands\n", valid_commands.len());
+                        Ok((valid_commands, AgentState::Executing))
+                    }
+                    Err(e) => {
+                        println!("   ❌ Replan failed: {}", e);
+                        Ok((Vec::new(), AgentState::Failed(e)))
+                    }
+                }
+            } else {
+                println!("   ✓ All patches unique\n");
+                Ok((commands, AgentState::Executing))
+            }
+        }
+        Err(e) => {
+            println!("   ❌ Plan parse failed: {}", e);
+            Ok((Vec::new(), AgentState::Failed(e)))
+        }
+    }
+}
+
+fn build_planning_prompt(
+    goal: &str,
+    workspace: &Path,
+    config: &ContextConfig,
+    ecm: &crate::environment::EnvironmentCapabilities,
+) -> String {
+    let env_context = ecm.to_planning_context();
+    let constraints = ecm.derive_constraints();
+    let lang_hint = crate::decision::build_lang_hint(workspace);
+    let ws_ctx = crate::decision::build_workspace_context(workspace);
+    let existing_files = if !ws_ctx.is_empty() {
+        ws_ctx
+    } else if config.ref_file.is_some() {
+        crate::decision::build_skeleton_context(workspace)
+    } else {
+        String::new()
+    };
+
+    let ref_context = crate::decision::build_ref_context(config);
+
+    crate::constitution::CONSTITUTION.to_string()
+        + &format!(
+            "{}{}{}\n{}\n{}\nGoal: {}\nProvide the complete execution plan.",
+            existing_files, ref_context, lang_hint, env_context, constraints, goal
+        )
+}
+
+async fn plan_with_resilience(
+    llm: &dyn LLMProvider,
+    base_prompt: String,
+) -> Result<Vec<Cmd>, String> {
+    const MAX_RETRIES: u8 = 2;
+    let mut last_error = String::new();
+    for attempt in 0..=MAX_RETRIES {
+        let prompt = if attempt == 0 {
+            base_prompt.clone()
+        } else {
+            let error_msg = if last_error.is_empty() {
+                "previous response could not be parsed.".to_string()
+            } else {
+                last_error.clone()
+            };
+
+            let specific_guidance = if error_msg.contains("PLAN ERROR") {
+                "\n\n🚨 CRITICAL ERROR — PLAN REJECTED 🚨\nYour plan is MISSING the required run_tests command.\nYou MUST add this command BEFORE done:\n{\"type\": \"run_tests\", \"target\": \"auto\"}\nDo NOT omit it. Do NOT change anything else."
+            } else {
+                ""
+            };
+
+            format!(
+                "{}\n\n                     WARNING — PROTOCOL RETRY {}/{}: {}\n                     STRICT RULES:{} \n                     1. Output ONLY a ```json block — zero text outside it.\n                     2. Keep all content strings SHORT (< 40 chars per line).\n                     3. Use ONLY single quotes inside Python/shell code.\n                     4. No raw newlines inside JSON strings — use \\n instead.\n                     5. No special characters that break JSON strings.",
+                base_prompt, attempt, MAX_RETRIES, error_msg, specific_guidance
+            )
+        };
+
+        let req = LLMRequest {
+            system: crate::llm::SYSTEM_PROMPT.to_string(),
+            messages: vec![Message::user(prompt)],
+            temperature: 0.1,
+            seed: Some(42),
+            model: "default".into(),
+        };
+
+        match llm.complete(req).await {
+            Ok(response) => match crate::protocol::parse(&response.content) {
+                Ok(mut plan) => {
+                    if let Err(e) = crate::protocol::validate_test_order(&mut plan) {
+                        if attempt < MAX_RETRIES {
+                            last_error = format!("PLAN ERROR: {}", e);
+                            println!("   🔄 {}", last_error);
+                        } else {
+                            return Err(format!("Plan validation failed: {}", e));
+                        }
+                    } else {
+                        if attempt > 0 {
+                            println!("   ✅ Protocol retry {} succeeded.", attempt);
+                        }
+                        return Ok(plan.commands);
+                    }
+                }
+                Err(e) => {
+                    if attempt < MAX_RETRIES {
+                        let err_msg = e.to_string();
+                        last_error = err_msg.clone();
+                        println!(
+                            "   {} (attempt {}/{})",
+                            crate::llm::classify_json_error(&err_msg),
+                            attempt + 1,
+                            MAX_RETRIES + 1
+                        );
+                    } else {
+                        return Err(format!(
+                            "JSON parse failed after {} attempts: {}",
+                            MAX_RETRIES + 1,
+                            e
+                        ));
+                    }
+                }
+            },
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    unreachable!()
+}
+
+fn replan_with_feedback<'a>(
+    ctx: &'a mut ExecutionContext,
+    llm: &'a dyn LLMProvider,
+    goal: &'a str,
+    workspace: &'a Path,
+    config: &'a ContextConfig,
+    original_plan: Vec<Cmd>,
+    issues: Vec<String>,
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = std::result::Result<Vec<Cmd>, String>> + Send + 'a>,
+> {
+    Box::pin(async move {
+        ctx.replan_attempts += 1;
+        if ctx.replan_attempts > 2 {
+            println!("   ⚠ Max replan attempts (2) reached — proceeding with original plan");
+            return Ok(original_plan);
+        }
+        println!(
+            "\n   🔄 v5.6 Replan {}/2 — patch uniqueness issues:",
+            ctx.replan_attempts
+        );
+        for issue in &issues {
+            println!("      • {}", issue);
+        }
+
+        let feedback = format!(
+            "PLAN REJECTED — patch_file uniqueness issues:\n{}\n\n\
+             MANDATORY RULES:\n\
+             1. Each patch_file search block must appear EXACTLY ONCE in the target file.\n\
+             2. If search block not found → file does not exist yet, use write_file instead.\n\
+             3. If found multiple times → add more surrounding context lines to make it unique.\n\
+             4. Copy search text VERBATIM from the file (case-sensitive, exact whitespace).\n\n\
+             Provide corrected execution plan.",
+            issues.join("\n")
+        );
+
+        let existing_files = if config.ref_file.is_some() {
+            crate::decision::build_skeleton_context(workspace)
+        } else {
+            String::new()
+        };
+        let ref_context = crate::decision::build_ref_context(config);
+        let lang_hint = crate::decision::build_lang_hint(workspace);
+        let prompt = crate::constitution::CONSTITUTION.to_string()
+            + &format!(
+                "{}{}{}\nGoal: {}\n\nFEEDBACK:\n{}",
+                existing_files, ref_context, lang_hint, goal, feedback
+            );
+
+        match plan_with_resilience(llm, prompt).await {
+            Ok(new_plan) => {
+                let new_issues = crate::decision::validate_patch_uniqueness(workspace, &new_plan);
+                if new_issues.is_empty() {
+                    println!("   ✅ v5.6 Replan successful — all patches unique");
+                    Ok(new_plan)
+                } else {
+                    replan_with_feedback(ctx, llm, goal, workspace, config, new_plan, new_issues)
+                        .await
+                }
+            }
+            Err(e) => Err(e),
+        }
+    })
+}
+
+// ══════════════════════════════════════════════════════
+// EXECUTING
+// ══════════════════════════════════════════════════════
+
+pub async fn do_executing(
+    ctx: &mut ExecutionContext,
+    executor: &SafeExecutor,
+    plan: &[Cmd],
+) -> Result<AgentState> {
+    ctx.reset_for_repair();
+    let total = plan.len();
+    let mut i = 0;
+
+    while i < total {
+        let cmd = &plan[i];
+        let elapsed = ctx.start_time.map(|s| s.elapsed().as_secs_f32()).unwrap_or(0.0);
+        eprintln!("[{:.1}s] Executing → step {}/{} ({})", elapsed, i + 1, total, cmd.label());
+
+        let cmd_hash = cmd.hash();
+        let is_pip = cmd.label().contains("pip");
+        let venv_ok = executor.workspace.join("venv/bin/pip3").exists()
+            || executor.workspace.join("venv/bin/pip").exists();
+        let is_cargo_test =
+            cmd.label().contains("cargo test") || cmd.label().contains("cargo check");
+
+        let skip_allowed = !cmd.is_run_tests()
+            && !cmd.is_write_file()
+            && !cmd.is_patch_file()
+            && !is_cargo_test
+            && !(is_pip && !venv_ok);
+
+        if ctx.successful_hashes.contains(&cmd_hash) && skip_allowed {
+            println!("   ⏭ Skipping: {} (already passed)", cmd.label());
+            i += 1;
+            continue;
+        }
+
+        if cmd.is_done() {
+            if ctx.tests_passed {
+                // Mutation Check v1.3
+                if let Some(fail) = run_mutation_check(ctx, executor).await {
+                    ctx.failed_steps.push(fail);
+                    return Ok(AgentState::Repairing);
+                } else {
+                    ctx.save_hashes(&executor.workspace);
+                    let msg = if let Cmd::Done { message } = cmd {
+                        message
+                    } else {
+                        "Goal complete"
+                    };
+                    println!(
+                        "\n✅ {}",
+                        if msg.is_empty() {
+                            "Goal complete!"
+                        } else {
+                            msg
+                        }
+                    );
+                    println!("SEL_SUCCESS");
+                    return Ok(AgentState::Done);
+                }
+            } else {
+                println!("   ⛔ done rejected — tests must pass first");
+                ctx.failed_steps.push(FailedStep {
+                    step_index: i,
+                    label: cmd.label(),
+                    stderr: "done blocked: tests_passed = false".into(),
+                    exit_code: 1,
+                    culprit_file: None,
+                });
+                return Ok(AgentState::Repairing);
+            }
+        }
+
+        match executor.run(cmd).await {
+            Ok(r) if r.success => {
+                let preview: String = r.stdout.chars().take(80).collect();
+                if preview.is_empty() {
+                    println!("   ✓ ({} ms)", r.duration_ms);
+                } else {
+                    println!("   ✓ ({} ms) → {}", r.duration_ms, preview);
+                }
+
+                if cmd.is_run_tests() {
+                    ctx.tests_passed = true;
+                }
+                if let Cmd::Run { command } = cmd {
+                    let lc = command.to_lowercase();
+                    if (lc.contains("cargo test")
+                        || lc.contains("go test")
+                        || lc.contains("pytest")
+                        || lc.contains("npm test"))
+                        && (r.stdout.contains("passed") || r.stdout.contains("ok"))
+                    {
+                        ctx.tests_passed = true;
+                    }
+                }
+                ctx.successful_hashes.insert(cmd_hash);
+            }
+            Ok(r) => {
+                let err: String = r.stderr.chars().take(3000).collect();
+                println!("   ✗ {}", err);
+                if cmd.is_run_tests() {
+                    ctx.tests_passed = false;
+                }
+                ctx.failed_steps.push(FailedStep {
+                    step_index: i,
+                    label: cmd.label(),
+                    stderr: err.clone(),
+                    exit_code: r.exit_code,
+                    culprit_file: FailedStep::extract_culprit(&err),
+                });
+                return Ok(AgentState::Repairing);
+            }
+            Err(e) => return Err(e),
+        }
+        i += 1;
+    }
+
+    if ctx.tests_passed {
+        if let Some(fail) = run_mutation_check(ctx, executor).await {
+            ctx.failed_steps.push(fail);
+            return Ok(AgentState::Repairing);
+        } else {
+            ctx.save_hashes(&executor.workspace);
+            println!("\n✅ Goal complete! Tests passed.");
+            println!("SEL_SUCCESS");
+            return Ok(AgentState::Done);
+        }
+    } else {
+        Ok(AgentState::Repairing)
+    }
+}
+
+async fn run_mutation_check(
+    ctx: &mut ExecutionContext,
+    executor: &SafeExecutor,
+) -> Option<FailedStep> {
+    if ctx.skip_mutation {
+        return None;
+    }
+    let ws = &executor.workspace;
+
+    let files: Vec<String> = walkdir::WalkDir::new(ws)
+        .max_depth(3)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_file())
+        .map(|e| {
+            e.path()
+                .strip_prefix(ws)
+                .unwrap()
+                .to_string_lossy()
+                .to_string()
+        })
+        .filter(|f: &String| {
+            !f.contains("test")
+                && !f.contains("venv")
+                && !f.contains("node_modules")
+                && (f.ends_with(".py")
+                    || f.ends_with(".go")
+                    || f.ends_with(".rs")
+                    || f.ends_with(".js")
+                    || f.ends_with(".ts"))
+        })
+        .collect();
+
+    if files.is_empty() {
+        return None;
+    }
+
+    println!("   🧬 Mutation Check...");
+    for src in &files {
+        match executor.mutation_check(src).await {
+            crate::executor::MutationResult::Weak(orig_line, mutd_line) => {
+                ctx.mutations_total += 1;
+                println!("     Survived mutation: [{}] → [{}]", orig_line, mutd_line);
+                ctx.last_mutation_context = Some(crate::types::MutationContext {
+                    surviving: format!(
+                        "File: {}\nOriginal: {}\nMutation: {}",
+                        src, orig_line, mutd_line
+                    ),
+                });
+                return Some(FailedStep {
+                    step_index: 0,
+                    label: "mutation_check".into(),
+                    stderr: format!(
+                        "Mutation survived in {}: tests didn't catch change from '{}' to '{}'",
+                        src, orig_line, mutd_line
+                    ),
+                    exit_code: 1,
+                    culprit_file: Some(src.clone()),
+                });
+            }
+            crate::executor::MutationResult::Strong => {
+                ctx.mutations_total += 1;
+                ctx.mutations_killed += 1;
+            }
+            crate::executor::MutationResult::Skipped => {}
+        }
+    }
+    None
+}
+
+// ══════════════════════════════════════════════════════
+// REPAIRING
+// ══════════════════════════════════════════════════════
+
+pub async fn do_repairing(
+    ctx: &mut ExecutionContext,
+    llm: &dyn LLMProvider,
+    goal: &str,
+    workspace: &Path,
+    config: &ContextConfig,
+    repair_fingerprints: &mut Vec<u64>,
+    previous_error: &mut Option<String>,
+) -> Result<(Vec<Cmd>, AgentState)> {
+    let all_err = ctx
+        .failed_steps
+        .iter()
+        .map(|f| f.stderr.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let failure_kind = crate::failure::FailureKind::classify(&all_err);
+    ctx.current_failure_kind = Some(failure_kind.clone());
+
+    // InfraError Handling
+    if failure_kind == FailureKind::InfraError {
+        let infra_retries = ctx.repair_attempts;
+        if infra_retries >= 3 {
+            return Ok((
+                Vec::new(),
+                AgentState::Failed(
+                    "Infrastructure failure: network/API unavailable after 3 retries.".into(),
+                ),
+            ));
+        }
+        let wait = [15u64, 45, 120][infra_retries as usize];
+        println!(
+            "\n⚠️  Infra error — retry {}/3 in {}s (no LLM call)...",
+            infra_retries + 1,
+            wait
+        );
+        tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+        ctx.repair_attempts += 1;
+        return Ok((Vec::new(), AgentState::Executing));
+    }
+
+    ctx.repair_attempts += 1;
+    
+    let mut dynamic_max_repairs = ctx.max_repairs;
+    if goal.to_lowercase().contains("typescript") || goal.to_lowercase().contains("node.js") || goal.to_lowercase().contains("jest") {
+        dynamic_max_repairs = dynamic_max_repairs.max(5);
+    }
+
+    let repair_limit = match failure_kind {
+        FailureKind::PatchError => 2,
+        FailureKind::InfraError => 0,
+        _ => dynamic_max_repairs,
+    };
+    if ctx.repair_attempts > repair_limit {
+        let diagnostic = crate::diagnostic::DiagnosticEngine::analyze(&all_err)
+            .unwrap_or_else(|| "Unknown stubborn error.".to_string());
+        
+        let msg = format!("Max repair attempts ({}) reached.\nDiagnostic: {}", repair_limit, diagnostic);
+        return Ok((
+            Vec::new(),
+            AgentState::WaitingForUserInput(msg),
+        ));
+    }
+
+    let elapsed = ctx.start_time.map(|s| s.elapsed().as_secs_f32()).unwrap_or(0.0);
+    eprintln!(
+        "\n[{:.1}s] 🔧 Repairing (Attempt {}/{})...",
+        elapsed, ctx.repair_attempts, repair_limit
+    );
+
+    // Pre-Repair Checklist v7.6
+    let mut fix_plan = Vec::new();
+    if let crate::decision::ChecklistResult::Handled =
+        crate::decision::pre_repair_checklist(&mut fix_plan, ctx, workspace)
+    {
+        println!("   ✨ Checklist Fix: applied deterministic repair");
+        return Ok((fix_plan, AgentState::Executing));
+    }
+
+    // QuickFix v7.5
+    if let Some(fix) = crate::memory::quick_fix(&all_err) {
+        match fix {
+            crate::memory::QuickFix::InstallPackage { command } => {
+                println!("   ⚡ QuickFix: {}", command);
+                // We return this as a plan to execute
+                return Ok((vec![Cmd::Run { command }], AgentState::Executing));
+            }
+            crate::memory::QuickFix::AddGoImport { symbol } => {
+                println!("   ⚡ QuickFix Go import: {}", symbol);
+                let main_go = workspace.join("main.go");
+                if main_go.exists() {
+                    let content = std::fs::read_to_string(&main_go).unwrap_or_default();
+                    if !content.contains("import") {
+                        let search = "package main\n".to_string();
+                        if content.contains(&search) {
+                            return Ok((vec![
+                                Cmd::PatchFile {
+                                    path: "main.go".to_string(),
+                                    search: search.clone(),
+                                    replace: format!("package main\n\nimport \"{}\"\n", symbol),
+                                },
+                                Cmd::RunTests { target: "go test".to_string() }
+                            ], AgentState::Executing));
+                        }
+                    } else if content.contains("import (") {
+                        let search = "import (".to_string();
+                        if content.contains(&search) {
+                            return Ok((vec![
+                                Cmd::PatchFile {
+                                    path: "main.go".to_string(),
+                                    search: search.clone(),
+                                    replace: format!("import (\n\t\"{}\"", symbol),
+                                },
+                                Cmd::RunTests { target: "go test".to_string() }
+                            ], AgentState::Executing));
+                        }
+                    }
+                }
+                // Fallback to LLM if we can't safely auto-patch
+            }
+        }
+    }
+
+    // ─── Structured Repair Memory v1.3 ───
+    let display_limit = repair_limit;
+    let attempt_note = if ctx.repair_attempts > 1 {
+        match &previous_error {
+            Some(prev) => format!(
+                "ATTEMPT {}/{}: Previous fix failed.\n  Previous error: {}\n  New error:      {}\n  Your fix changed the problem but did not solve it. Try a different approach.",
+                ctx.repair_attempts,
+                display_limit,
+                prev.chars().take(300).collect::<String>(),
+                all_err.chars().take(300).collect::<String>()
+            ),
+            None => format!(
+                "ATTEMPT {}/{}: Previous fix failed — try a completely different approach.",
+                ctx.repair_attempts, display_limit
+            ),
+        }
+    } else {
+        format!(
+            "ATTEMPT {}/{}: First repair attempt.",
+            ctx.repair_attempts, display_limit
+        )
+    };
+
+    let loop_warning = if repair_fingerprints.len() > 1
+        && repair_fingerprints.last()
+            == repair_fingerprints.get(repair_fingerprints.len().saturating_sub(2))
+    {
+        "\n\nWARNING: You are repeating the same fix. This approach failed before. Try something completely different."
+    } else {
+        ""
+    };
+
+    // احفظ الخطأ الحالي للمحاولة القادمة
+    *previous_error = Some(all_err.chars().take(500).collect());
+
+    // Repair History Guard v1.2 — تجنب تكرار نفس الإصلاح
+    let fingerprint: u64 = all_err
+        .bytes()
+        .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
+    if repair_fingerprints.contains(&fingerprint) {
+        println!("   ⚠️  Repair loop detected — same error repeated. Forcing different strategy.");
+    } else {
+        repair_fingerprints.push(fingerprint);
+    }
+
+    // v5.8: Failure Memory hints
+    let memory_hint = crate::memory::FailureMemory::load().get_hints(
+        &format!("{:?}", failure_kind),
+        &all_err.chars().take(80).collect::<String>(),
+    );
+
+    // SPO v2.1: Pattern Memory lookup
+    let lang_hint = if goal.to_lowercase().contains("python") { "python" }
+        else if goal.to_lowercase().contains("rust") { "rust" }
+        else if goal.to_lowercase().contains("typescript") || goal.to_lowercase().contains("ts") { "typescript" }
+        else if goal.to_lowercase().contains("node") || goal.to_lowercase().contains("js") { "javascript" }
+        else if goal.to_lowercase().contains("go ") || goal.to_lowercase().contains("golang") { "go" }
+        else { "auto" };
+        
+    let spo_pattern_hint = crate::llm::pattern_memory::PatternMemory::load()
+        .lookup(&all_err, lang_hint)
+        .map(|sol| format!("\n\n✅ SPO_PATTERN_MATCH (Prior Success):\n{}\nRecommended approach: use similar commands if applicable.", sol.hint))
+        .unwrap_or_default();
+
+    // v7.8: Diagnostic Engine hints
+    let diagnostic_hint = crate::diagnostic::DiagnosticEngine::analyze(&all_err)
+        .map(|h| format!("\n\n{}", h))
+        .unwrap_or_default();
+    
+    let combined_hints = format!("{}{}{}", memory_hint, diagnostic_hint, spo_pattern_hint);
+
+    let files_context = crate::decision::build_workspace_context(workspace);
+    let mutation_note = if let Some(ref mctx) = ctx.last_mutation_context {
+        format!(
+            "\n\n⚠ MUTATION SURVIVED:\n{}\nAdd tests to kill it.",
+            mctx.surviving
+        )
+    } else {
+        String::new()
+    };
+
+    let ref_context = crate::decision::build_ref_context(config);
+
+    let prompt = crate::constitution::CONSTITUTION.to_string() + &format!(
+        "Goal: {}\n\nATTEMPT INFO: {}\n\nHINTS: {}{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}{}\nFix ALL issues.",
+        goal, &(attempt_note + loop_warning), combined_hints, mutation_note, all_err, files_context, ref_context
+    );
+
+    match plan_with_resilience(llm, prompt).await {
+        Ok(commands) => {
+            println!("   ✓ Repair plan: {} commands", commands.len());
+            Ok((commands, AgentState::Executing))
+        }
+        Err(e) => Ok((Vec::new(), AgentState::Failed(e))),
+    }
+}

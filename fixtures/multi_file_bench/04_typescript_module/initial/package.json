@@ -1,0 +1,11 @@
+{
+  "name": "ts-module-sample",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "echo 'run your test runner (jest/ts-node) manually'"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}
