@@ -503,7 +503,7 @@ pub async fn do_repairing(
     }
 
     let repair_limit = match failure_kind {
-        FailureKind::PatchError => 2,
+        FailureKind::PatchError => dynamic_max_repairs,
         FailureKind::InfraError => 0,
         _ => dynamic_max_repairs,
     };
@@ -628,31 +628,24 @@ pub async fn do_repairing(
         &all_err.chars().take(80).collect::<String>(),
     );
 
-    // SPO v2.1: Pattern Memory lookup
-    let lang_hint = if goal.to_lowercase().contains("python") { "python" }
-        else if goal.to_lowercase().contains("rust") { "rust" }
-        else if goal.to_lowercase().contains("typescript") || goal.to_lowercase().contains("ts") { "typescript" }
-        else if goal.to_lowercase().contains("node") || goal.to_lowercase().contains("js") { "javascript" }
-        else if goal.to_lowercase().contains("go ") || goal.to_lowercase().contains("golang") { "go" }
-        else { "auto" };
-        
-    let spo_pattern_hint = crate::llm::pattern_memory::PatternMemory::load()
-        .lookup(&all_err, lang_hint)
-        .map(|sol| format!("\n\n✅ SPO_PATTERN_MATCH (Prior Success):\n{}\nRecommended approach: use similar commands if applicable.", sol.hint))
-        .unwrap_or_default();
-
     // v7.8: Diagnostic Engine hints
     let diagnostic_hint = crate::diagnostic::DiagnosticEngine::analyze(&all_err)
         .map(|h| format!("\n\n{}", h))
         .unwrap_or_default();
     
-    let combined_hints = format!("{}{}{}", memory_hint, diagnostic_hint, spo_pattern_hint);
+    let combined_hints = format!("{}{}", memory_hint, diagnostic_hint);
 
     let files_context = crate::decision::build_workspace_context(workspace);
     let mutation_note = if let Some(ref mctx) = ctx.last_mutation_context {
+        let is_loop = repair_fingerprints.contains(&fingerprint);
+        let loop_msg = if is_loop {
+            "CRITICAL: You are trapped in a repair loop. DO NOT modify the implementation code! Write a STRICTER test case that specifically FAILS when this exact mutation is applied."
+        } else {
+            "Add tests to kill it."
+        };
         format!(
-            "\n\n⚠ MUTATION SURVIVED:\n{}\nAdd tests to kill it.",
-            mctx.surviving
+            "\n\n⚠ MUTATION SURVIVED:\n{}\n{}",
+            mctx.surviving, loop_msg
         )
     } else {
         String::new()

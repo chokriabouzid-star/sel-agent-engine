@@ -1,119 +1,151 @@
-// src/llm/live.rs
-
+// src/llm/live.rs — LiveProvider بدون SPO
 use super::{LLMProvider, LLMRequest, LLMResponse, LlmCallStats};
-
 use anyhow::{anyhow, Result};
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
-// ─── Provider ─────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct Provider {
     name: String,
     model: String,
     endpoint: String,
-    api_key: String,
-    daily_limit: String,
+    key_pool: Arc<Mutex<super::key_pool::KeyPool>>,
 }
 
 impl Provider {
-    pub fn from_id(id: &crate::llm::quota::ProviderId) -> Self {
-        match id {
-            crate::llm::quota::ProviderId::Cerebras => Provider {
-                name: "Cerebras".into(),
-                model: std::env::var("CEREBRAS_MODEL").unwrap_or_else(|_| "llama-3.3-70b".into()),
-                endpoint: "https://api.cerebras.ai/v1/chat/completions".into(),
-                api_key: std::env::var("CEREBRAS_API_KEY").unwrap_or_default(),
-                daily_limit: "".into(),
-            },
-            crate::llm::quota::ProviderId::Mistral => Provider {
-                name: "Mistral".into(),
-                model: std::env::var("MISTRAL_MODEL").unwrap_or_else(|_| "devstral-small-2507".into()),
-                endpoint: "https://api.mistral.ai/v1/chat/completions".into(),
-                api_key: std::env::var("MISTRAL_API_KEY").unwrap_or_default(),
-                daily_limit: "".into(),
-            },
-            crate::llm::quota::ProviderId::Groq => Provider {
-                name: "Groq".into(),
-                model: std::env::var("GROQ_MODEL").unwrap_or_else(|_| "llama-3.3-70b-versatile".into()),
-                endpoint: "https://api.groq.com/openai/v1/chat/completions".into(),
-                api_key: std::env::var("GROQ_API_KEY").unwrap_or_default(),
-                daily_limit: "".into(),
-            },
-            crate::llm::quota::ProviderId::OpenRouter => Provider {
-                name: "OpenRouter".into(),
-                model: std::env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "qwen/qwen3-coder:free".into()),
-                endpoint: "https://openrouter.ai/api/v1/chat/completions".into(),
-                api_key: std::env::var("OPENROUTER_API_KEY").unwrap_or_else(|_| std::env::var("SEL_API_KEY").unwrap_or_default()),
-                daily_limit: "".into(),
-            },
-            crate::llm::quota::ProviderId::SambaNova => Provider {
-                name: "SambaNova".into(),
-                model: std::env::var("SAMBANOVA_MODEL").unwrap_or_else(|_| "DeepSeek-V3.2".into()),
-                endpoint: "https://api.sambanova.ai/v1/chat/completions".into(),
-                api_key: std::env::var("SAMBANOVA_API_KEY").unwrap_or_default(),
-                daily_limit: "".into(),
-            },
-            crate::llm::quota::ProviderId::Gemini => Provider {
-                name: "Gemini".into(),
-                model: std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.0-flash-lite".into()),
-                endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions".into(),
-                api_key: std::env::var("GEMINI_API_KEY").unwrap_or_default(),
-                daily_limit: "".into(),
-            },
-            crate::llm::quota::ProviderId::GitHub => Provider {
-                name: "GitHub".into(),
-                model: std::env::var("GITHUB_MODEL").unwrap_or_else(|_| "gpt-4o".into()),
-                endpoint: "https://models.inference.ai.azure.com/chat/completions".into(),
-                api_key: std::env::var("GITHUB_TOKEN").unwrap_or_default(),
-                daily_limit: "".into(),
-            },
+    fn cerebras() -> Self {
+        Provider {
+            name: "Cerebras".into(),
+            model: std::env::var("CEREBRAS_MODEL").unwrap_or_else(|_| "qwen-3-235b-a22b-instruct-2507".into()),
+            endpoint: "https://api.cerebras.ai/v1/chat/completions".into(),
+            key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env("CEREBRAS_API_KEY"))),
         }
+    }
+
+    fn github() -> Self {
+        Provider {
+            name: "GitHub".into(),
+            model: std::env::var("GITHUB_MODEL").unwrap_or_else(|_| "gpt-4o".into()),
+            endpoint: "https://models.inference.ai.azure.com/chat/completions".into(),
+            key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env("GITHUB_TOKEN"))),
+        }
+    }
+
+    fn gemini() -> Self {
+        Provider {
+            name: "Gemini".into(),
+            model: std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.0-flash".into()),
+            endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions".into(),
+            key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env("GEMINI_API_KEY"))),
+        }
+    }
+
+    fn groq() -> Self {
+        Provider {
+            name: "Groq".into(),
+            model: std::env::var("GROQ_MODEL").unwrap_or_else(|_| "llama-3.3-70b-versatile".into()),
+            endpoint: "https://api.groq.com/openai/v1/chat/completions".into(),
+            key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env("GROQ_API_KEY"))),
+        }
+    }
+
+    fn openrouter() -> Self {
+        let mut pool = super::key_pool::KeyPool::from_env("OPENROUTER_API_KEY");
+        if !pool.has_available() {
+            pool = super::key_pool::KeyPool::from_env("SEL_API_KEY");
+        }
+        Provider {
+            name: "OpenRouter".into(),
+            model: std::env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "qwen/qwen3-coder:free".into()),
+            endpoint: "https://openrouter.ai/api/v1/chat/completions".into(),
+            key_pool: Arc::new(Mutex::new(pool)),
+        }
+    }
+
+    fn is_configured(&self) -> bool {
+        self.key_pool.lock().unwrap().has_available()
     }
 
     fn key_preview(&self) -> String {
-        let k = &self.api_key;
-        if k.len() > 12 {
-            format!("{}...{}", &k[..8], &k[k.len() - 4..])
-        } else if k.len() > 4 {
-            format!("{}...", &k[..4])
+        let mut pool = self.key_pool.lock().unwrap();
+        let key_opt = pool.next_available();
+        if let Some(k) = key_opt {
+            if k.len() > 12 {
+                format!("{}...{}", &k[..8], &k[k.len() - 4..])
+            } else if k.len() > 4 {
+                format!("{}...", &k[..4])
+            } else {
+                "***".to_string()
+            }
         } else {
-            "***".to_string()
+            "none".to_string()
         }
     }
 }
-
-// ─── LiveProvider ────────────────────────────────────────────────────────────
-
-use super::spo::SmartProviderOrchestra;
 
 pub struct LiveProvider {
     providers: Vec<Provider>,
     stats: Arc<Mutex<LlmCallStats>>,
-    daily_exhausted: Arc<Mutex<HashSet<String>>>,
-    orchestra: Arc<SmartProviderOrchestra>,
+    active_index: std::sync::atomic::AtomicUsize,
+    tracker: Arc<Mutex<super::limit_tracker::LimitTracker>>,
 }
 
-// ─── Serde types ─────────────────────────────────────────────────────────────
+impl LiveProvider {
+    pub fn from_env() -> Self {
+        Self::new()
+    }
+
+    pub fn from_config(_cfg: crate::llm::ModelConfig, _key: String) -> Self {
+        Self::new()
+    }
+
+    pub fn primary_name(&self) -> String {
+        self.providers.first().map(|p| p.name.clone()).unwrap_or_default()
+    }
+    pub fn new() -> Self {
+        let mut providers = Vec::new();
+
+        // الترتيب: Groq → Gemini → Cerebras → OpenRouter → GitHub
+        let candidates = vec![
+            Provider::groq(),
+            Provider::gemini(),
+            Provider::cerebras(),
+            Provider::openrouter(),
+            Provider::github(),
+        ];
+
+        for p in candidates {
+            if p.is_configured() {
+                providers.push(p);
+            }
+        }
+
+        if providers.is_empty() {
+            panic!("❌ No LLM provider configured. Set at least one API key.");
+        }
+
+        LiveProvider {
+            providers,
+            stats: Arc::new(Mutex::new(LlmCallStats::default())),
+            active_index: std::sync::atomic::AtomicUsize::new(0),
+            tracker: Arc::new(Mutex::new(super::limit_tracker::LimitTracker::new())),
+        }
+    }
+}
 
 #[derive(Serialize)]
-struct Request {
+struct RequestBody {
     model: String,
-    messages: Vec<ApiMsg>,
+    messages: Vec<Message>,
     temperature: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     seed: Option<u64>,
-    max_tokens: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     response_format: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-struct ApiMsg {
+struct Message {
     role: String,
     content: String,
 }
@@ -121,13 +153,13 @@ struct ApiMsg {
 #[derive(Deserialize)]
 struct Response {
     choices: Vec<Choice>,
-    usage: Option<Usage>,
+    usage: Usage,
 }
 
 #[derive(Deserialize)]
 struct Choice {
-    message: ApiMsg,
-    finish_reason: Option<String>,
+    message: Message,
+    finish_reason: String,
 }
 
 #[derive(Deserialize)]
@@ -136,210 +168,145 @@ struct Usage {
     completion_tokens: u32,
 }
 
-// ─── impl LiveProvider ───────────────────────────────────────────────────────
-
-impl LiveProvider {
-    pub fn from_env() -> Self {
-        let mut providers = Vec::new();
-
-        if let Ok(key) = std::env::var("CEREBRAS_API_KEY") {
-            if !key.trim().is_empty() {
-                let model = std::env::var("CEREBRAS_MODEL")
-                    .unwrap_or_else(|_| "qwen-3-235b-a22b-instruct-2507".to_string());
-                providers.push(Provider {
-                    name: "Cerebras".to_string(),
-                    model,
-                    endpoint: "https://api.cerebras.ai/v1/chat/completions".to_string(),
-                    api_key: key.trim().to_string(),
-                    daily_limit: "بلا حد يومي معلن".to_string(),
-                });
-            }
-        }
-
-        if let Ok(key) = std::env::var("GITHUB_TOKEN") {
-            if !key.trim().is_empty() {
-                let model = std::env::var("GITHUB_MODEL")
-                    .unwrap_or_else(|_| "gpt-4o".to_string());
-                providers.push(Provider {
-                    name: "GitHub".to_string(),
-                    model,
-                    endpoint: "https://models.inference.ai.azure.com/chat/completions".to_string(),
-                    api_key: key.trim().to_string(),
-                    daily_limit: "150/day".to_string(),
-                });
-            }
-        }
-
-        if let Ok(key) = std::env::var("GEMINI_API_KEY") {
-            let key = key.trim().to_string();
-            if !key.is_empty() {
-                let model = std::env::var("GEMINI_MODEL")
-                    .unwrap_or_else(|_| "gemini-2.0-flash".to_string());
-                providers.push(Provider {
-                    name: "Gemini".to_string(),
-                    model,
-                    endpoint:
-                        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-                            .to_string(),
-                    api_key: key,
-                    daily_limit: "1,500 RPD (free tier)".to_string(),
-                });
-            }
-        }
-
-        if let Ok(key) = std::env::var("GROQ_API_KEY") {
-            let key = key.trim().to_string();
-            if !key.is_empty() {
-                let model = std::env::var("GROQ_MODEL")
-                    .unwrap_or_else(|_| "llama-3.3-70b-versatile".to_string());
-                let name = if model.contains("kimi") {
-                    "Groq/Kimi"
-                } else {
-                    "Groq/Llama"
-                };
-                providers.push(Provider {
-                    name: name.to_string(),
-                    model,
-                    endpoint: "https://api.groq.com/openai/v1/chat/completions".to_string(),
-                    api_key: key,
-                    daily_limit: "500,000 tokens/day".to_string(), // Simplified limit
-                });
-            }
-        }
-
-        if let (Ok(base), Ok(key)) = (std::env::var("SEL_API_BASE"), std::env::var("SEL_API_KEY")) {
-            if !base.is_empty() && !key.is_empty() {
-                let model = std::env::var("OPENROUTER_MODEL")
-                    .unwrap_or_else(|_| "qwen/qwen3-coder:free".to_string());
-                let endpoint = normalize_endpoint(&base);
-                let name = detect_name(&endpoint);
-                providers.push(Provider {
-                    name,
-                    model,
-                    endpoint,
-                    api_key: key,
-                    daily_limit: "Custom".to_string(),
-                });
-            }
-        }
-
-        Self {
-            providers,
-            stats: Arc::new(Mutex::new(LlmCallStats::default())),
-            daily_exhausted: Arc::new(Mutex::new(HashSet::new())),
-            orchestra: Arc::new(SmartProviderOrchestra::new()),
-        }
-    }
-
-    pub fn print_info(&self) {
-        if self.providers.is_empty() {
-            println!("   ❌ لا يوجد API key صالح");
-            println!("   💡 جرّب: export GEMINI_API_KEY=... أو GROQ_API_KEY=...");
-            return;
-        }
-
-        let p = &self.providers[0];
-        println!("   🔌 Provider:  {}", p.name);
-        println!("   🤖 Model:     {}", p.model);
-        println!("   🔑 Key:       {}", p.key_preview());
-        println!("   📊 Limit:     {}", p.daily_limit);
-
-        if self.providers.len() > 1 {
-            let fallbacks: Vec<&str> = self.providers[1..]
-                .iter()
-                .map(|p| p.name.as_str())
-                .collect();
-            println!("   🔄 Fallback:  {}", fallbacks.join(" → "));
-        }
-    }
-
-    pub fn primary_name(&self) -> String {
-        self.providers
-            .first()
-            .map(|p| p.name.clone())
-            .unwrap_or_else(|| "unknown".to_string())
-    }
-
-    pub fn from_config(cfg: crate::llm::ModelConfig, api_key: String) -> Self {
-        let name = if cfg.model_id.contains("kimi") {
-            "Kimi".to_string()
-        } else if cfg.model_id.contains("llama") {
-            "Llama".to_string()
-        } else {
-            "Custom".to_string()
-        };
-
-        let p = Provider {
-            name,
-            model: cfg.model_id,
-            endpoint: cfg.base_url,
-            api_key,
-            daily_limit: "Compare Mode".to_string(),
-        };
-
-        Self {
-            providers: vec![p],
-            stats: Arc::new(Mutex::new(LlmCallStats::default())),
-            daily_exhausted: Arc::new(Mutex::new(HashSet::new())),
-            orchestra: Arc::new(SmartProviderOrchestra::new()),
-        }
-    }
+enum ErrorKind {
+    DailyLimit,
+    RpmLimit,
+    Other,
 }
 
-#[async_trait]
+fn classify_error(err: &str) -> ErrorKind {
+    let lower = err.to_lowercase();
+    if lower.contains("per 86400s exceeded")
+        || lower.contains("generaterequestsperdayperproject")
+        || lower.contains("free_tier_requests")
+        || lower.contains("quota")
+        || lower.contains("daily limit")
+        || lower.contains("per day")
+        || lower.contains("401") 
+        || lower.contains("unauthorized")
+        || lower.contains("404") 
+        || lower.contains("not_found")
+    {
+        return ErrorKind::DailyLimit;
+    }
+    if lower.contains("per minute")
+        || lower.contains("generaterequestsperminuteperproject")
+        || lower.contains("generatecontentinputtokenspermodelperminute")
+        || lower.contains("429")
+        || lower.contains("rate limit")
+        || lower.contains("rate_limit")
+    {
+        return ErrorKind::RpmLimit;
+    }
+    ErrorKind::Other
+}
+
+#[async_trait::async_trait]
 impl LLMProvider for LiveProvider {
     async fn complete(&self, req: LLMRequest) -> Result<LLMResponse> {
-        if self.providers.is_empty() {
-            return Err(anyhow!("❌ لا يوجد API key"));
+        let mut last_error = None;
+        let provider_names: Vec<String> = self.providers.iter().map(|p| p.name.clone()).collect();
+
+        {
+            let tracker = self.tracker.lock().unwrap();
+            if !tracker.any_available(&provider_names) {
+                return Err(anyhow!("❌ All providers exhausted for today"));
+            }
         }
 
-        // Detect language from prompt if possible
-        let prompt_text = req.messages.iter().map(|m| m.content.as_str()).collect::<Vec<_>>().join(" ");
-        let goal_text = if let Some(start) = prompt_text.find("Goal: ") {
-            let rest = &prompt_text[start + 6..];
-            if let Some(end) = rest.find("\n\nATTEMPT INFO:") {
-                &rest[..end]
-            } else if let Some(end) = rest.find("\n\n") {
-                &rest[..end]
-            } else {
-                rest
-            }
-        } else {
-            prompt_text.as_str()
-        };
+        for _ in 0..self.providers.len() {
+            let idx = self.active_index.load(std::sync::atomic::Ordering::SeqCst);
+            let provider = &self.providers[idx];
+            let mut attempt = 1;
+            let mut rpm_waits = 0;
 
-        let lang = if goal_text.to_lowercase().contains("python") || goal_text.to_lowercase().contains("pytest") { "python" }
-            else if goal_text.to_lowercase().contains("rust") || goal_text.to_lowercase().contains("cargo") { "rust" }
-            else if goal_text.to_lowercase().contains("go ") || goal_text.to_lowercase().contains("golang") { "go" }
-            else if goal_text.to_lowercase().contains("typescript") || goal_text.to_lowercase().contains("ts") { "typescript" }
-            else if goal_text.to_lowercase().contains("node") || goal_text.to_lowercase().contains("javascript") || goal_text.to_lowercase().contains("js") { "javascript" }
-            else { "auto" };
-            
-        let error_context = if prompt_text.contains("FAILED STEPS:") {
-            Some(prompt_text.as_str())
-        } else {
-            None
-        };
-        
-        let repairs_needed = if prompt_text.contains("ATTEMPT ") { 1 } else { 0 };
+            loop {
+                // Tracker check
+                {
+                    let tracker = self.tracker.lock().unwrap();
+                    if !tracker.is_available(&provider.name) {
+                        self.active_index.store((idx + 1) % self.providers.len(), std::sync::atomic::Ordering::SeqCst);
+                        break;
+                    }
+                }
+                
+                let is_primary = idx == 0;
+                let prefix = if is_primary { "🟢" } else { "🔄" };
+                if attempt == 1 {
+                    println!("{} Calling {} ({})", prefix, provider.name, provider.model);
+                } else {
+                    println!("   ⚠️  Attempt {}/3 - retrying {}...", attempt, provider.name);
+                }
 
-        match self.orchestra.select_and_call(&req, goal_text, lang, error_context, repairs_needed).await {
-            Ok((mut resp, prov, kind)) => {
-                resp.provider_used = prov;
-                resp.task_kind = kind;
-                resp.spo_version = "v2.1".into();
-                
-                // Update global stats
-                let mut lstats = self.stats.lock().unwrap();
-                lstats.tokens_in += resp.tokens_in;
-                lstats.tokens_out += resp.tokens_out;
-                lstats.successful_calls += 1;
-                lstats.last_model = resp.provider_used.clone();
-                
-                Ok(resp)
+                match self.try_call(provider, &req).await {
+                    Ok(mut resp) => {
+                        resp.provider_used = provider.name.clone();
+                        if let Ok(mut stats) = self.stats.lock() {
+                            stats.successful_calls += 1;
+                            stats.tokens_in += resp.tokens_in;
+                            stats.tokens_out += resp.tokens_out;
+                            stats.last_model = provider.model.clone();
+                        }
+                        return Ok(resp);
+                    }
+                    Err(e) => {
+                        let err_msg = e.to_string();
+                        let err_kind = classify_error(&err_msg);
+                        
+                        match err_kind {
+                            ErrorKind::DailyLimit => {
+                                let mut pool = provider.key_pool.lock().unwrap();
+                                pool.mark_exhausted();
+                                if pool.has_available() {
+                                    attempt = 1; // Reset attempt for new key!
+                                    continue;
+                                } else {
+                                    self.tracker.lock().unwrap().mark_daily(&provider.name);
+                                    last_error = Some(e);
+                                    self.active_index.store((idx + 1) % self.providers.len(), std::sync::atomic::Ordering::SeqCst);
+                                    break;
+                                }
+                            }
+                            ErrorKind::RpmLimit => {
+                                if rpm_waits >= 3 {
+                                    println!("   ⚠️  RPM limit persists → marking key as exhausted");
+                                    let mut pool = provider.key_pool.lock().unwrap();
+                                    pool.mark_exhausted();
+                                    if pool.has_available() {
+                                        attempt = 1;
+                                        rpm_waits = 0;
+                                        continue;
+                                    } else {
+                                        self.tracker.lock().unwrap().mark_daily(&provider.name);
+                                        last_error = Some(e);
+                                        self.active_index.store((idx + 1) % self.providers.len(), std::sync::atomic::Ordering::SeqCst);
+                                        break;
+                                    }
+                                }
+                                rpm_waits += 1;
+                                self.tracker.lock().unwrap().mark_rpm(&provider.name, 30);
+                                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                                continue;
+                            }
+                            ErrorKind::Other => {
+                                last_error = Some(e);
+                                if attempt < 3 {
+                                    attempt += 1;
+                                    tokio::time::sleep(tokio::time::Duration::from_secs(2_u64.pow(attempt as u32))).await;
+                                    continue;
+                                } else {
+                                    println!("   ❌ {} failed after 3 attempts", provider.name);
+                                    self.active_index.store((idx + 1) % self.providers.len(), std::sync::atomic::Ordering::SeqCst);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            Err(e) => Err(anyhow!("SPO Error: {}", e)),
         }
+
+        Err(last_error.unwrap_or_else(|| anyhow!("All providers exhausted")))
     }
 
     fn mode(&self) -> &'static str {
@@ -351,120 +318,98 @@ impl LLMProvider for LiveProvider {
     }
 }
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
+impl LiveProvider {
+    async fn try_call(&self, provider: &Provider, req: &LLMRequest) -> Result<LLMResponse> {
+        let client = reqwest::Client::new();
 
-fn normalize_endpoint(base: &str) -> String {
-    let b = base.trim_end_matches('/');
-    if b.ends_with("/chat/completions") {
-        b.to_string()
-    } else {
-        format!("{}/chat/completions", b)
-    }
-}
+        let mut messages = vec![Message {
+            role: "system".to_string(),
+            content: req.system.clone(),
+        }];
 
-fn detect_name(endpoint: &str) -> String {
-    if endpoint.contains("openrouter") {
-        "OpenRouter".to_string()
-    } else {
-        "Custom".to_string()
-    }
-}
-
-pub async fn call_provider_api(provider_id: &crate::llm::quota::ProviderId, req_meta: &LLMRequest) -> Result<LLMResponse> {
-    let p = Provider::from_id(provider_id);
-    let msgs = req_meta.messages.clone().into_iter().map(|m| ApiMsg { role: m.role, content: m.content }).collect::<Vec<_>>();
-    let stats = Arc::new(Mutex::new(LlmCallStats::default()));
-    call_one(&p, &msgs, req_meta, &stats).await
-}
-
-async fn call_one(
-    provider: &Provider,
-    msgs: &[ApiMsg],
-    req_meta: &LLMRequest,
-    stats: &Arc<Mutex<LlmCallStats>>,
-) -> Result<LLMResponse> {
-    let start = Instant::now();
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(600))
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        .build()?;
-
-    // SPO handles retries and failovers, so we remove the local blocking loop.
-    let mut body = Request {
-        model: provider.model.clone(),
-        messages: msgs.to_vec(),
-        temperature: if req_meta.temperature > 0.2 { 0.2 } else { req_meta.temperature },
-        seed: req_meta.seed,
-        max_tokens: 8192,
-        response_format: Some(serde_json::json!({ "type": "json_object" })),
-    };
-
-    if provider.endpoint.contains("googleapis") || provider.name.to_lowercase().contains("gemini") {
-        body.seed = None;
-    }
-
-    if provider.name.to_lowercase().contains("sambanova") || provider.name.to_lowercase().contains("cerebras") {
-        body.response_format = None;
-    }
-
-    let mut req_builder = client.post(&provider.endpoint).json(&body).bearer_auth(&provider.api_key);
-    if provider.name.to_lowercase() == "openrouter" {
-        req_builder = req_builder.header("HTTP-Referer", "https://github.com/sel-agent").header("X-Title", "SEL Agent");
-    }
-
-    let resp = match req_builder.send().await {
-        Ok(r) => r,
-        Err(e) => {
-            stats.lock().unwrap().connection_errors += 1;
-            stats.lock().unwrap().total_latency_ms += start.elapsed().as_millis() as u64;
-            return Err(anyhow::anyhow!("Connection error: {}", e));
+        for msg in &req.messages {
+            messages.push(Message {
+                role: msg.role.clone(),
+                content: msg.content.clone(),
+            });
         }
-    };
 
-    let status = resp.status();
-    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        stats.lock().unwrap().rate_limits += 1;
-        let body_err = resp.text().await.unwrap_or_default();
-        stats.lock().unwrap().total_latency_ms += start.elapsed().as_millis() as u64;
-        return Err(anyhow::anyhow!("API {} — {}", status, &body_err[..body_err.len().min(200)]));
-    }
+        let mut body = RequestBody {
+            model: provider.model.clone(),
+            messages,
+            temperature: req.temperature,
+            seed: req.seed,
+            response_format: None,
+        };
 
-    if !status.is_success() {
-        stats.lock().unwrap().connection_errors += 1;
-        let body_err = resp.text().await.unwrap_or_default();
-        stats.lock().unwrap().total_latency_ms += start.elapsed().as_millis() as u64;
-        return Err(anyhow::anyhow!("API {} — {}", status, &body_err[..body_err.len().min(200)]));
-    }
+        // JSON mode لـ Planning فقط
+        if req.model.contains("plan") || req.system.contains("SCHEMA") {
+            body.response_format = Some(serde_json::json!({ "type": "json_object" }));
+        }
+
+        // Gemini لا يدعم seed
+        if provider.name == "Gemini" {
+            body.seed = None;
+        }
+
+        // GitHub لا يدعم response_format
+        if provider.name == "GitHub" {
+            body.response_format = None;
+        }
+
+        let api_key = {
+            let mut pool = provider.key_pool.lock().unwrap();
+            pool.next_available().unwrap_or_default().to_string()
+        };
+
+        let resp = client
+            .post(&provider.endpoint)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .timeout(std::time::Duration::from_secs(60))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(anyhow!("HTTP {}: {}", status, body));
+        }
 
         let data: Response = resp.json().await?;
-        stats.lock().unwrap().total_latency_ms += start.elapsed().as_millis() as u64;
 
-        let choice = data
-            .choices
-            .into_iter()
-            .next()
+        let choice = data.choices.into_iter().next()
             .ok_or_else(|| anyhow!("Empty response"))?;
-        let usage = data.usage.unwrap_or(Usage {
-            prompt_tokens: 0,
-            completion_tokens: 0,
-        });
 
-        {
-            let mut lstats = stats.lock().unwrap();
-            lstats.tokens_in += usage.prompt_tokens;
-            lstats.tokens_out += usage.completion_tokens;
-            lstats.successful_calls += 1;
-            lstats.last_model = format!("{}/{}", provider.name, provider.model);
+        Ok(LLMResponse {
+            content: choice.message.content,
+            tokens_in: data.usage.prompt_tokens,
+            tokens_out: data.usage.completion_tokens,
+            finish_reason: choice.finish_reason,
+            provider_model: Some(provider.model.clone()),
+            provider_used: provider.name.clone(),
+            task_kind: req.model.clone(),
+        })
+    }
+}
+
+impl LiveProvider {
+    pub fn print_info(&self) {
+        println!("🔗 Providers: {} configured", self.providers.len());
+        for (i, p) in self.providers.iter().enumerate() {
+            let badge = if i == 0 { "🟢" } else { "⚪" };
+            println!("   {} {}: {}", badge, p.name, p.key_preview());
         }
 
-        return Ok(LLMResponse {
-            content: choice.message.content,
-            tokens_in: usage.prompt_tokens,
-            tokens_out: usage.completion_tokens,
-            finish_reason: choice.finish_reason.unwrap_or_else(|| "stop".into()),
-            provider_model: Some(format!("{}/{}", provider.name, provider.model)),
-            provider_used: String::new(),
-            task_kind: String::new(),
-            spo_version: String::new(),
-        });
+        if self.providers.len() > 1 {
+            let fallbacks: Vec<&str> = self.providers[1..].iter().map(|p| p.name.as_str()).collect();
+            println!("   🔄 Fallback:  {}", fallbacks.join(" → "));
+        }
+
+        if let Some(p) = self.providers.first() {
+            println!("   🔌 Provider:  {}", p.name);
+            println!("   🤖 Model:     {}", p.model);
+        }
+    }
 }

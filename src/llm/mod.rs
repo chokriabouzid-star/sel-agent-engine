@@ -2,9 +2,8 @@
 pub mod live;
 pub mod record;
 pub mod replay;
-pub mod quota;
-pub mod spo;
-pub mod pattern_memory;
+pub mod limit_tracker;
+pub mod key_pool;
 
 
 use crate::types::Message;
@@ -32,8 +31,6 @@ pub struct LLMResponse {
     pub provider_used: String,
     #[serde(default)]
     pub task_kind: String,
-    #[serde(default)]
-    pub spo_version: String,
 }
 
 pub const SYSTEM_PROMPT: &str = r#"You are SEL Agent, an autonomous execution engine.

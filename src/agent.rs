@@ -13,7 +13,7 @@ pub struct Agent {
     state: AgentState,
     pub ctx: ExecutionContext,
     executor: SafeExecutor,
-    llm: Box<dyn crate::llm::LLMProvider>,
+    pub llm: Box<dyn crate::llm::LLMProvider>,
     goal: String,
     plan: Vec<Cmd>,
     previous_error: Option<String>,
@@ -274,28 +274,7 @@ impl Agent {
                 AgentState::Done => {
                     let repairs = self.ctx.repair_attempts.saturating_sub(1);
                     
-                    // SPO v2.1: Pattern Memory recording
-                    if repairs > 0 {
-                        if let Some(ref err) = self.previous_error {
-                            let lang = if self.goal.to_lowercase().contains("python") { "python" }
-                                else if self.goal.to_lowercase().contains("rust") { "rust" }
-                                else if self.goal.to_lowercase().contains("typescript") || self.goal.to_lowercase().contains("ts") { "typescript" }
-                                else if self.goal.to_lowercase().contains("node") || self.goal.to_lowercase().contains("js") { "javascript" }
-                                else if self.goal.to_lowercase().contains("go ") || self.goal.to_lowercase().contains("golang") { "go" }
-                                else { "auto" };
-                            
-                            let mut pm = crate::llm::pattern_memory::PatternMemory::load();
-                            pm.record(
-                                lang,
-                                err,
-                                "Successfully fixed by agent",
-                                &self.call_stats().last_model,
-                                repairs as u32
-                            );
-                        }
-                    }
-
-                    let elapsed = self
+                      let elapsed = self
                         .ctx
                         .start_time
                         .map(|s| s.elapsed().as_secs())

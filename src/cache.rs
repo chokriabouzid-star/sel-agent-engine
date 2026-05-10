@@ -8,9 +8,9 @@ pub struct PersistentCache {
 
 impl PersistentCache {
     pub fn new() -> Result<Self> {
-        let base = dirs::cache_dir()
-            .unwrap_or_else(|| PathBuf::from(".cache"))
-            .join("sel-agent");
+        let base = std::env::current_dir()
+            .unwrap_or_default()
+            .join("fixtures");
         
         let trajectories = base.join("trajectories");
         if !trajectories.exists() {

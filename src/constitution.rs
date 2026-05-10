@@ -124,6 +124,9 @@ These rules are absolute. Violating them results in immediate task failure.
     - NEVER pass a variable directly as the first argument of t.Errorf.
     - Example CORRECT: t.Errorf("expected %v, got %v", expected, actual)
     - Example WRONG: t.Errorf(expected, actual)
+ 15. GO IMPORTS:
+    - ALWAYS include all required imports in Go code (e.g., `import "errors"`, `import "fmt"`).
+    - Do not assume imports will be added automatically later.
 </SYSTEM_CONSTITUTION>
 "#;
 

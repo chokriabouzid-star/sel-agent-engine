@@ -294,15 +294,16 @@ impl SafeExecutor {
         let protected = ["Cargo.toml", "Cargo.lock", "go.mod", "go.sum"];
         let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-        let is_valid_cargo = if name == "Cargo.toml" && p.exists() {
-            std::fs::read_to_string(&p)
-                .map(|c| c.contains("[package]"))
-                .unwrap_or(false)
+        let is_valid_protected = if name == "Cargo.toml" && p.exists() {
+            std::fs::read_to_string(&p).map(|c| c.contains("[package]")).unwrap_or(false)
+        } else if name == "go.mod" && p.exists() {
+            // v7.9.1: Allow overwriting newly initialized go.mod (< 100 bytes)
+            std::fs::metadata(&p).map(|m| m.len() > 100).unwrap_or(false)
         } else {
             p.exists()
         };
 
-        if protected.contains(&name) && is_valid_cargo {
+        if protected.contains(&name) && is_valid_protected {
             return Ok(ExecResult::fail(format!(
                 "write_file: '{}' is protected — use patch_file to modify existing files",
                 path
@@ -1384,6 +1385,7 @@ fn go_compile_check(workspace: &std::path::Path) -> Option<String> {
 
 /// AutoFix: يضيف Go stdlib import تلقائياً بدون LLM
 fn autofix_go_undefined_import(file: &std::path::Path, err: &str) -> Option<String> {
+    let filename = file.file_name()?.to_str()?;
     let go_std: &[(&str, &str)] = &[
         ("fmt", "fmt"),
         ("errors", "errors"),
@@ -1404,7 +1406,7 @@ fn autofix_go_undefined_import(file: &std::path::Path, err: &str) -> Option<Stri
     // استخرج الرمز من "undefined: fmt"
     let sym = err
         .lines()
-        .find(|l| l.contains("undefined:"))?
+        .find(|l| l.contains(filename) && l.contains("undefined:"))?
         .split("undefined:")
         .nth(1)?
         .split_whitespace()
@@ -1442,9 +1444,10 @@ fn autofix_go_undefined_import(file: &std::path::Path, err: &str) -> Option<Stri
 
 /// AutoFix: يحذف Go import غير مستخدم
 fn autofix_go_unused_import(file: &std::path::Path, err: &str) -> Option<String> {
+    let filename = file.file_name()?.to_str()?;
     let pkg = err
         .lines()
-        .find(|l| l.contains("imported and not used"))?
+        .find(|l| l.contains(filename) && l.contains("imported and not used"))?
         .split('"')
         .nth(1)?
         .to_string();

@@ -85,8 +85,6 @@ enum Commands {
         replay: bool,
         #[arg(long, default_value = "false")]
         quick: bool,
-        #[arg(long, default_value = "0")]
-        delay: u64,
     },
     Scan {
         /// مسار المشروع
@@ -227,39 +225,6 @@ async fn run_health(api_key: &str) -> Result<()> {
     Ok(())
 }
 
-#[derive(Default)]
-pub struct ProviderStats {
-    pub call_counts: std::collections::HashMap<String, u32>,
-}
-
-impl ProviderStats {
-    pub fn record(&mut self, provider_name: &str) {
-        *self.call_counts
-            .entry(provider_name.to_string())
-            .or_insert(0) += 1;
-    }
-    
-    pub fn total(&self) -> u32 {
-        self.call_counts.values().sum()
-    }
-}
-
-fn shorten_provider(name: &str) -> &str {
-    if name.contains("groq") || name.contains("llama-3.3") {
-        "groq"
-    } else if name.contains("gpt-4o") || name.contains("github") {
-        "github/gpt-4o"
-    } else if name.contains("gemini") {
-        "gemini"
-    } else if name.contains("cerebras") || name.contains("qwen-3") {
-        "cerebras"
-    } else if name.contains("openrouter") {
-        "openrouter"
-    } else {
-        name
-    }
-}
-
 async fn run_bench(
     api_key: &str,
     suite: &str,
@@ -268,7 +233,6 @@ async fn run_bench(
     focus: &[String],
     record: bool,
     replay: bool,
-    delay: u64,
 ) -> Result<Vec<String>> {
     let cases = crate::bench_cases::suite_cases(suite);
     let cases: Vec<_> = cases
@@ -306,10 +270,6 @@ async fn run_bench(
     println!("║   SEL Bench v1.8 — suite: {:<14}║", suite);
     println!("╚══════════════════════════════════════════╝\n");
 
-    let bench_engine = crate::llm::live::LiveProvider::from_env();
-    bench_engine.print_info();
-
-
     let total = cases.len();
     let total_runs = total * iterations as usize;
     let mut passed = 0usize;
@@ -318,7 +278,6 @@ async fn run_bench(
     let mut mutation_total = 0u32;
     let mut failed_cases = Vec::new();
     let tmpdir = std::env::temp_dir();
-    let mut provider_stats = ProviderStats::default();
     let bench_start_time = std::time::Instant::now();
 
     for iter in 0..iterations {
@@ -330,12 +289,6 @@ async fn run_bench(
             );
         }
         for (i, case) in cases.iter().enumerate() {
-            let completed = iter as usize * total + i;
-            if completed > 0 && delay > 0 {
-                println!("   ⏳ Cooling down {}s before next task...", delay);
-                tokio::time::sleep(Duration::from_secs(delay)).await;
-            }
-            
             let name = &case.name;
             let goal = &case.goal;
             let workspace = tmpdir.join(format!("sel-bench-{}-{}", iter, i));
@@ -413,12 +366,9 @@ async fn run_bench(
             } else {
                 "—".to_string()
             };
-            let model = agent.llm.get_stats().last_model;
-            let model_str = if model.is_empty() { "none".to_string() } else { model };
-            provider_stats.record(&model_str);
             println!(
-                "   {} {:20} repairs:{} mutation:{} provider:{}",
-                status, name, repairs, ms_str, model_str
+                "   {} {:20} repairs:{} mutation:{}",
+                status, name, repairs, ms_str
             );
             if ok {
                 passed += 1;
@@ -464,19 +414,6 @@ async fn run_bench(
         }
     );
     println!("║  Quality Index:  {:<23}║", format!("{:.2}", quality));
-    println!("╠══════════════════════════════════════════╣");
-    println!("║  📡 Provider Usage:                     ║");
-
-    let mut sorted: Vec<_> = provider_stats.call_counts.iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(a.1));
-
-    for (provider, count) in &sorted {
-        let short = shorten_provider(provider);
-        println!("║    {:<14} │ {:>2} calls             ║", short, count);
-    }
-
-    println!("║    ───────────────┼──────────────────────║");
-    println!("║    {:<14} │ {:>2} calls             ║", "total", provider_stats.total());
     println!("╚══════════════════════════════════════════╝\n");
 
     // POST to Observatory
@@ -1087,12 +1024,11 @@ async fn main() -> Result<()> {
             record,
             replay,
             quick,
-            delay,
         } => {
             if quick {
-                run_quick_bench("", &suite, max_repairs, iterations, &focus, delay).await?;
+                run_quick_bench("", &suite, max_repairs, iterations, &focus).await?;
             } else {
-                run_bench("", &suite, max_repairs, iterations, &focus, record, replay, delay).await?;
+                run_bench("", &suite, max_repairs, iterations, &focus, record, replay).await?;
             }
         }
         Commands::Stress { max_repairs } => {
@@ -1123,6 +1059,7 @@ async fn main() -> Result<()> {
         } => {
             crate::bench_realworld::run_bench_realworld("", tier, max_repairs, record, replay)
                 .await?;
+        }
         }
         Commands::Run {
             workspace,
@@ -1460,10 +1397,9 @@ async fn run_quick_bench(
     max_repairs: u8,
     iterations: u8,
     focus: &[String],
-    delay: u64,
 ) -> Result<Vec<String>> {
     println!("\n🚀 Quick Mode: Stage 1 — Running Replay for '{}'", suite);
-    let failed = run_bench(api_key, suite, max_repairs, iterations, focus, false, true, delay).await?;
+    let failed = run_bench(api_key, suite, max_repairs, iterations, focus, false, true).await?;
 
     if failed.is_empty() {
         println!("\n✅ Quick Mode: All cases passed via Replay. System is stable.");
@@ -1485,7 +1421,6 @@ async fn run_quick_bench(
         &failed,
         true,
         false,
-        delay,
     )
     .await?;
 
@@ -1498,7 +1433,6 @@ async fn run_quick_bench(
         &failed,
         false,
         true,
-        delay,
     )
     .await?;
 

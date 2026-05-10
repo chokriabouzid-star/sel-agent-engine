@@ -24,8 +24,6 @@ pub struct TrajectoryRecord {
     pub task_kind: String,
     #[serde(default)]
     pub tokens_used: u64,
-    #[serde(default)]
-    pub spo_version: String,
 }
 
 pub struct RecorderProvider {
@@ -65,7 +63,6 @@ impl LLMProvider for RecorderProvider {
             provider_used: resp.provider_used.clone(),
             task_kind: resp.task_kind.clone(),
             tokens_used: (resp.tokens_in + resp.tokens_out) as u64,
-            spo_version: resp.spo_version.clone(),
         };
 
         let count = {
