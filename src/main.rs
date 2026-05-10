@@ -306,9 +306,18 @@ async fn run_bench(
     println!("║   SEL Bench v1.8 — suite: {:<14}║", suite);
     println!("╚══════════════════════════════════════════╝\n");
 
-    let bench_engine = crate::llm::live::LiveProvider::from_env();
-    bench_engine.print_info();
+    // v7.9.6: Create LiveProvider ONCE — shared across all tasks (KeyPool memory persists)
+    let shared_llm = if !replay {
+        Some(crate::llm::live::LiveProvider::from_env())
+    } else {
+        None
+    };
 
+    if let Some(ref engine) = shared_llm {
+        engine.print_info();
+    } else {
+        println!("🔗 Replay mode — offline (no API keys required)");
+    }
 
     let total = cases.len();
     let total_runs = total * iterations as usize;
@@ -367,8 +376,7 @@ async fn run_bench(
             );
             pb.enable_steady_tick(Duration::from_millis(80));
 
-            let base_llm = Box::new(crate::llm::live::LiveProvider::from_env());
-            // v7.9.5: Unified trajectory path — always use fixtures/trajectories/
+            // v7.9.6: Unified trajectory path — always use fixtures/trajectories/
             let traj_base = std::env::current_dir()
                 .unwrap_or_default()
                 .join("fixtures")
@@ -376,13 +384,17 @@ async fn run_bench(
             let llm: Box<dyn crate::llm::LLMProvider> = if replay {
                 let replay_dir = traj_base.join(name.replace(" ", "_"));
                 Box::new(crate::llm::replay::ReplayProvider::new(replay_dir))
-            } else if record {
-                let record_dir = traj_base.join(name.replace(" ", "_"));
-                Box::new(crate::llm::record::RecorderProvider::new(
-                    base_llm, record_dir,
-                ))
             } else {
-                base_llm
+                // v7.9.6: clone_shared() — reuses same KeyPools (exhausted keys stay exhausted)
+                let base_llm = Box::new(shared_llm.as_ref().unwrap().clone_shared());
+                if record {
+                    let record_dir = traj_base.join(name.replace(" ", "_"));
+                    Box::new(crate::llm::record::RecorderProvider::new(
+                        base_llm, record_dir,
+                    ))
+                } else {
+                    base_llm
+                }
             };
 
             let mut agent = crate::agent::Agent::new_with_model(

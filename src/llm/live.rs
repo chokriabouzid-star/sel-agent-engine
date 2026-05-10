@@ -131,6 +131,19 @@ impl LiveProvider {
             tracker: Arc::new(Mutex::new(super::limit_tracker::LimitTracker::new())),
         }
     }
+
+    /// v7.9.6: Clone that SHARES KeyPools, tracker, and stats across tasks
+    /// Exhausted keys stay exhausted — no wasted API calls on dead keys
+    pub fn clone_shared(&self) -> Self {
+        LiveProvider {
+            providers: self.providers.clone(), // Provider is Clone → shares Arc<Mutex<KeyPool>>
+            stats: self.stats.clone(),
+            active_index: std::sync::atomic::AtomicUsize::new(
+                self.active_index.load(std::sync::atomic::Ordering::SeqCst),
+            ),
+            tracker: self.tracker.clone(),
+        }
+    }
 }
 
 #[derive(Serialize)]

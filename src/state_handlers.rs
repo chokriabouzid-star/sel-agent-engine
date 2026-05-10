@@ -335,11 +335,13 @@ pub async fn do_executing(
                 }
                 if let Cmd::Run { command } = cmd {
                     let lc = command.to_lowercase();
-                    if (lc.contains("cargo test")
+                    // v7.9.6: Trust exit code 0 from test runners — stdout may be empty
+                    // (Jest outputs to stderr, npm wraps stdout, etc.)
+                    if lc.contains("cargo test")
                         || lc.contains("go test")
                         || lc.contains("pytest")
-                        || lc.contains("npm test"))
-                        && (r.stdout.contains("passed") || r.stdout.contains("ok"))
+                        || lc.contains("npm test")
+                        || lc.contains("npx jest")
                     {
                         ctx.tests_passed = true;
                     }
