@@ -97,10 +97,24 @@ fn build_planning_prompt(
 
     let ref_context = crate::decision::build_ref_context(config);
 
+    // v7.9.6: Thinking Space — forces step-by-step reasoning before JSON output
+    // Reduces import errors, wrong types, and missing test cases
+    // Parser already handles <think> blocks via strip_think_blocks()
+    let thinking_prompt = "\n\n## Required Analysis\n\
+Before writing the JSON plan, think step-by-step inside <think>...</think> tags:\n\
+<think>\n\
+- What language is this task? What files must I create?\n\
+- What are the exact function signatures needed?\n\
+- What imports are MANDATORY for this language?\n\
+- What edge cases must the tests cover?\n\
+- What common mistakes should I avoid?\n\
+</think>\n\
+After </think>, output ONLY the ```json plan. Nothing else outside the JSON block.\n";
+
     crate::constitution::CONSTITUTION.to_string()
         + &format!(
-            "{}{}{}\n{}\n{}\nGoal: {}\nProvide the complete execution plan.",
-            existing_files, ref_context, lang_hint, env_context, constraints, goal
+            "{}{}{}\n{}\n{}{}\nGoal: {}\nProvide the complete execution plan.",
+            existing_files, ref_context, lang_hint, env_context, constraints, thinking_prompt, goal
         )
 }
 

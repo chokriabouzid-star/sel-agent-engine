@@ -422,6 +422,15 @@ impl SafeExecutor {
                 }
             }
         }
+        // v7.9.6: Python syntax check — catches SyntaxError immediately (no LLM needed)
+        if path.ends_with(".py") {
+            if let Some(err) = python_syntax_check(&p) {
+                return Ok(ExecResult::fail(format!(
+                    "SYNTAX ERROR in '{}' — fix the Python code:\n{}",
+                    path, err
+                )));
+            }
+        }
         Ok(ExecResult::ok(format!("Written: {}", path)))
     }
 
@@ -689,6 +698,15 @@ impl SafeExecutor {
                 } else if let Some(fixed) = autofix_go_undefined_import(&p, &compile_err) {
                     println!("   🔧 AutoFix Go undefined import (post-patch): {}", fixed);
                 }
+            }
+        }
+        // v7.9.6: Python syntax check after patch
+        if path.ends_with(".py") {
+            if let Some(err) = python_syntax_check(&p) {
+                return Ok(ExecResult::fail(format!(
+                    "SYNTAX ERROR in '{}' after patch — fix the Python code:\n{}",
+                    path, err
+                )));
             }
         }
 
@@ -1378,6 +1396,46 @@ fn go_compile_check(workspace: &std::path::Path) -> Option<String> {
         .ok()?;
     if !out.status.success() {
         Some(String::from_utf8_lossy(&out.stderr).to_string())
+    } else {
+        None
+    }
+}
+
+/// v7.9.6: Python syntax check — catches SyntaxError/IndentationError without LLM
+/// Uses py_compile (stdlib) — works fully offline
+fn python_syntax_check(file: &std::path::Path) -> Option<String> {
+    if !file.exists() || !file.extension().map(|e| e == "py").unwrap_or(false) {
+        return None;
+    }
+    let file_str = file.to_string_lossy();
+    eprintln!("[TRACE] python_syntax_check: checking {}", file_str);
+    
+    // Use python3 -m py_compile which is stdlib (no pip needed)
+    let out = std::process::Command::new("python3")
+        .args(["-m", "py_compile", &file_str])
+        .output()
+        .ok()?;
+    
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        // Filter to show only the relevant error lines
+        let error_msg: String = stderr
+            .lines()
+            .filter(|l| {
+                l.contains("SyntaxError")
+                    || l.contains("IndentationError")
+                    || l.contains("TabError")
+                    || l.contains("File \"")
+                    || l.trim().starts_with('^')
+                    || l.contains("line ")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        if error_msg.is_empty() {
+            Some(stderr)
+        } else {
+            Some(error_msg)
+        }
     } else {
         None
     }
