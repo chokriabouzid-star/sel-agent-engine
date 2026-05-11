@@ -230,14 +230,15 @@ impl Agent {
                     }
                 }
                 AgentState::WaitingForUserInput(msg) => {
-                    println!("\n⏸  [EXPLAIN MODE] Agent is stuck and needs help!");
-                    println!("{}", msg);
-                    
-                    if !std::io::stdin().is_terminal() {
-                        println!("   (Non-interactive environment detected. Aborting...)");
-                        self.state = AgentState::Failed("WaitingForUserInput not supported in non-interactive mode".to_string());
+                    // v7.9.8: In bench/non-interactive mode, skip EXPLAIN MODE immediately
+                    if !std::io::stdin().is_terminal() || self.llm.mode() == "replay" {
+                        println!("   ⏭  [Bench] Repairs exhausted — marking failed (skip EXPLAIN MODE)");
+                        self.state = AgentState::Failed("max_repairs_bench".into());
                         continue;
                     }
+
+                    println!("\n⏸  [EXPLAIN MODE] Agent is stuck and needs help!");
+                    println!("{}", msg);
 
                     println!("\n💡 Type a hint to guide the agent, or type 'abort' to fail:");
                     use std::io::Write;

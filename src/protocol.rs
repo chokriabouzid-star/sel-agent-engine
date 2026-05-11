@@ -332,6 +332,8 @@ pub fn parse(response: &str) -> Result<Plan> {
     let json =
         extract_json(stripped).ok_or_else(|| anyhow!("No ```json block found in response"))?;
     let cleaned = fix_json_escapes(json);
+    // v7.9.8: Apply JSON sanitizer (fixes /// docs, trailing commas, truncated JSON)
+    let cleaned = crate::llm::json_sanitizer::sanitize_llm_json(&cleaned);
 
     // Log first 200 chars for debugging
     eprintln!("[TRACE] parse: extracted JSON (first 200): {}", &cleaned[..cleaned.len().min(200)]);

@@ -4,6 +4,7 @@ pub mod record;
 pub mod replay;
 pub mod limit_tracker;
 pub mod key_pool;
+pub mod json_sanitizer;
 
 
 use crate::types::Message;
