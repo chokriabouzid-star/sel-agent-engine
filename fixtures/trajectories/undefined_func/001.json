@@ -12,18 +12,18 @@
     "model": "default"
   },
   "resp": {
-    "content": "{\"version\":\"1.0\",\"commands\":[{\"type\":\"write_file\",\"path\":\"helper.py\",\"content\":\"def helper():\\n    return 42\\n\"},{\"type\":\"write_file\",\"path\":\"test_helper.py\",\"content\":\"from helper import helper\\n\\ndef test_helper():\\n    assert helper() == 42\\n\"},{\"type\":\"run_tests\",\"target\":\"venv/bin/pytest -v --tb=short\"}]}",
-    "tokens_in": 2520,
-    "tokens_out": 89,
+    "content": "{\n  \"version\": \"1.0\",\n   \"commands\": [\n       {\n           \"type\": \"write_file\",\n           \"path\": \"helper.py\",\n           \"content\": \"def helper():\\n    return 42\"\n       },\n       {\n           \"type\": \"write_file\",\n           \"path\": \"test_helper.py\",\n           \"content\": \"from helper import helper\\n\\ndef test_helper():\\n    assert helper() == 42\"\n       },\n       {\n           \"type\": \"run_tests\",\n           \"target\": \"venv/bin/pytest -v --tb=short\"\n       },\n       {\n           \"type\": \"done\",\n           \"message\": \"Task completed successfully\"\n       }\n   ]\n}",
+    "tokens_in": 2459,
+    "tokens_out": 148,
     "finish_reason": "stop",
-    "provider_model": "qwen-3-235b-a22b-instruct-2507",
-    "provider_used": "Cerebras",
+    "provider_model": "llama-3.3-70b-versatile",
+    "provider_used": "Groq",
     "task_kind": "default"
   },
-  "latency_ms": 4073,
+  "latency_ms": 30136,
   "constitution_hash": "263b0ff719b27441",
-  "recorded_at": "2026-05-10T22:53:24.631409502+00:00",
-  "provider_used": "Cerebras",
+  "recorded_at": "2026-05-11T18:22:43.736596379+00:00",
+  "provider_used": "Groq",
   "task_kind": "default",
-  "tokens_used": 2609
+  "tokens_used": 2607
 }

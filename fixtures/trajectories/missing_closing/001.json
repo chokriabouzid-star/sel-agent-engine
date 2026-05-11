@@ -12,7 +12,7 @@
     "model": "default"
   },
   "resp": {
-    "content": "{\n  \"version\": \"1.0\",\n   \"commands\": [\n       {\n           \"type\": \"write_file\",\n           \"path\": \"factorial.py\",\n           \"content\": \"def factorial(n):\\n    if n == 0:\\n        return 1\\n    else:\\n        return n * factorial(n-1)\"\n       },\n       {\n           \"type\": \"write_file\",\n           \"path\": \"test_factorial.py\",\n           \"content\": \"from factorial import factorial\\n\\ndef test_factorial_5():\\n    assert factorial(5) == 120\"\n       },\n       {\n           \"type\": \"run_tests\",\n           \"target\": \"venv/bin/pytest -v --tb=short\"\n       },\n       {\n           \"type\": \"done\",\n           \"message\": \"Factorial function and test created and run successfully\"\n       }\n   ]\n}",
+    "content": "{\n  \"version\": \"1.0\",\n   \"commands\": [\n       {\n           \"type\": \"write_file\",\n           \"path\": \"factorial.py\",\n           \"content\": \"def factorial(n):\\n    if n == 0:\\n        return 1\\n    else:\\n        return n * factorial(n-1)\"\n       },\n       {\n           \"type\": \"write_file\",\n           \"path\": \"test_factorial.py\",\n           \"content\": \"from factorial import factorial\\n\\ndef test_factorial_5():\\n    assert factorial(5) == 120\"\n       },\n       {\n           \"type\": \"run_tests\",\n           \"target\": \"venv/bin/pytest -v --tb=short\"\n       },\n       {\n           \"type\": \"done\",\n           \"message\": \"Factorial function and tests created and run successfully\"\n       }\n   ]\n}",
     "tokens_in": 2467,
     "tokens_out": 182,
     "finish_reason": "stop",
@@ -20,9 +20,9 @@
     "provider_used": "Groq",
     "task_kind": "default"
   },
-  "latency_ms": 917,
+  "latency_ms": 3816,
   "constitution_hash": "263b0ff719b27441",
-  "recorded_at": "2026-05-10T22:52:48.863380493+00:00",
+  "recorded_at": "2026-05-11T18:21:11.618386541+00:00",
   "provider_used": "Groq",
   "task_kind": "default",
   "tokens_used": 2649

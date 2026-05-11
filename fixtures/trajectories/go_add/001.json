@@ -12,18 +12,18 @@
     "model": "default"
   },
   "resp": {
-    "content": "<think>\n- The task is to create a Go package named \"main\" with a function `Add(a, b int) int`.\n- The `Add` function will take two integers as input and return their sum.\n- A `go.mod` file is required with the module name \"gotest\" and Go version 1.21.\n- A test file `_test.go` must be created to test the `Add` function. The test cases should include:\n  1. Adding two positive integers (e.g., `Add(2, 3) == 5`).\n  2. Adding a negative and a positive integer (e.g., `Add(-1, 1) == 0`).\n  3. Adding two negative integers (e.g., `Add(-2, -3) == -5`).\n- The tests must use `t.Errorf` with proper format strings as per the rules.\n- The `fmt` and `testing` packages are mandatory imports for the Go code.\n- The `go test` command will be used to run the tests.\n\nSteps:\n1. Create a `go.mod` file with the module name \"gotest\" and Go version 1.21.\n2. Write the `main.go` file containing the `Add` function.\n3. Write a `_test.go` file with comprehensive test cases for the `Add` function.\n4. Run `go test` to validate the implementation.\n\nAvoid common mistakes:\n- Ensure the `go.mod` file is correctly formatted with the module name and Go version.\n- Use proper formatting in `t.Errorf` statements in the test file.\n- Include all necessary imports in the Go files.\n- Ensure the function signature matches the requirements.\n</think>\n\n```json\n{\n  \"version\": \"1.0\",\n  \"commands\": [\n    {\n      \"type\": \"write_file\",\n      \"path\": \"go.mod\",\n      \"content\": \"module gotest\\n\\ngo 1.21\\n\"\n    },\n    {\n      \"type\": \"write_file\",\n      \"path\": \"main.go\",\n      \"content\": \"package main\\n\\nimport \\\"fmt\\\"\\n\\nfunc Add(a, b int) int {\\n    return a + b\\n}\\n\\nfunc main() {\\n    fmt.Println(\\\"Add(2, 3):\\\", Add(2, 3))\\n}\\n\"\n    },\n    {\n      \"type\": \"write_file\",\n      \"path\": \"main_test.go\",\n      \"content\": \"package main\\n\\nimport (\\n    \\\"testing\\\"\\n)\\n\\nfunc TestAdd(t *testing.T) {\\n    tests := []struct {\\n        a, b, expected int\\n    }{\\n        {2, 3, 5},\\n        {-1, 1, 0},\\n        {-2, -3, -5},\\n    }\\n\\n    for _, tt := range tests {\\n        result := Add(tt.a, tt.b)\\n        if result != tt.expected {\\n            t.Errorf(\\\"Add(%v, %v) = %v; want %v\\\", tt.a, tt.b, result, tt.expected)\\n        }\\n    }\\n}\\n\"\n    },\n    {\n      \"type\": \"run_tests\",\n      \"target\": \"go\"\n    }\n  ]\n}\n```",
-    "tokens_in": 2374,
-    "tokens_out": 699,
+    "content": "{\n  \"version\": \"1.0\",\n   \"commands\": [\n       {\n           \"type\": \"write_file\",\n           \"path\": \"go.mod\",\n           \"content\": \"module gotest\\n-go 1.21\"\n       },\n       {\n           \"type\": \"write_file\",\n           \"path\": \"main.go\",\n           \"content\": \"package main\\n\\nfunc Add(a int, b int) int {\\n    return a + b\\n}\"\n       },\n       {\n           \"type\": \"write_file\",\n           \"path\": \"main_test.go\",\n           \"content\": \"package main\\n\\nimport (\\n    \\\"testing\\\"\\n)\\n\\nfunc TestAdd(t *testing.T) {\\n    if Add(2, 3) != 5 {\\n        t.Errorf(\\\"expected 5, got %v\\\", Add(2, 3))\\n    }\\n    if Add(-1, 1) != 0 {\\n        t.Errorf(\\\"expected 0, got %v\\\", Add(-1, 1))\\n    }\\n}\"\n       },\n       {\n           \"type\": \"run_tests\",\n           \"target\": \"go\"\n       },\n       {\n           \"type\": \"done\",\n           \"message\": \"Execution completed\"\n       }\n   ]\n}",
+    "tokens_in": 2413,
+    "tokens_out": 266,
     "finish_reason": "stop",
-    "provider_model": "gpt-4o",
-    "provider_used": "GitHub",
+    "provider_model": "llama-3.3-70b-versatile",
+    "provider_used": "Groq",
     "task_kind": "default"
   },
-  "latency_ms": 9640,
+  "latency_ms": 3538,
   "constitution_hash": "263b0ff719b27441",
-  "recorded_at": "2026-05-10T22:59:44.189298954+00:00",
-  "provider_used": "GitHub",
+  "recorded_at": "2026-05-11T18:31:06.260542130+00:00",
+  "provider_used": "Groq",
   "task_kind": "default",
-  "tokens_used": 3073
+  "tokens_used": 2679
 }

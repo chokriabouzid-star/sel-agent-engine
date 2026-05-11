@@ -20,9 +20,9 @@
     "provider_used": "Groq",
     "task_kind": "default"
   },
-  "latency_ms": 2686,
+  "latency_ms": 11461,
   "constitution_hash": "263b0ff719b27441",
-  "recorded_at": "2026-05-10T22:50:39.906843542+00:00",
+  "recorded_at": "2026-05-11T18:16:45.225800296+00:00",
   "provider_used": "Groq",
   "task_kind": "default",
   "tokens_used": 2614

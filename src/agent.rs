@@ -21,6 +21,7 @@ pub struct Agent {
     context_config: ContextConfig,
     failure_memory: crate::memory::FailureMemory, // v5.8
     initial_snapshot: Option<crate::snapshot::Snapshot>, // v7.5.1
+    pub bench_mode: bool, // v7.9.8: skip EXPLAIN MODE in all bench runs
 }
 
 impl Agent {
@@ -43,6 +44,7 @@ impl Agent {
             context_config,
             failure_memory: crate::memory::FailureMemory::load(),
             initial_snapshot: None,
+            bench_mode: false,
         }
     }
     pub fn new_with_model(
@@ -66,6 +68,7 @@ impl Agent {
             context_config,
             failure_memory: crate::memory::FailureMemory::load(),
             initial_snapshot: None,
+            bench_mode: false,
         }
     }
 
@@ -230,8 +233,8 @@ impl Agent {
                     }
                 }
                 AgentState::WaitingForUserInput(msg) => {
-                    // v7.9.8: In bench/non-interactive mode, skip EXPLAIN MODE immediately
-                    if !std::io::stdin().is_terminal() || self.llm.mode() == "replay" {
+                    // v7.9.8: In bench mode, skip EXPLAIN MODE immediately
+                    if self.bench_mode || !std::io::stdin().is_terminal() {
                         println!("   ⏭  [Bench] Repairs exhausted — marking failed (skip EXPLAIN MODE)");
                         self.state = AgentState::Failed("max_repairs_bench".into());
                         continue;

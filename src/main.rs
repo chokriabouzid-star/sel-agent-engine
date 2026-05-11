@@ -406,6 +406,7 @@ async fn run_bench(
                 types::ContextConfig::default(),
                 llm,
             );
+            agent.bench_mode = true; // v7.9.8: skip EXPLAIN MODE
             let ok = agent.run().await.is_ok();
             pb.finish_and_clear();
 
@@ -857,6 +858,7 @@ async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<
                 types::ContextConfig::default(),
                 llm,
             );
+            agent.bench_mode = true; // v7.9.8: skip EXPLAIN MODE
             let run_result = agent.run().await;
             let ok = run_result.is_ok();
             pb.finish_and_clear();

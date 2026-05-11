@@ -150,6 +150,7 @@ pub async fn run_bench_realworld(
             provider,
         );
         ag.ctx.skip_mutation = true;
+        ag.bench_mode = true; // v7.9.8: skip EXPLAIN MODE in bench
 
         let case_start = Instant::now();
         let result = ag.run().await;
