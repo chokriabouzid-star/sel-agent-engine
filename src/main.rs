@@ -315,7 +315,8 @@ async fn run_bench(
     println!("╚══════════════════════════════════════════╝\n");
 
     // v7.9.6: Create LiveProvider ONCE — shared across all tasks (KeyPool memory persists)
-    let shared_llm = if !replay {
+    // v8.0: Also create LiveProvider when rerecord=true, because we may need it to heal broken replays
+    let shared_llm = if !replay || rerecord {
         Some(crate::llm::live::LiveProvider::from_env())
     } else {
         None
@@ -471,7 +472,14 @@ async fn run_bench(
                 let _ = std::fs::remove_dir_all(&record_dir);
 
                 // 3. Setup LiveProvider with RecorderProvider
-                let base_llm = Box::new(shared_llm.as_ref().unwrap().clone_shared());
+                let live = match shared_llm.as_ref() {
+                    Some(l) => l,
+                    None => {
+                        println!("   ❌ Auto-rerecord skipped: no API keys configured. Re-run with API keys set.");
+                        continue;
+                    }
+                };
+                let base_llm = Box::new(live.clone_shared());
                 let new_llm = Box::new(crate::llm::record::RecorderProvider::new(
                     base_llm, record_dir,
                 ));
