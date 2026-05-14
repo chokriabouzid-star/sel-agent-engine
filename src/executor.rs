@@ -838,7 +838,8 @@ impl SafeExecutor {
         // --- GO ---
         if prog == "go" || prog.ends_with("/go") {
             let mut autofix_active = false;
-            if !self.replay_mode && !self.workspace.join("go.mod").exists() {
+            // v8.0: go mod init is a purely LOCAL operation (no network) — allowed in replay mode
+            if !self.workspace.join("go.mod").exists() {
                 println!("   🔧 AutoFix: go.mod missing — initializing module 'sel_tmp'");
                 autofix_active = true;
                 let init_out = TCmd::new("go")
@@ -856,7 +857,8 @@ impl SafeExecutor {
                 }
             }
 
-            if !self.replay_mode && self.workspace.join("go.mod").exists() {
+            // v8.0: go mod tidy is LOCAL — allowed in replay mode
+            if self.workspace.join("go.mod").exists() {
                 let _ = TCmd::new("go")
                     .args(["mod", "tidy"])
                     .current_dir(&self.workspace)
