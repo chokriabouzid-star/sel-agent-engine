@@ -355,6 +355,8 @@ impl SafeExecutor {
         // v7.5: Apply language-specific sanitizers
         if path.ends_with(".go") {
             content_str = fix_go_backslashes(&content_str);
+        } else if path.ends_with("go.mod") {
+            content_str = sanitize_go_mod_content(&content_str);
         } else if path.ends_with(".toml") {
             content_str = fix_toml_duplicates(&content_str);
         } else if path.ends_with(".rs") {
@@ -1704,6 +1706,30 @@ fn find_cargo_workspace(root: &std::path::Path) -> std::path::PathBuf {
         }
     }
     root.to_path_buf()
+}
+
+/// v8.0 — Fix Llama writing `-go 1.21` instead of `go 1.21` in go.mod files
+fn sanitize_go_mod_content(content: &str) -> String {
+    let fixed: Vec<String> = content
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("-go ") {
+                let leading = &line[..line.len() - trimmed.len()];
+                format!("{}{}", leading, trimmed.replacen("-go ", "go ", 1))
+            } else if trimmed.starts_with("go=") {
+                let leading = &line[..line.len() - trimmed.len()];
+                format!("{}{}", leading, trimmed.replacen("go=", "go ", 1))
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+    let result = fixed.join("\n");
+    if result != content {
+        eprintln!("   🔧 AutoFix: corrected go.mod directive syntax (-go → go)");
+    }
+    result
 }
 
 fn sanitize_go_module_name(cmd: &str) -> String {

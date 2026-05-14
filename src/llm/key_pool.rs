@@ -28,6 +28,10 @@ impl KeyPool {
         for i in 0..keys.len() {
             if cache.is_key_exhausted(prefix, i) {
                 exhausted.insert(i);
+                eprintln!(
+                    "   ⏭️  Key #{} for {} pre-skipped (exhausted in previous session)",
+                    i + 1, prefix
+                );
             }
         }
         
