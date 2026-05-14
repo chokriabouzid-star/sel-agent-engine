@@ -80,6 +80,14 @@ impl Agent {
         self.ctx.repair_attempts as usize
     }
 
+    pub fn failed_reason(&self) -> Option<String> {
+        if let crate::types::AgentState::Failed(ref reason) = self.state {
+            Some(reason.clone())
+        } else {
+            None
+        }
+    }
+
     pub fn is_success(&self) -> bool {
         matches!(self.state, AgentState::Done)
     }

@@ -91,6 +91,8 @@ enum Commands {
         delay: u64,
         #[arg(long)]
         skip_recorded: bool,
+        #[arg(long)]
+        rerecord: bool,
     },
     Scan {
         /// مسار المشروع
@@ -274,6 +276,7 @@ async fn run_bench(
     replay: bool,
     delay: u64,
     skip_recorded: bool,
+    rerecord: bool,
 ) -> Result<Vec<String>> {
     let cases = crate::bench_cases::suite_cases(suite);
     let cases: Vec<_> = cases
@@ -335,6 +338,7 @@ async fn run_bench(
     let tmpdir = std::env::temp_dir();
     let mut provider_stats = ProviderStats::default();
     let bench_start_time = std::time::Instant::now();
+    let mut auto_healed = Vec::new();
 
     for iter in 0..iterations {
         if iterations > 1 {
@@ -441,8 +445,59 @@ async fn run_bench(
                 llm,
             );
             agent.bench_mode = true; // v7.9.8: skip EXPLAIN MODE
-            let ok = agent.run().await.is_ok();
+            let mut ok = agent.run().await.is_ok();
             pb.finish_and_clear();
+
+            // v8.0: Auto-Heal (Rerecord) broken trajectories during offline replay
+            if replay && !ok && rerecord {
+                let err_reason = agent.failed_reason().unwrap_or_else(|| "Unknown Error".to_string());
+                println!("   ⚠️  Replay failed ({})! Auto-rerecording trajectory...", err_reason);
+                
+                // 1. Clean workspace for fresh start
+                let _ = std::fs::remove_dir_all(&workspace);
+                std::fs::create_dir_all(&workspace).ok();
+                if case.is_bugfix() {
+                    for (path, content) in &case.scaffold_files {
+                        let file_path = workspace.join(path);
+                        if let Some(parent) = file_path.parent() {
+                            std::fs::create_dir_all(parent).ok();
+                        }
+                        std::fs::write(&file_path, content).ok();
+                    }
+                }
+
+                // 2. Clear old broken trajectory
+                let record_dir = traj_base.join(name.replace(" ", "_"));
+                let _ = std::fs::remove_dir_all(&record_dir);
+
+                // 3. Setup LiveProvider with RecorderProvider
+                let base_llm = Box::new(shared_llm.as_ref().unwrap().clone_shared());
+                let new_llm = Box::new(crate::llm::record::RecorderProvider::new(
+                    base_llm, record_dir,
+                ));
+
+                // 4. Run agent in live/record mode
+                let mut heal_agent = crate::agent::Agent::new_with_model(
+                    api_key.to_string(),
+                    "default".to_string(),
+                    workspace.clone(),
+                    goal.to_string(),
+                    max_repairs,
+                    types::ContextConfig::default(),
+                    new_llm,
+                );
+                heal_agent.bench_mode = true;
+                
+                let heal_ok = heal_agent.run().await.is_ok();
+                if heal_ok {
+                    println!("   ✅ Successfully auto-rerecorded.");
+                    ok = true; // We healed it!
+                    auto_healed.push(format!("{}: {} -> RERECORDED", name, err_reason));
+                    agent = heal_agent; // use the healed agent's stats
+                } else {
+                    println!("   ❌ Auto-rerecord failed.");
+                }
+            }
 
             let repairs = agent.repair_count();
             total_repairs += repairs;
@@ -532,6 +587,15 @@ async fn run_bench(
         format!("{:.0}%", full_coverage)
     );
     println!("║  Quality Index:  {:<23}║", format!("{:.2}", quality));
+    
+    if !auto_healed.is_empty() {
+        println!("╠══════════════════════════════════════════╣");
+        println!("║  🛠  Auto-Healed (rerecorded):            ║");
+        for h in &auto_healed {
+            println!("║    - {:<36}║", h);
+        }
+    }
+    
     println!("╠══════════════════════════════════════════╣");
     println!("║  📡 Provider Usage:                     ║");
 
@@ -1158,11 +1222,12 @@ async fn main() -> Result<()> {
             quick,
             delay,
             skip_recorded,
+            rerecord,
         } => {
             if quick {
                 run_quick_bench("", &suite, max_repairs, iterations, &focus, delay).await?;
             } else {
-                run_bench("", &suite, max_repairs, iterations, &focus, record, replay, delay, skip_recorded).await?;
+                run_bench("", &suite, max_repairs, iterations, &focus, record, replay, delay, skip_recorded, rerecord).await?;
             }
         }
         Commands::Stress { max_repairs } => {
@@ -1533,7 +1598,7 @@ async fn run_quick_bench(
     delay: u64,
 ) -> Result<Vec<String>> {
     println!("\n🚀 Quick Mode: Stage 1 — Running Replay for '{}'", suite);
-    let failed = run_bench(api_key, suite, max_repairs, iterations, focus, false, true, delay, false).await?;
+    let failed = run_bench(api_key, suite, max_repairs, iterations, focus, false, true, delay, false, false).await?;
 
     if failed.is_empty() {
         println!("\n✅ Quick Mode: All cases passed via Replay. System is stable.");
@@ -1557,6 +1622,7 @@ async fn run_quick_bench(
         false,
         delay,
         false, // skip_recorded
+        false, // rerecord
     )
     .await?;
 
@@ -1571,6 +1637,7 @@ async fn run_quick_bench(
         true,
         delay,
         false, // skip_recorded
+        false, // rerecord
     )
     .await?;
 
