@@ -97,19 +97,26 @@ fn build_planning_prompt(
 
     let ref_context = crate::decision::build_ref_context(config);
 
-    // v7.9.6: Thinking Space — forces step-by-step reasoning before JSON output
-    // Reduces import errors, wrong types, and missing test cases
-    // Parser already handles <think> blocks via strip_think_blocks()
-    let thinking_prompt = "\n\n## Required Analysis\n\
+    // v7.9.9 P1: Explicit repair instruction if files exist
+    let repair_instruction = if !existing_files.is_empty() {
+        "\n⚠️  EXISTING FILES ARE PROVIDED. Your job is to FIX the bugs in them.\n\
+         - DO NOT delete or overwrite these files from scratch.\n\
+         - Use patch_file to apply precise fixes.\n\
+         - Keep existing correct logic and only change what is broken.\n"
+    } else {
+        ""
+    };
+
+    let thinking_prompt = format!("\n\n## Required Analysis\n\
 Before writing the JSON plan, think step-by-step inside <think>...</think> tags:\n\
 <think>\n\
-- What language is this task? What files must I create?\n\
-- What are the exact function signatures needed?\n\
+- Is this a bugfix task (files already exist) or a new feature task?\n\
+- What exactly is broken in the existing files?\n\
+- How can I fix it using patch_file without rewriting everything?\n\
 - What imports are MANDATORY for this language?\n\
 - What edge cases must the tests cover?\n\
-- What common mistakes should I avoid?\n\
 </think>\n\
-After </think>, output ONLY the ```json plan. Nothing else outside the JSON block.\n";
+After </think>, output ONLY the ```json plan. Nothing else outside the JSON block.\n{}", repair_instruction);
 
     crate::constitution::CONSTITUTION.to_string()
         + &format!(
@@ -360,6 +367,9 @@ pub async fn do_executing(
                         ctx.tests_passed = true;
                     }
                 }
+                if r.autofix_triggered {
+                    ctx.autofix_count += 1;
+                }
                 ctx.successful_hashes.insert(cmd_hash);
             }
             Ok(r) => {
@@ -461,7 +471,9 @@ async fn run_mutation_check(
                 ctx.mutations_total += 1;
                 ctx.mutations_killed += 1;
             }
-            crate::executor::MutationResult::Skipped => {}
+            crate::executor::MutationResult::Skipped(reason) => {
+                println!("     🧬 Mutation skipped for {}: {}", src, reason);
+            }
         }
     }
     None
@@ -545,8 +557,12 @@ pub async fn do_repairing(
     if let crate::decision::ChecklistResult::Handled =
         crate::decision::pre_repair_checklist(&mut fix_plan, ctx, workspace)
     {
-        println!("   ✨ Checklist Fix: applied deterministic repair");
-        return Ok((fix_plan, AgentState::Executing));
+        if fix_plan.is_empty() {
+            println!("   ⚠️  Checklist returned Handled but produced no commands — falling through to LLM");
+        } else {
+            println!("   ✨ Checklist Fix: applied deterministic repair");
+            return Ok((fix_plan, AgentState::Executing));
+        }
     }
 
     // QuickFix v7.5
@@ -593,28 +609,15 @@ pub async fn do_repairing(
         }
     }
 
-    // ─── Structured Repair Memory v1.3 ───
+    // ─── Structured Repair Memory v8.0 (Escalating Strategy) ───
     let display_limit = repair_limit;
-    let attempt_note = if ctx.repair_attempts > 1 {
-        match &previous_error {
-            Some(prev) => format!(
-                "ATTEMPT {}/{}: Previous fix failed.\n  Previous error: {}\n  New error:      {}\n  Your fix changed the problem but did not solve it. Try a different approach.",
-                ctx.repair_attempts,
-                display_limit,
-                prev.chars().take(300).collect::<String>(),
-                all_err.chars().take(300).collect::<String>()
-            ),
-            None => format!(
-                "ATTEMPT {}/{}: Previous fix failed — try a completely different approach.",
-                ctx.repair_attempts, display_limit
-            ),
-        }
-    } else {
-        format!(
-            "ATTEMPT {}/{}: First repair attempt.",
-            ctx.repair_attempts, display_limit
-        )
-    };
+    let repair_ctx = crate::repair_strategy::RepairCtx::build(workspace, goal, previous_error.as_ref());
+    let attempt_note = format!(
+        "ATTEMPT {}/{}:\n{}", 
+        ctx.repair_attempts, 
+        display_limit, 
+        crate::repair_strategy::build_prompt(ctx.repair_attempts, &all_err, &repair_ctx, workspace)
+    );
 
     let loop_warning = if repair_fingerprints.len() > 1
         && repair_fingerprints.last()

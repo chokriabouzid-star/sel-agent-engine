@@ -43,6 +43,7 @@ pub struct ExecutionContext {
     pub skip_mutation: bool, // v6.5: disable mutation enforcement for real-world bench
     pub last_mutation_context: Option<MutationContext>, // v7.5.2
     pub checklist_run_tests_injected: bool, // v7.6.1: Prevent infinite run_tests injections
+    pub autofix_count: u32, // v7.9.9 P5: Track system-driven fixes
 }
 
 impl ExecutionContext {
@@ -156,6 +157,7 @@ pub struct ExecResult {
     pub stdout: String,
     pub stderr: String,
     pub duration_ms: u64,
+    pub autofix_triggered: bool, // v7.9.9 P5
 }
 
 impl ExecResult {
@@ -166,6 +168,7 @@ impl ExecResult {
             stdout: msg.into(),
             stderr: String::new(),
             duration_ms: 0,
+            autofix_triggered: false,
         }
     }
     pub fn fail(msg: impl Into<String>) -> Self {
@@ -175,6 +178,7 @@ impl ExecResult {
             stdout: String::new(),
             stderr: msg.into(),
             duration_ms: 0,
+            autofix_triggered: false,
         }
     }
 }
@@ -188,6 +192,7 @@ pub struct BenchCase {
     pub name: String,
     pub lang: String,
     pub goal: String,
+    pub scaffold_files: Vec<(String, String)>, // v7.9.9: (path, content) — broken code to fix
 }
 
 impl BenchCase {
@@ -196,7 +201,22 @@ impl BenchCase {
             name: name.to_string(),
             lang: lang.to_string(),
             goal: goal.to_string(),
+            scaffold_files: Vec::new(),
         }
+    }
+
+    /// v7.9.9: Create a bugfix task with pre-placed broken code
+    pub fn bugfix(name: &str, lang: &str, goal: &str, files: Vec<(&str, &str)>) -> Self {
+        Self {
+            name: name.to_string(),
+            lang: lang.to_string(),
+            goal: goal.to_string(),
+            scaffold_files: files.into_iter().map(|(p, c)| (p.to_string(), c.to_string())).collect(),
+        }
+    }
+
+    pub fn is_bugfix(&self) -> bool {
+        !self.scaffold_files.is_empty()
     }
 }
 

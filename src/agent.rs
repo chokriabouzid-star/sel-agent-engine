@@ -133,8 +133,6 @@ impl Agent {
 
     pub async fn run(&mut self) -> Result<()> {
         self.ctx.start_time = Some(std::time::Instant::now());
-        // v7.5.1: Take initial snapshot to allow final rollback on complete failure
-        self.initial_snapshot = Some(crate::snapshot::Snapshot::take(&self.executor.workspace));
 
         // v7.6.1: Activate replay mode on executor to prevent internet access
         if self.llm.mode() == "replay" {
@@ -168,6 +166,19 @@ impl Agent {
                 );
             }
         }
+
+        // v7.9.10: Initial snapshot AFTER scaffold — so bugfix scaffold files
+        // are committed to git baseline and survive the stash cycle.
+        // Previously this was BEFORE scaffold_engine, which stashed away
+        // the scaffold_files written by the bench runner.
+        {
+            let _ = std::process::Command::new("git").arg("add").arg(".")
+                .current_dir(&ws).output();
+            let _ = std::process::Command::new("git")
+                .args(&["commit", "-m", "scaffold_baseline", "--allow-empty"])
+                .current_dir(&ws).output();
+        }
+        self.initial_snapshot = Some(crate::snapshot::Snapshot::take(&ws));
 
         loop {
             match self.state.clone() {
@@ -233,8 +244,8 @@ impl Agent {
                     }
                 }
                 AgentState::WaitingForUserInput(msg) => {
-                    // v7.9.8: In bench mode, skip EXPLAIN MODE immediately
-                    if self.bench_mode || !std::io::stdin().is_terminal() {
+                    // v8.0: In bench mode, skip EXPLAIN MODE immediately using env var or struct field
+                    if self.bench_mode || std::env::var("SEL_BENCH_MODE").is_ok() || !std::io::stdin().is_terminal() {
                         println!("   ⏭  [Bench] Repairs exhausted — marking failed (skip EXPLAIN MODE)");
                         self.state = AgentState::Failed("max_repairs_bench".into());
                         continue;

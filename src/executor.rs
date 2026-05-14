@@ -236,6 +236,7 @@ impl SafeExecutor {
             stdout: String::from_utf8_lossy(&out.stdout).into(),
             stderr: String::from_utf8_lossy(&out.stderr).into(),
             duration_ms: start.elapsed().as_millis() as u64,
+            autofix_triggered: false,
         })
     }
 
@@ -523,10 +524,21 @@ impl SafeExecutor {
     }
 
     fn patch_file(&self, path: &str, search: &str, replace: &str) -> Result<ExecResult> {
-        // v7.5: Spec Protection — allow patch_file but with a trace warning (Constitution v7.5 exception)
+        // v7.9.9 P6: HARD-BLOCK test file modifications
         if self.is_spec_file(path) {
+            let is_agent_created = self.agent_written_files.borrow().contains(path);
+            if !is_agent_created {
+                // Pre-existing test file — NEVER allow modification
+                return Ok(ExecResult::fail(format!(
+                    "SPEC PROTECTION: '{}' is a pre-existing test file — NEVER modify test files. Fix the SOURCE code instead.",
+                    path
+                )));
+            }
+            // Agent-created test file — we allow modification without strict Assertion Guard
+            // because strict guards cause deadlocks if the agent introduces syntax errors
+            // and needs to revert its own patches. The mutation engine will catch weak tests anyway.
             eprintln!(
-                "[TRACE] SPEC PROTECTION: allowing patch_file on '{}' for potential syntax fix",
+                "[TRACE] SPEC PROTECTION: allowing patch_file on agent-created '{}' (agent's own file)",
                 path
             );
         }
@@ -737,6 +749,7 @@ impl SafeExecutor {
             stdout: content,
             stderr: String::new(),
             duration_ms: 0,
+            autofix_triggered: false,
         })
     }
 
@@ -816,13 +829,16 @@ impl SafeExecutor {
                     combined[s..].to_string()
                 },
                 duration_ms: start.elapsed().as_millis() as u64,
+                autofix_triggered: false,
             });
         }
 
         // --- GO ---
         if prog == "go" || prog.ends_with("/go") {
+            let mut autofix_active = false;
             if !self.replay_mode && !self.workspace.join("go.mod").exists() {
                 println!("   🔧 AutoFix: go.mod missing — initializing module 'sel_tmp'");
+                autofix_active = true;
                 let init_out = TCmd::new("go")
                     .args(["mod", "init", "sel_tmp"])
                     .current_dir(&self.workspace)
@@ -878,6 +894,7 @@ impl SafeExecutor {
                     combined[s..].to_string()
                 },
                 duration_ms: start.elapsed().as_millis() as u64,
+                autofix_triggered: autofix_active,
             });
         }
 
@@ -889,6 +906,7 @@ impl SafeExecutor {
             || prog.ends_with("/npx")
             || prog.ends_with("/node")
         {
+            let mut autofix_active = false;
             let mut out = tokio::time::timeout(
                 std::time::Duration::from_secs(self.timeout_secs),
                 TCmd::new(&prog)
@@ -912,6 +930,7 @@ impl SafeExecutor {
                         let module = &rest[..end];
                         if !module.starts_with('.') && !module.starts_with('/') {
                             println!("   ⚡ QuickFix: npm install {}", module);
+                            autofix_active = true;
                             let _ = TCmd::new("npm")
                                 .args(["install", module])
                                 .current_dir(&self.workspace)
@@ -961,6 +980,7 @@ impl SafeExecutor {
                     combined[s..].to_string()
                 },
                 duration_ms: start.elapsed().as_millis() as u64,
+                autofix_triggered: autofix_active,
             });
         }
 
@@ -968,8 +988,10 @@ impl SafeExecutor {
         if prog.contains("pytest") || target.contains("pytest") {
             // v7.5.7: Proactive AutoFix for Python venv + pytest
             let mut final_prog = prog.clone();
+            let mut autofix_active = false;
             if !self.replay_mode && !self.workspace.join("venv").exists() {
                 println!("   🔧 AutoFix: creating venv and installing pytest...");
+                autofix_active = true;
                 let _ = TCmd::new("python3")
                     .args(["-m", "venv", "venv"])
                     .current_dir(&self.workspace)
@@ -1024,13 +1046,18 @@ impl SafeExecutor {
                     combined[s..].to_string()
                 },
                 duration_ms: start.elapsed().as_millis() as u64,
+                autofix_triggered: autofix_active,
             });
         }
 
-        Ok(ExecResult::fail(format!(
-            "No test handler for program: {}",
-            prog
-        )))
+        Ok(ExecResult {
+            success: false,
+            exit_code: 1,
+            stdout: String::new(),
+            stderr: format!("No test handler for program: {}", prog),
+            duration_ms: start.elapsed().as_millis() as u64,
+            autofix_triggered: false,
+        })
     }
 
     // ─── Helpers ───────────────────────────────────
@@ -1138,26 +1165,67 @@ fn parse_pytest(output: &str) -> (usize, usize) {
 pub enum MutationResult {
     Strong,
     Weak(String, String), // (original_line, mutated_line)
-    Skipped,
+    Skipped(String),      // Reason
 }
 
 fn apply_all_mutations(code: &str) -> Vec<(String, String, String)> {
     let strategies: &[(&str, &str)] = &[
+        // ─── Operators (existing) ───
         ("==", "!="),
         ("!=", "=="),
         (" > ", " < "),
         (" < ", " > "),
         (" >= ", " <= "),
         (" <= ", " >= "),
-        ("return True", "return False"),
-        ("return False", "return True"),
         (" + ", " - "),
         (" - ", " + "),
+        // ─── Boolean returns ───
+        ("return True", "return False"),
+        ("return False", "return True"),
+        ("return true", "return false"),       // Go/Rust/TS
+        ("return false", "return true"),       // Go/Rust/TS
+        // ─── Constants (covers helper.py: return 42) ───
+        ("return 0\n", "return 1\n"),
+        ("return 1\n", "return 0\n"),
+        ("return 42", "return 0"),
+        ("return -1", "return 0"),
+        // ─── Function swaps (covers max_of_three.py, min/max confusion) ───
+        ("max(", "min("),
+        ("min(", "max("),
+        // ─── Multiplication (covers double.py: x*2) ───
+        (" * 2", " * 3"),
+        (" * 3", " * 2"),
+        (" * ", " / "),
+        // ─── Python slice reversal (covers reverse_string.py) ───
+        ("[::-1]", "[::1]"),
+        // ─── List methods (covers stack.py pop/append) ───
+        (".append(", ".insert(0, "),
+        // ─── Go/Rust: without-space arithmetic (covers go add: a+b) ───
+        ("a+b", "a-b"),
+        ("a-b", "a+b"),
+        ("a + b", "a - b"),
+        ("a - b", "a + b"),
+        // ─── Logical operators (Go/TS/Rust) ───
+        (" && ", " || "),
+        (" || ", " && "),
+        // ─── String operations (covers greet.py: f'Hi {name}') ───
+        ("f'Hi {", "f'Bye {"),
+        ("f\"Hi {", "f\"Bye {"),
+        // ─── Modulo (covers is_even: n%2==0) — handled by == already ───
+        // ─── Recursion (covers factorial: n-1) ───
+        ("n - 1)", "n + 1)"),
+        ("n - 1,", "n + 1,"),
     ];
+
+    // أنماط يجب تجاهلها (loop variables وما شابه)
     let skip_patterns = [
-        "i += ", "i -= ", "j += ", "j -= ", "idx", "index", "len(", "range(", "count +=",
-        "count -=",
+        "i += ", "i -= ", "j += ", "j -= ",
+        "idx", "index",
+        "count +=", "count -=",
+        "test", "Test", "assert", "expect",  // لا نطفّر خطوط الاختبار
+        "#[", "//",  // Rust attributes and comments
     ];
+
     let mut result = Vec::new();
     for (from, to) in strategies {
         let mut found_line = None;
@@ -1169,6 +1237,8 @@ fn apply_all_mutations(code: &str) -> Vec<(String, String, String)> {
                     || trimmed.starts_with("//")
                     || trimmed.starts_with('*')
                     || trimmed.starts_with("/*")
+                    || trimmed.starts_with("import ")
+                    || trimmed.starts_with("use ")
                     || skip_patterns.iter().any(|p| line.contains(p));
                 if found_line.is_none() && !skip && line.contains(*from) {
                     let new_line = line.replacen(from, to, 1);
@@ -1191,7 +1261,7 @@ impl SafeExecutor {
     pub async fn mutation_check(&self, source_file: &str) -> MutationResult {
         let source_path = self.workspace.join(source_file);
         if !source_path.exists() {
-            return MutationResult::Skipped;
+            return MutationResult::Skipped("Path not found".into());
         }
         let ext = source_path
             .extension()
@@ -1199,11 +1269,11 @@ impl SafeExecutor {
             .unwrap_or("");
         let original = match std::fs::read_to_string(&source_path) {
             Ok(s) => s,
-            Err(_) => return MutationResult::Skipped,
+            Err(_) => return MutationResult::Skipped("Read failure".into()),
         };
         let mutations = apply_all_mutations(&original);
         if mutations.is_empty() {
-            return MutationResult::Skipped;
+            return MutationResult::Skipped("No mutable patterns found".into());
         }
         // test runner per language
         let test_cmd: Vec<String> = match ext {
@@ -1242,7 +1312,7 @@ impl SafeExecutor {
                 ]
             }
             "rs" => vec!["cargo".into(), "test".into(), "--quiet".into()],
-            _ => return MutationResult::Skipped,
+            _ => return MutationResult::Skipped("Unsupported lang for mutation".into()),
         };
         let mut survived_orig = String::new();
         let mut survived_mutd = String::new();
@@ -1287,7 +1357,7 @@ impl SafeExecutor {
         } else if any_caught {
             MutationResult::Strong
         } else {
-            MutationResult::Skipped
+            MutationResult::Skipped("No survivors".into())
         }
     }
 }
@@ -1439,6 +1509,58 @@ fn python_syntax_check(file: &std::path::Path) -> Option<String> {
     } else {
         None
     }
+}
+
+/// v7.9.9 P6: Semantic Guard for tests
+fn guard_assertion_integrity(path: &str, before: &str, after: &str) -> std::result::Result<(), String> {
+    let before_asserts = count_assertions(before);
+    let after_asserts = count_assertions(after);
+    
+    if after_asserts < before_asserts {
+        return Err(format!(
+            "BLOCKED: ASSERTION GUARD: patch on '{}' would reduce assertion count from {} to {} — this weakens test quality. Fix the SOURCE code instead.",
+            path, before_asserts, after_asserts
+        ));
+    }
+    
+    let before_vals = extract_expected_values(before);
+    let after_vals = extract_expected_values(after);
+    if !before_vals.is_subset(&after_vals) {
+        return Err(format!(
+            "BLOCKED: ASSERTION GUARD: patch on '{}' would change expected values (e.g. literals in assertions). This is FORBIDDEN. Fix the SOURCE code to match existing tests.",
+            path
+        ));
+    }
+    
+    Ok(())
+}
+
+/// v7.9.9 P6: Count assertion statements in test file
+/// Used by Semantic Guard to prevent test weakening
+fn count_assertions(content: &str) -> usize {
+    content.lines().filter(|l| {
+        let t = l.trim();
+        // Python
+        t.starts_with("assert ") || t.contains("assertEqual") || t.contains("assertRaises")
+        // Go
+        || t.contains("t.Errorf") || t.contains("t.Fatal") || t.contains("t.Error(")
+        // JS/TS
+        || t.contains("expect(") || t.contains("assert.") || t.contains("toBe(")
+        // Rust
+        || t.contains("assert_eq!") || t.contains("assert_ne!") || t.contains("assert!(")
+    }).count()
+}
+
+/// v7.9.9 P6: Extract expected values from assertion strings
+/// Regex-based heuristic to detect literal changes in tests
+fn extract_expected_values(content: &str) -> std::collections::BTreeSet<String> {
+    let mut values = std::collections::BTreeSet::new();
+    // Extract all numbers and quoted strings as a heuristic for test literals
+    let re = regex::Regex::new(r#""[^"]*"|'[^']*'|-?\b\d+\b"#).unwrap();
+    for cap in re.captures_iter(content) {
+        values.insert(cap[0].to_string());
+    }
+    values
 }
 
 /// AutoFix: يضيف Go stdlib import تلقائياً بدون LLM
@@ -1847,5 +1969,99 @@ fn pop(&mut self) -> Result<f64, String> {
         let input = r#"self.data.get(0).ok_or_else(|| "No data")"#;
         let result = fix_rust_string_types(input);
         assert!(result.contains(r#"ok_or_else(|| "No data".to_string())"#));
+    }
+}
+
+#[cfg(test)]
+mod spec_protection_tests {
+    use super::*;
+
+    fn task13_original_test() -> &'static str {
+        r#"
+func TestAdd(t *testing.T) {
+    cases := []struct{ a, b, want int }{
+        {2, 3, 5},
+        {0, 0, 0},
+    }
+    for _, c := range cases {
+        if Add(c.a, c.b) != c.want {
+            t.Errorf("Add(%d,%d) = %d; want %d",
+                c.a, c.b, Add(c.a, c.b), c.want)
+        }
+    }
+}
+"#
+    }
+
+    fn task13_tampered_test() -> &'static str {
+        r#"
+func TestAdd(t *testing.T) {
+    cases := []struct{ a, b, want int }{
+        {2, 3, 0},
+        {0, 0, 0},
+    }
+    for _, c := range cases {
+        if Add(c.a, c.b) != c.want {
+            t.Errorf("Add(%d,%d) = %d; want %d",
+                c.a, c.b, Add(c.a, c.b), c.want)
+        }
+    }
+}
+"#
+    }
+
+    #[test]
+    fn test_blocks_expected_value_change() {
+        let before = task13_original_test();
+        let after = task13_tampered_test();
+        let result = guard_assertion_integrity(
+            "main_test.go",
+            before,
+            after,
+        );
+        assert!(result.is_err(), "Must block value changes");
+        assert!(result.unwrap_err().contains("BLOCKED"));
+    }
+
+    #[test]
+    fn test_allows_legitimate_repair() {
+        let before = r#"
+func TestAdd(t *testing.T) {
+    if Add(2, 3 != 5 {
+        t.Error("fail")
+    }
+}
+"#;
+        let after = r#"
+func TestAdd(t *testing.T) {
+    if Add(2, 3) != 5 {
+        t.Error("fail")
+    }
+}
+"#;
+        let result = guard_assertion_integrity("main_test.go", before, after);
+        assert!(result.is_ok(), "Syntax repair must be allowed");
+    }
+
+    #[test]
+    fn test_blocks_test_count_reduction() {
+        let two_tests = r#"
+def test_add(): assert add(2,3) == 5
+def test_zero(): assert add(0,0) == 0
+"#;
+        let one_test = r#"
+def test_add(): assert add(2,3) == 5
+"#;
+        let result = guard_assertion_integrity("test_math.py", two_tests, one_test);
+        assert!(result.is_err(), "Deleting tests must be blocked");
+    }
+
+    #[test]
+    fn test_allows_adding_more_tests() {
+        let one_test  = "def test_add(): assert add(2,3) == 5\n";
+        let two_tests = "def test_add(): assert add(2,3) == 5\n\
+                         def test_neg(): assert add(-1,-1) == -2\n";
+        let result = guard_assertion_integrity("test_math.py", one_test, two_tests);
+        assert!(result.is_ok(), "Adding tests must be allowed");
     }
 }

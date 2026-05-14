@@ -1309,7 +1309,7 @@ dependencies = [
 
 [[package]]
 name = "sel-agent"
-version = "7.9.5"
+version = "7.9.10"
 dependencies = [
  "anyhow",
  "async-trait",

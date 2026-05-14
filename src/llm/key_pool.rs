@@ -2,6 +2,7 @@ pub struct KeyPool {
     pub keys: Vec<String>,
     current: usize,
     exhausted: std::collections::HashSet<usize>,
+    prefix: String,
 }
 
 impl KeyPool {
@@ -20,7 +21,17 @@ impl KeyPool {
                 }
             }
         }
-        Self { keys, current: 0, exhausted: Default::default() }
+        
+        let mut exhausted = std::collections::HashSet::new();
+        // v7.9.9 P2: Load from disk cache
+        let cache = crate::provider_state::ProviderStateCache::load();
+        for i in 0..keys.len() {
+            if cache.is_key_exhausted(prefix, i) {
+                exhausted.insert(i);
+            }
+        }
+        
+        Self { keys, current: 0, exhausted, prefix: prefix.to_string() }
     }
 
     /// Returns the next available key
@@ -38,14 +49,33 @@ impl KeyPool {
         None // All keys exhausted
     }
 
+    pub fn mark_expired(&mut self) {
+        if self.keys.is_empty() { return; }
+        eprintln!(
+            "🔑 Key #{} for {} PERMANENTLY EXPIRED — removed from rotation",
+            self.current + 1, self.prefix
+        );
+        self.exhausted.insert(self.current);
+        
+        let mut cache = crate::provider_state::ProviderStateCache::load();
+        cache.mark_permanently_expired(&self.prefix, self.current);
+        
+        self.current = (self.current + 1) % self.keys.len();
+    }
+
     /// Mark the current key as daily exhausted
     pub fn mark_exhausted(&mut self) {
         if self.keys.is_empty() { return; }
         eprintln!(
-            "🔑 Key #{} exhausted → rotating to next key",
-            self.current + 1
+            "🔑 Key #{} for {} exhausted → rotating to next key",
+            self.current + 1, self.prefix
         );
         self.exhausted.insert(self.current);
+        
+        // v7.9.9 P2: Save to disk cache
+        let mut cache = crate::provider_state::ProviderStateCache::load();
+        cache.mark_exhausted(&self.prefix, self.current);
+        
         self.current = (self.current + 1) % self.keys.len();
     }
 

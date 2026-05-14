@@ -141,3 +141,51 @@ impl ModelConfig {
         }
     }
 }
+
+/// v7.9.9 P2: Preflight Quota Check
+/// Estimates if available keys can handle the task count
+pub fn preflight_quota_check(task_count: usize, provider: &dyn LLMProvider) {
+    let mode = provider.mode();
+    if mode == "replay" {
+        return;
+    }
+    
+    // Estimate: 1 planning + 1 repair per task = 2 calls per task
+    let total_estimated = task_count * 2;
+    println!("\n📊 [Quota] Preflight check:");
+    println!("   Tasks:      {}", task_count);
+    println!("   Est. Calls: {} (planning + avg repairs)", total_estimated);
+    
+    // In live mode, we can show configured provider count
+    if mode == "live" {
+        let cache = crate::provider_state::ProviderStateCache::load();
+        
+        // Count keys from env directly to know total available across runs
+        let groq_keys = crate::llm::key_pool::KeyPool::from_env("GROQ_API_KEY").keys.len();
+        let gemini_keys = crate::llm::key_pool::KeyPool::from_env("GEMINI_API_KEY").keys.len();
+        let cerebras_keys = crate::llm::key_pool::KeyPool::from_env("CEREBRAS_API_KEY").keys.len();
+        let openrouter_keys = crate::llm::key_pool::KeyPool::from_env("OPENROUTER_API_KEY").keys.len();
+        let github_keys = crate::llm::key_pool::KeyPool::from_env("GITHUB_TOKEN").keys.len();
+        
+        let providers = vec![
+            ("GROQ_API_KEY", groq_keys),
+            ("GEMINI_API_KEY", gemini_keys),
+            ("CEREBRAS_API_KEY", cerebras_keys),
+            ("OPENROUTER_API_KEY", openrouter_keys),
+            ("GITHUB_TOKEN", github_keys),
+        ];
+        
+        let remaining = cache.estimated_remaining_calls(&providers);
+        println!("   Est. Remaining Capacity: ~{} calls across all providers", remaining);
+        
+        if total_estimated > 30 {
+            println!("   ⚠️  HIGH LOAD: {} tasks may exhaust free-tier quotas quickly.", task_count);
+        } else {
+            println!("   ✅ Load seems manageable for the configured providers.");
+        }
+        
+        if remaining < total_estimated {
+            println!("   🚨 CRITICAL: Estimated remaining capacity is LESS than required calls! You might face exhaustion mid-run.");
+        }
+    }
+}

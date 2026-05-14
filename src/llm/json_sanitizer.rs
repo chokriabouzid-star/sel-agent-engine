@@ -14,9 +14,10 @@ pub fn sanitize_llm_json(raw: &str) -> String {
 /// The triple-slash is treated as a comment by some parsers.
 /// Fix: convert `///` to `//` inside JSON string values.
 fn fix_rust_doc_comments(s: &str) -> String {
-    // Only fix inside JSON strings — look for escaped newlines followed by ///
+    // Fix inside JSON strings — both after escaped newlines and at the start of a value
     s.replace("\\n///", "\\n//")
      .replace("\\n    ///", "\\n    //")
+     .replace("\"///", "\"//")
 }
 
 /// Close truncated JSON that was cut off mid-response.

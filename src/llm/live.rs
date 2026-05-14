@@ -104,24 +104,54 @@ impl LiveProvider {
     }
     pub fn new() -> Self {
         let mut providers = Vec::new();
+        let mut missing_keys = Vec::new();
+        let mut exhausted_providers = Vec::new();
 
         // الترتيب: Groq → Gemini → Cerebras → OpenRouter → GitHub
         let candidates = vec![
-            Provider::groq(),
-            Provider::gemini(),
-            Provider::cerebras(),
-            Provider::openrouter(),
-            Provider::github(),
+            ("GROQ_API_KEY", Provider::groq()),
+            ("GEMINI_API_KEY", Provider::gemini()),
+            ("CEREBRAS_API_KEY", Provider::cerebras()),
+            ("OPENROUTER_API_KEY", Provider::openrouter()),
+            ("GITHUB_TOKEN", Provider::github()),
         ];
 
-        for p in candidates {
-            if p.is_configured() {
-                providers.push(p);
+        for (env_name, p) in candidates {
+            let pool = p.key_pool.lock().unwrap();
+            if pool.keys.is_empty() {
+                missing_keys.push(env_name);
+                continue;
             }
+            if !pool.has_available() {
+                exhausted_providers.push(p.name.clone());
+                continue;
+            }
+            drop(pool);
+            providers.push(p);
         }
 
         if providers.is_empty() {
-            panic!("❌ No LLM provider configured. Set at least one API key.");
+            if !missing_keys.is_empty() && exhausted_providers.is_empty() {
+                eprintln!(
+                    "⚠️  No API keys found in environment. Please set at least one of: {}",
+                    missing_keys.join(", ")
+                );
+            } else if missing_keys.is_empty() && !exhausted_providers.is_empty() {
+                eprintln!(
+                    "⚠️  All configured providers ({}) are currently EXHAUSTED in the cache. \
+                     Wait for quota reset or clear ~/.sel-agent/provider_state.json",
+                    exhausted_providers.join(", ")
+                );
+                // We do NOT panic here. We let the provider list be empty.
+                // The `complete()` method will return an Err instead, allowing 
+                // the bench loop to skip already-recorded cases without crashing.
+            } else {
+                eprintln!(
+                    "⚠️  No LLM provider available. Missing: [{}]. Exhausted: [{}].",
+                    missing_keys.join(", "),
+                    exhausted_providers.join(", ")
+                );
+            }
         }
 
         LiveProvider {
@@ -181,31 +211,57 @@ struct Usage {
     completion_tokens: u32,
 }
 
+#[derive(Debug, PartialEq)]
 enum ErrorKind {
-    DailyLimit,
-    RpmLimit,
+    DailyLimit, // HTTP 403 quota, 86400s exceeded
+    RpmLimit,   // HTTP 429 rate limit
+    KeyExpired, // HTTP 400 API_KEY_INVALID, API key expired
     Other,
 }
 
 fn classify_error(err: &str) -> ErrorKind {
     let lower = err.to_lowercase();
+    
+    // Parse HTTP status if present (e.g. "HTTP 400 Bad Request: ...")
+    let mut status = 0;
+    if let Some(idx) = err.find("HTTP ") {
+        let rest = &err[idx+5..];
+        if rest.len() >= 3 {
+            if let Ok(s) = rest[..3].parse::<u16>() {
+                status = s;
+            }
+        }
+    }
+    
+    // Check for expired/invalid keys first
+    let is_key_error_msg = lower.contains("api_key_invalid") 
+        || lower.contains("api key expired") 
+        || lower.contains("api key not valid")
+        || lower.contains("api key e")
+        || lower.contains("invalid_api_key")
+        || lower.contains("unauthorized");
+
+    if is_key_error_msg || status == 401 {
+        return ErrorKind::KeyExpired;
+    }
+
     if lower.contains("per 86400s exceeded")
         || lower.contains("generaterequestsperdayperproject")
         || lower.contains("free_tier_requests")
         || lower.contains("quota")
         || lower.contains("daily limit")
         || lower.contains("per day")
-        || lower.contains("401") 
-        || lower.contains("unauthorized")
         || lower.contains("404") 
         || lower.contains("not_found")
+        || (status == 403 && lower.contains("quota"))
     {
         return ErrorKind::DailyLimit;
     }
-    if lower.contains("per minute")
+    
+    if status == 429
+        || lower.contains("per minute")
         || lower.contains("generaterequestsperminuteperproject")
         || lower.contains("generatecontentinputtokenspermodelperminute")
-        || lower.contains("429")
         || lower.contains("rate limit")
         || lower.contains("rate_limit")
     {
@@ -237,7 +293,11 @@ impl LLMProvider for LiveProvider {
                 // Tracker check
                 {
                     let tracker = self.tracker.lock().unwrap();
-                    if !tracker.is_available(&provider.name) {
+                    let has_keys = provider.key_pool.lock().unwrap().has_available();
+                    if !tracker.is_available(&provider.name) || !has_keys {
+                        if !has_keys && attempt == 1 {
+                            println!("   ⏭️  Skipping {} — all keys expired/exhausted", provider.name);
+                        }
                         self.active_index.store((idx + 1) % self.providers.len(), std::sync::atomic::Ordering::SeqCst);
                         break;
                     }
@@ -248,7 +308,10 @@ impl LLMProvider for LiveProvider {
                 if attempt == 1 {
                     println!("{} Calling {} ({})", prefix, provider.name, provider.model);
                 } else {
-                    println!("   ⚠️  Attempt {}/3 - retrying {}...", attempt, provider.name);
+                    let err_short: String = last_error.as_ref()
+                        .map(|e: &anyhow::Error| e.to_string().chars().take(80).collect::<String>())
+                        .unwrap_or_default();
+                    println!("   ⚠️  Attempt {}/3 [{}] - retrying {}...", attempt, err_short, provider.name);
                 }
 
                 match self.try_call(provider, &req).await {
@@ -267,6 +330,19 @@ impl LLMProvider for LiveProvider {
                         let err_kind = classify_error(&err_msg);
                         
                         match err_kind {
+                            ErrorKind::KeyExpired => {
+                                let mut pool = provider.key_pool.lock().unwrap();
+                                pool.mark_expired(); // permanently removes it
+                                if pool.has_available() {
+                                    attempt = 1;
+                                    continue;
+                                } else {
+                                    self.tracker.lock().unwrap().mark_daily(&provider.name);
+                                    last_error = Some(e);
+                                    self.active_index.store((idx + 1) % self.providers.len(), std::sync::atomic::Ordering::SeqCst);
+                                    break;
+                                }
+                            }
                             ErrorKind::DailyLimit => {
                                 let mut pool = provider.key_pool.lock().unwrap();
                                 pool.mark_exhausted();
@@ -281,23 +357,18 @@ impl LLMProvider for LiveProvider {
                                 }
                             }
                             ErrorKind::RpmLimit => {
-                                if rpm_waits >= 3 {
-                                    println!("   ⚠️  RPM limit persists → marking key as exhausted");
-                                    let mut pool = provider.key_pool.lock().unwrap();
-                                    pool.mark_exhausted();
-                                    if pool.has_available() {
-                                        attempt = 1;
-                                        rpm_waits = 0;
-                                        continue;
-                                    } else {
-                                        self.tracker.lock().unwrap().mark_daily(&provider.name);
-                                        last_error = Some(e);
-                                        self.active_index.store((idx + 1) % self.providers.len(), std::sync::atomic::Ordering::SeqCst);
-                                        break;
-                                    }
-                                }
                                 rpm_waits += 1;
+                                // v8.0: لا تستنزف المفتاح بسبب RPM — هو مؤقت ولا علاقة له بالمفتاح
+                                // بعد 3 انتظارات، انتقل للـ provider التالي مؤقتاً (لا تحرق المفتاح)
+                                if rpm_waits >= 3 {
+                                    println!("   ⚠️  RPM limit persists → skipping {} temporarily (key preserved)", provider.name);
+                                    self.tracker.lock().unwrap().mark_rpm(&provider.name, 60);
+                                    last_error = Some(e);
+                                    self.active_index.store((idx + 1) % self.providers.len(), std::sync::atomic::Ordering::SeqCst);
+                                    break; // انتقل للـ provider التالي بدون mark_exhausted
+                                }
                                 self.tracker.lock().unwrap().mark_rpm(&provider.name, 30);
+                                println!("   ⏳ [{}] RPM limit — cooling 30s", provider.name);
                                 tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
                                 continue;
                             }
@@ -360,13 +431,15 @@ impl LiveProvider {
             body.response_format = Some(serde_json::json!({ "type": "json_object" }));
         }
 
-        // Gemini لا يدعم seed
-        if provider.name == "Gemini" {
+        // v7.9.10: Allowlists — providers that don't support seed or JSON response_format
+        // Extend this list when adding new providers (e.g. Mistral, Anthropic, SambaNova)
+        const SEED_UNSUPPORTED: &[&str] = &["Gemini", "Mistral", "Anthropic"];
+        const JSON_MODE_UNSUPPORTED: &[&str] = &["GitHub", "Mistral", "Anthropic"];
+
+        if SEED_UNSUPPORTED.contains(&provider.name.as_str()) {
             body.seed = None;
         }
-
-        // GitHub لا يدعم response_format
-        if provider.name == "GitHub" {
+        if JSON_MODE_UNSUPPORTED.contains(&provider.name.as_str()) {
             body.response_format = None;
         }
 
@@ -380,7 +453,7 @@ impl LiveProvider {
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
             .json(&body)
-            .timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(30)) // v7.9.9 P4: 30s instead of 60s
             .send()
             .await?;
 

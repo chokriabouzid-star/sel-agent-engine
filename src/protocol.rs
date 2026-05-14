@@ -613,6 +613,17 @@ Some text
 
 /// Ensures test files are written before RunTests is called.
 pub fn validate_test_order(plan: &mut Plan) -> Result<(), String> {
+    if plan.commands.is_empty() {
+        return Err("PLAN ERROR: Plan is empty. You must include commands.".into());
+    }
+
+    let has_work = plan.commands.iter().any(|c| {
+        matches!(c, Cmd::WriteFile { .. } | Cmd::PatchFile { .. } | Cmd::Run { .. })
+    });
+    if !has_work {
+        return Err("PLAN ERROR: Useless plan. You must use write_file, patch_file, or run.".into());
+    }
+
     let has_run_tests = plan
         .commands
         .iter()

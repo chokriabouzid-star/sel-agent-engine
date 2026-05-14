@@ -22,6 +22,7 @@ mod decision;
 mod manifest;
 mod memory;
 mod protocol;
+mod repair_strategy;
 mod scaffold_engine;
 mod snapshot;
 mod state_handlers;
@@ -29,6 +30,7 @@ mod types;
 pub mod cache;
 pub mod cost;
 pub mod diagnostic;
+pub mod provider_state;
 
 use crate::llm::LLMProvider;
 use anyhow::Result;
@@ -87,6 +89,8 @@ enum Commands {
         quick: bool,
         #[arg(long, default_value = "0")]
         delay: u64,
+        #[arg(long)]
+        skip_recorded: bool,
     },
     Scan {
         /// مسار المشروع
@@ -269,6 +273,7 @@ async fn run_bench(
     record: bool,
     replay: bool,
     delay: u64,
+    skip_recorded: bool,
 ) -> Result<Vec<String>> {
     let cases = crate::bench_cases::suite_cases(suite);
     let cases: Vec<_> = cases
@@ -313,14 +318,15 @@ async fn run_bench(
         None
     };
 
+    let total = cases.len();
+    let total_runs = total * iterations as usize;
+
     if let Some(ref engine) = shared_llm {
         engine.print_info();
+        crate::llm::preflight_quota_check(total_runs, engine);
     } else {
         println!("🔗 Replay mode — offline (no API keys required)");
     }
-
-    let total = cases.len();
-    let total_runs = total * iterations as usize;
     let mut passed = 0usize;
     let mut total_repairs = 0usize;
     let mut mutation_killed = 0u32;
@@ -347,9 +353,37 @@ async fn run_bench(
             
             let name = &case.name;
             let goal = &case.goal;
+
+            // v7.9.10: --skip-recorded feature
+            // Trajectories are stored as 001.json, 002.json, etc. (not trajectory.json)
+            if skip_recorded && record {
+                let traj_base = std::env::current_dir()
+                    .unwrap_or_default()
+                    .join("fixtures")
+                    .join("trajectories");
+                let traj_dir = traj_base.join(name.replace(" ", "_"));
+                let first_turn = traj_dir.join("001.json");
+                if first_turn.exists() {
+                    println!("   ⏭️  Skipping '{}' — trajectory exists", name);
+                    continue;
+                }
+            }
+
             let workspace = tmpdir.join(format!("sel-bench-{}-{}", iter, i));
             let _ = std::fs::remove_dir_all(&workspace);
             std::fs::create_dir_all(&workspace).ok();
+
+            // v7.9.9 P1: Write scaffold files (broken code for bugfix tasks)
+            if case.is_bugfix() {
+                for (path, content) in &case.scaffold_files {
+                    let file_path = workspace.join(path);
+                    if let Some(parent) = file_path.parent() {
+                        std::fs::create_dir_all(parent).ok();
+                    }
+                    std::fs::write(&file_path, content).ok();
+                }
+                println!("   🏗  Scaffold ready: {} ({} files)", case.lang, case.scaffold_files.len());
+            }
             
             let completed = iter as usize * total + i;
             let eta_str = if completed > 0 {
@@ -429,9 +463,10 @@ async fn run_bench(
             let model = agent.llm.get_stats().last_model;
             let model_str = if model.is_empty() { "none".to_string() } else { model };
             provider_stats.record(&model_str);
+            let autofix = agent.ctx.autofix_count;
             println!(
-                "   {} {:20} repairs:{} mutation:{} provider:{}",
-                status, name, repairs, ms_str, model_str
+                "   {} {:20} repairs:{} autofix:{} mutation:{} provider:{}",
+                status, name, repairs, autofix, ms_str, model_str
             );
             if ok {
                 passed += 1;
@@ -467,14 +502,34 @@ async fn run_bench(
         "║  Success Rate:   {:<23}║",
         format!("{:.1}%", success_rate * 100.0)
     );
+    let tested_percent = if total_runs > 0 {
+        (mutation_total as f64 / total_runs as f64) * 100.0
+    } else {
+        0.0
+    };
+    let kill_rate = if mutation_total > 0 {
+        (mutation_killed as f64 / mutation_total as f64) * 100.0
+    } else {
+        0.0
+    };
+    let full_coverage = if total_runs > 0 {
+        (mutation_killed as f64 / total_runs as f64) * 100.0
+    } else {
+        0.0
+    };
+
     println!("║  Avg Repairs:    {:<23}║", format!("{:.1}", avg_repairs));
     println!(
-        "║  Mutation Score: {:<23}║",
-        if mut_score >= 0.0 {
-            format!("{:.0}%", mut_score * 100.0)
-        } else {
-            "N/A".to_string()
-        }
+        "║  Mutation Tested:{:<23}║",
+        format!("{}/{} tasks ({:.0}%)", mutation_total, total_runs, tested_percent)
+    );
+    println!(
+        "║  Kill Rate:      {:<23}║",
+        format!("{:.0}% of tested", kill_rate)
+    );
+    println!(
+        "║  Full Coverage:  {:<23}║",
+        format!("{:.0}%", full_coverage)
     );
     println!("║  Quality Index:  {:<23}║", format!("{:.2}", quality));
     println!("╠══════════════════════════════════════════╣");
@@ -1102,11 +1157,12 @@ async fn main() -> Result<()> {
             replay,
             quick,
             delay,
+            skip_recorded,
         } => {
             if quick {
                 run_quick_bench("", &suite, max_repairs, iterations, &focus, delay).await?;
             } else {
-                run_bench("", &suite, max_repairs, iterations, &focus, record, replay, delay).await?;
+                run_bench("", &suite, max_repairs, iterations, &focus, record, replay, delay, skip_recorded).await?;
             }
         }
         Commands::Stress { max_repairs } => {
@@ -1477,7 +1533,7 @@ async fn run_quick_bench(
     delay: u64,
 ) -> Result<Vec<String>> {
     println!("\n🚀 Quick Mode: Stage 1 — Running Replay for '{}'", suite);
-    let failed = run_bench(api_key, suite, max_repairs, iterations, focus, false, true, delay).await?;
+    let failed = run_bench(api_key, suite, max_repairs, iterations, focus, false, true, delay, false).await?;
 
     if failed.is_empty() {
         println!("\n✅ Quick Mode: All cases passed via Replay. System is stable.");
@@ -1500,6 +1556,7 @@ async fn run_quick_bench(
         true,
         false,
         delay,
+        false, // skip_recorded
     )
     .await?;
 
@@ -1513,6 +1570,7 @@ async fn run_quick_bench(
         false,
         true,
         delay,
+        false, // skip_recorded
     )
     .await?;
 
