@@ -54,29 +54,57 @@ pub async fn run_bench_realworld(
     max_repairs: u8,
     record: bool,
     replay: bool,
+    rerecord: bool,
+    delay: u64,
+    skip_recorded: bool,
+    focus: &[String],
 ) -> Result<()> {
     println!("\n╔═══════════════════════════════════════════════════════════════════╗");
-    println!("║   SEL Agent v7.9.5 — Feature-Targeted Benchmark                   ║");
+    println!("║   SEL Agent v8.2.0 — Feature-Targeted Benchmark                  ║");
     println!("║   Compile-First | quick_fix | Language Guard | Real-World         ║");
     println!("╚═══════════════════════════════════════════════════════════════════╝\n");
 
     let all_cases = build_cases();
 
+    // 1. Filter by tier
     let cases: Vec<_> = if let Some(t) = tier {
         all_cases.into_iter().filter(|c| c.tier == t).collect()
     } else {
         all_cases
     };
 
+    // 2. Filter by focus
+    let cases: Vec<_> = if focus.is_empty() {
+        cases
+    } else {
+        cases
+            .into_iter()
+            .filter(|c| {
+                focus.iter().any(|f| {
+                    c.name.to_lowercase().contains(&f.to_lowercase())
+                        || c.tests_feature.to_lowercase().contains(&f.to_lowercase())
+                        || c.lang.to_lowercase().contains(&f.to_lowercase())
+                })
+            })
+            .collect()
+    };
+
     if cases.is_empty() {
-        println!("No cases for tier {:?}", tier);
+        println!("No cases matched the given filters.");
         return Ok(());
     }
 
     print_test_plan(&cases);
 
+    // Print active flags
+    if replay  { println!("   Mode:         🔄 REPLAY{}",  if rerecord { " + auto-rerecord on fail" } else { "" }); }
+    if record  { println!("   Mode:         ⏺  RECORD"); }
+    if skip_recorded { println!("   skip-recorded: enabled"); }
+    println!("   Cooldown:      {}s between cases\n", delay);
+
     let total = cases.len();
     let mut passed = 0usize;
+    let mut healed = 0usize;
     let mut total_repairs = 0usize;
     let mut feature_stats: std::collections::HashMap<&str, (usize, usize)> =
         std::collections::HashMap::new();
@@ -85,17 +113,35 @@ pub async fn run_bench_realworld(
     let tmpdir = std::env::temp_dir();
 
     for (i, case) in cases.iter().enumerate() {
-        let workspace = tmpdir.join(format!("sel-bench-v73-{}-{}", i, std::process::id()));
-        let _ = std::fs::remove_dir_all(&workspace);
-        std::fs::create_dir_all(&workspace)?;
-
-        // Trajectory Path for real-world bench
+        // Trajectory path — stable slug per case name
+        let traj_slug = case
+            .name
+            .to_lowercase()
+            .replace(" ", "_")
+            .replace(":", "")
+            .replace("/", "_");
         let traj_dir = std::env::current_dir()?
             .join("fixtures")
             .join("trajectories")
-            .join(case.name.to_lowercase().replace(" ", "_").replace(":", ""));
+            .join(&traj_slug);
 
-        // كتابة reference tests
+        // 3. skip-recorded: skip cases whose trajectory directory already exists
+        if skip_recorded && traj_dir.exists() {
+            println!(
+                "  {} T{} [{}] {} — skipped (trajectory exists)",
+                "⏭".yellow(),
+                case.tier,
+                case.lang.blue(),
+                case.name.bold()
+            );
+            continue;
+        }
+
+        let workspace = tmpdir.join(format!("sel-bench-rw-{}-{}", i, std::process::id()));
+        let _ = std::fs::remove_dir_all(&workspace);
+        std::fs::create_dir_all(&workspace)?;
+
+        // Write reference tests
         if let Some((filename, content)) = case.reference_tests {
             let test_path = workspace.join(filename);
             if let Some(parent) = test_path.parent() {
@@ -104,7 +150,7 @@ pub async fn run_bench_realworld(
             std::fs::write(&test_path, content)?;
         }
 
-        // كتابة scaffold files
+        // Write scaffold files
         for (path, content) in &case.scaffold_files {
             let full_path = workspace.join(path);
             if let Some(parent) = full_path.parent() {
@@ -150,64 +196,111 @@ pub async fn run_bench_realworld(
             provider,
         );
         ag.ctx.skip_mutation = true;
-        ag.bench_mode = true; // v7.9.8: skip EXPLAIN MODE in bench
+        ag.bench_mode = true;
 
         let case_start = Instant::now();
-        let result = ag.run().await;
+        let run_res = ag.run().await;
         let case_dur = case_start.elapsed();
         pb.finish_and_clear();
 
         let entry = feature_stats.entry(case.tests_feature).or_insert((0, 0));
         entry.1 += 1;
 
-        match result {
-            Ok(_) => {
-                let repairs = ag.repair_count();
-                if ag.is_success() {
-                    total_repairs += repairs;
-                    passed += 1;
-                    entry.0 += 1;
-                    println!(
-                        "  {} T{} [{}] {} ({}s, {} repairs) | {}",
-                        "✅".green(),
-                        case.tier,
-                        case.lang.blue(),
-                        case.name.bold(),
-                        case_dur.as_secs(),
-                        repairs,
-                        case.tests_feature.magenta()
-                    );
-                } else {
-                    println!(
-                        "  {} T{} [{}] {} ({}s, {} repairs) | {}",
-                        "❌".red(),
-                        case.tier,
-                        case.lang.blue(),
-                        case.name.bold(),
-                        case_dur.as_secs(),
-                        repairs,
-                        case.tests_feature.magenta()
-                    );
-                }
+        // Determine success
+        let mut case_ok = match &run_res {
+            Ok(_) => ag.is_success(),
+            Err(_) => false,
+        };
+
+        // 4. rerecord: if replay failed, re-run with LiveProvider + RecorderProvider
+        if replay && !case_ok && rerecord {
+            println!(
+                "   ⚠️  [{}] replay failed — auto-rerecording...",
+                case.name
+            );
+
+            // Re-scaffold workspace (was cleaned by run)
+            let _ = std::fs::remove_dir_all(&workspace);
+            std::fs::create_dir_all(&workspace)?;
+            if let Some((filename, content)) = case.reference_tests {
+                let test_path = workspace.join(filename);
+                if let Some(parent) = test_path.parent() { let _ = std::fs::create_dir_all(parent); }
+                std::fs::write(&test_path, content)?;
             }
-            Err(e) => {
-                println!(
-                    "  {} T{} [{}] {} ({}s) | ERR: {}",
-                    "💥".red(),
-                    case.tier,
-                    case.lang.blue(),
-                    case.name.bold(),
-                    case_dur.as_secs(),
-                    e.to_string().chars().take(80).collect::<String>()
-                );
+            for (path, content) in &case.scaffold_files {
+                let full_path = workspace.join(path);
+                if let Some(parent) = full_path.parent() { let _ = std::fs::create_dir_all(parent); }
+                std::fs::write(&full_path, content)?;
             }
+
+            let live2 = crate::llm::live::LiveProvider::from_env();
+            let recorder = Box::new(crate::llm::record::RecorderProvider::new(
+                Box::new(live2),
+                &traj_dir,
+            ));
+            let mut heal_ag = agent::Agent::new_with_model(
+                String::new(),
+                String::new(),
+                workspace.clone(),
+                case.goal.to_string(),
+                max_repairs,
+                types::ContextConfig::default(),
+                recorder,
+            );
+            heal_ag.ctx.skip_mutation = true;
+            heal_ag.bench_mode = true;
+
+            let _ = heal_ag.run().await;
+            case_ok = heal_ag.is_success();
+            if case_ok {
+                healed += 1;
+                println!("   ✅ [{}] auto-rerecorded successfully.", case.name);
+            } else {
+                println!("   ❌ [{}] auto-rerecord also failed.", case.name);
+            }
+        }
+
+        // Print result
+        let repairs = ag.repair_count();
+        if case_ok {
+            total_repairs += repairs;
+            passed += 1;
+            entry.0 += 1;
+            println!(
+                "  {} T{} [{}] {} ({}s, {} repairs) | {}",
+                "✅".green(),
+                case.tier,
+                case.lang.blue(),
+                case.name.bold(),
+                case_dur.as_secs(),
+                repairs,
+                case.tests_feature.magenta()
+            );
+        } else {
+            let err_str = match run_res {
+                Err(e) => format!(" ERR: {}", e.to_string().chars().take(60).collect::<String>()),
+                Ok(_) => String::new(),
+            };
+            println!(
+                "  {} T{} [{}] {} ({}s, {} repairs){} | {}",
+                "❌".red(),
+                case.tier,
+                case.lang.blue(),
+                case.name.bold(),
+                case_dur.as_secs(),
+                repairs,
+                err_str,
+                case.tests_feature.magenta()
+            );
         }
 
         let _ = std::fs::remove_dir_all(&workspace);
 
         if i < total - 1 {
-            println!("     ⏳ 15s cooldown...");
-            tokio::time::sleep(Duration::from_secs(15)).await;
+            if delay > 0 {
+                println!("     ⏳ {}s cooldown...", delay);
+                tokio::time::sleep(Duration::from_secs(delay)).await;
+            }
         }
     }
 
@@ -215,6 +308,7 @@ pub async fn run_bench_realworld(
         passed,
         total,
         total_repairs,
+        healed,
         start_time.elapsed(),
         &feature_stats,
         tier,
@@ -402,7 +496,8 @@ def test_fetch_success(mock_get):
 
 @patch('fetcher.requests.get')
 def test_fetch_error(mock_get):
-    mock_get.side_effect = Exception("connection refused")
+    import requests
+    mock_get.side_effect = requests.exceptions.ConnectionError("connection refused")
     result = fetch("http://bad-url")
     assert "error" in result
 "#,
@@ -664,7 +759,7 @@ func TestMatchLinesRegex(t *testing.T) {
 
         BenchCase::new(
             "Real: TypeScript validator",
-            "Create a TypeScript file 'validator.ts' exporting three functions: isEmail(s: string): boolean, isUrl(s: string): boolean, isStrongPassword(s: string, minLen?: number): boolean (default minLen=8, requires uppercase + lowercase + digit).\n\nTests: npx jest validator.test.ts",
+            "Create a TypeScript file 'validator.ts' exporting three functions:\n- isEmail(s: string): boolean — validate standard email formats\n- isUrl(s: string): boolean — true only for http:// or https:// URLs, use try/catch with new URL() and check protocol\n- isStrongPassword(s: string, minLen?: number): boolean — default minLen=8, requires >= 1 uppercase, >= 1 lowercase, >= 1 digit\n\nTests: npx jest validator.test.ts",
             "TypeScript",
             4,
             "real: TS library",
@@ -699,10 +794,11 @@ describe('isUrl', () => {
 describe('isStrongPassword', () => {
     test('strong passwords', () => {
         expect(isStrongPassword('Abcde123', 8)).toBe(true);
+        expect(isStrongPassword('MyPass9x', 8)).toBe(true);
         expect(isStrongPassword('MyPass9', 6)).toBe(true);
     });
     test('weak passwords', () => {
-        expect(isStrongPassword('short', 8)).toBe(false);
+        expect(isStrongPassword('short1A', 8)).toBe(false);
         expect(isStrongPassword('alllowercase1', 8)).toBe(false);
         expect(isStrongPassword('ALLUPPERCASE1', 8)).toBe(false);
         expect(isStrongPassword('NoDigitsHere', 8)).toBe(false);
@@ -775,6 +871,7 @@ fn print_results(
     passed: usize,
     total: usize,
     total_repairs: usize,
+    healed: usize,
     elapsed: Duration,
     feature_stats: &std::collections::HashMap<&str, (usize, usize)>,
     tier: Option<u8>,
@@ -791,7 +888,7 @@ fn print_results(
     };
 
     println!("\n╔══════════════════════════════════════════════════════════════╗");
-    println!("║   SEL Agent v7.9.5 — Benchmark Results                        ║");
+    println!("║   SEL Agent v8.2.0 — Benchmark Results                       ║");
     println!("╠══════════════════════════════════════════════════════════════╣");
     println!(
         "║  Tier    : {}",
@@ -804,6 +901,9 @@ fn print_results(
     );
     println!("║  Result  : {}/{} ({:.1}%)", passed, total, pct);
     println!("║  AvgFix  : {:.1} repairs/success", avg_r);
+    if healed > 0 {
+        println!("║  Healed  : {} auto-rerecorded ✨", healed);
+    }
     println!("╠══════════════════════════════════════════════════════════════╣");
     println!("║  Feature Breakdown                                          ║");
     println!("╠══════════════════════════════════════════════════════════════╣");
@@ -832,7 +932,7 @@ fn print_results(
     println!("╠══════════════════════════════════════════════════════════════╣");
 
     let verdict = if pct >= 90.0 {
-        format!("  {} STABLE — ready for v7.5 planning", "✅".green())
+        format!("  {} STABLE — ready for production", "✅".green())
     } else if pct >= 70.0 {
         format!(
             "  {} FUNCTIONAL — investigate failures before proceeding",

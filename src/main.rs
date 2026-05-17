@@ -7,7 +7,7 @@ mod failure;
 pub mod llm;
 mod trajectory_index;
 mod workspace_oracle;
-// src/main.rs — SEL Agent v7.9.5
+// src/main.rs — SEL Agent v8.2.0
 mod agent;
 mod chunker;
 mod constraint_engine;
@@ -41,7 +41,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 #[derive(Parser)]
-#[command(name = "sel-agent", version = "7.9.5")]
+#[command(name = "sel-agent", version = "8.2.0")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -66,6 +66,8 @@ enum Commands {
         record: bool,
         #[arg(long)]
         replay: bool,
+        #[arg(long)]
+        rerecord: bool,
     },
     Health,
     Stress {
@@ -128,12 +130,23 @@ enum Commands {
         record: bool,
         #[arg(long)]
         replay: bool,
+        #[arg(long)]
+        rerecord: bool,
+        #[arg(long, default_value = "15")]
+        delay: u64,
+        #[arg(long)]
+        skip_recorded: bool,
+        #[arg(long, value_delimiter = ',')]
+        focus: Vec<String>,
     },
+    /// Clear the provider state cache (reset all exhausted/expired flags)
+    #[command(name = "reset-providers")]
+    ResetProviders,
 }
 
 async fn run_health(api_key: &str) -> Result<()> {
     println!("\n╔══════════════════════════════════════════╗");
-    println!("║   SEL Agent v7.9.5 — Health Check                   ║");
+    println!("║   SEL Agent v8.2.0 — Health Check                   ║");
     println!("╚══════════════════════════════════════════╝\n");
     // Provider info في الـ bench
     {
@@ -202,7 +215,7 @@ async fn run_health(api_key: &str) -> Result<()> {
     let llm = llm::live::LiveProvider::from_env();
     let test_msg = types::Message::user("Reply with exactly: PONG".to_string());
     let req = llm::LLMRequest {
-        system: llm::SYSTEM_PROMPT.to_string(),
+        system: llm::get_system_prompt(false),
         messages: vec![test_msg],
         temperature: 0.0,
         seed: Some(42),
@@ -622,7 +635,7 @@ async fn run_bench(
     // POST to Observatory
     let model =
         std::env::var("SEL_MODEL").unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string());
-    let version = std::env::var("SEL_VERSION").unwrap_or_else(|_| "v7.9.5".to_string());
+    let version = std::env::var("SEL_VERSION").unwrap_or_else(|_| "v8.2.0".to_string());
     let body = serde_json::json!({
         "version": version,
         "suite": suite,
@@ -1263,9 +1276,44 @@ async fn main() -> Result<()> {
             max_repairs,
             record,
             replay,
+            rerecord,
+            delay,
+            skip_recorded,
+            focus,
         } => {
-            crate::bench_realworld::run_bench_realworld("", tier, max_repairs, record, replay)
+            crate::bench_realworld::run_bench_realworld("", tier, max_repairs, record, replay, rerecord, delay, skip_recorded, &focus)
                 .await?;
+        }
+        Commands::ResetProviders => {
+            let path = dirs::home_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join(".sel-agent")
+                .join("provider_state.json");
+            if path.exists() {
+                std::fs::remove_file(&path)?;
+                println!("\n✅ Provider cache cleared — all keys are now active.");
+            } else {
+                println!("\n✅ Provider cache was already clean — nothing to reset.");
+            }
+            println!("\n📋 Current key counts:");
+            let providers = [
+                ("GROQ_API_KEY",       "Groq"),
+                ("CEREBRAS_API_KEY",   "Cerebras"),
+                ("GEMINI_API_KEY",     "Gemini"),
+                ("OPENROUTER_API_KEY", "OpenRouter"),
+                ("GITHUB_TOKEN",       "GitHub"),
+                ("SEL_API_KEY",        "SEL"),
+            ];
+            for (env_key, label) in &providers {
+                let pool = crate::llm::key_pool::KeyPool::from_env(env_key);
+                let n = pool.keys.len();
+                if n > 0 {
+                    println!("   ✅  {:<12} {} key(s) available", label, n);
+                } else {
+                    println!("   ⚠️   {:<12} no keys found (set {} in env)", label, env_key);
+                }
+            }
+            println!();
         }
         Commands::Run {
             workspace,
@@ -1276,9 +1324,10 @@ async fn main() -> Result<()> {
             focus,
             record,
             replay,
+            rerecord,
         } => {
             println!("\n╔══════════════════════════════════════════╗");
-            println!("║   SEL Agent v7.9.5 — State Machine Engine   ║");
+            println!("║   SEL Agent v8.2.0 — State Machine Engine   ║");
             println!("╚══════════════════════════════════════════╝");
             println!("\n📋 Goal: \"{}\"", goal);
             // Provider info
@@ -1300,7 +1349,7 @@ async fn main() -> Result<()> {
                 let llm = llm::live::LiveProvider::from_env();
                 let prompt = format!("Goal: {}\n\nProvide the complete execution plan.", goal);
                 let req = llm::LLMRequest {
-                    system: llm::SYSTEM_PROMPT.to_string(),
+                    system: llm::get_system_prompt(false),
                     messages: vec![types::Message::user(prompt)],
                     temperature: 0.0,
                     seed: Some(42),
@@ -1338,17 +1387,9 @@ async fn main() -> Result<()> {
                     slug
                 };
 
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-
                 let cache = crate::cache::PersistentCache::new()?;
-                let dir = if replay {
-                    cache.trajectories_dir().join(format!("run_{}", slug))
-                } else {
-                    cache.trajectories_dir().join(format!("{}_{}", slug, now))
-                };
+                // Use consistent naming for both record and replay to build a curated dataset
+                let dir = cache.trajectories_dir().join(format!("run_{}", slug));
                 Some(dir)
             } else {
                 None
@@ -1356,10 +1397,10 @@ async fn main() -> Result<()> {
 
             let live = crate::llm::live::LiveProvider::from_env();
             let provider: Box<dyn crate::llm::LLMProvider> = if replay {
-                let dir = traj_dir.ok_or_else(|| anyhow::anyhow!("Trajectory dir missing"))?;
+                let dir = traj_dir.clone().ok_or_else(|| anyhow::anyhow!("Trajectory dir missing"))?;
                 Box::new(crate::llm::replay::ReplayProvider::new(&dir))
             } else if record {
-                let dir = traj_dir.ok_or_else(|| anyhow::anyhow!("Trajectory dir missing"))?;
+                let dir = traj_dir.clone().ok_or_else(|| anyhow::anyhow!("Trajectory dir missing"))?;
                 Box::new(crate::llm::record::RecorderProvider::new(
                     Box::new(live),
                     &dir,
@@ -1387,13 +1428,49 @@ async fn main() -> Result<()> {
             let mut ag = agent::Agent::new_with_model(
                 String::new(),
                 String::new(),
-                workspace,
-                goal,
+                workspace.clone(),
+                goal.clone(),
                 max_repairs,
-                ctx_config,
+                ctx_config.clone(),
                 provider,
             );
-            ag.run().await?;
+            let run_res = ag.run().await;
+            
+            let is_ok = match run_res {
+                Ok(_) => ag.is_success(),
+                Err(_) => false,
+            };
+
+            // Auto-rerecord logic if replay fails
+            if replay && !is_ok && rerecord {
+                println!("   ⚠️  Run failed in replay mode! Auto-rerecording trajectory...");
+                if let Some(ref dir) = traj_dir {
+                    let live_for_rerecord = crate::llm::live::LiveProvider::from_env();
+                    let recorder = Box::new(crate::llm::record::RecorderProvider::new(
+                        Box::new(live_for_rerecord),
+                        dir,
+                    ));
+                    let mut heal_ag = agent::Agent::new_with_model(
+                        String::new(),
+                        String::new(),
+                        workspace.clone(),
+                        goal.clone(),
+                        max_repairs,
+                        ctx_config.clone(),
+                        recorder,
+                    );
+                    heal_ag.bench_mode = ag.bench_mode;
+                    let _ = heal_ag.run().await;
+                    if heal_ag.is_success() {
+                        println!("   ✅ Successfully auto-rerecorded.");
+                    } else {
+                        println!("   ❌ Auto-rerecord failed.");
+                        return Err(anyhow::anyhow!("Run failed even after auto-rerecord"));
+                    }
+                }
+            } else if let Err(e) = run_res {
+                return Err(e);
+            }
         }
     }
     Ok(())

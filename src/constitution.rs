@@ -43,10 +43,7 @@ These rules are absolute. Violating them results in immediate task failure.
    - Always include at least 3 diverse test cases for every function.
 
 7. ALGORITHM CORRECTNESS (COMMON HALLUCINATIONS — AVOID):
-   a) EMAIL VALIDATION:
-      - TLD can be 1+ chars: a@b.c is VALID. Use pattern: [a-zA-Z]{1,} NOT {2,}
-      - Correct regex: r'^[^@\s]+@[^@\s]+\.[a-zA-Z]{1,}$'
-   b) SLUGIFY:
+   a) SLUGIFY:
       - Replace ALL non-alphanumeric characters with hyphens, then lowercase.
       - "Hello World!" → "hello-world" not "helloworld"
       - Use: re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
