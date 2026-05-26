@@ -1,4 +1,4 @@
-// src/snapshot.rs — v7.5: Workspace Snapshots
+// src/snapshot.rs  v7.5: Workspace Snapshots
 // Uses Git-based snapshot strategy (git stash) as requested for atomic rollbacks
 
 use std::path::{Path, PathBuf};
@@ -29,7 +29,7 @@ impl Snapshot {
             .output();
 
         // v7.6.1: Protect infrastructure dirs from git stash --include-untracked
-        // venv/ and node_modules/ are INFRA, not application data — must survive snapshot cycles
+        // venv/ and node_modules/ are INFRA, not application data  must survive snapshot cycles
         let gitignore = workspace.join(".gitignore");
         let existing = std::fs::read_to_string(&gitignore).unwrap_or_default();
         if !existing.contains("venv/") {
@@ -41,14 +41,14 @@ impl Snapshot {
             let _ = std::fs::write(&gitignore, content);
             // Re-add so .gitignore is tracked
             let _ = Command::new("git")
-                .args(&["add", ".gitignore"])
+                .args(["add", ".gitignore"])
                 .current_dir(workspace)
                 .output();
         }
 
         // Perform stash
         let output = Command::new("git")
-            .args(&[
+            .args([
                 "stash",
                 "push",
                 "--include-untracked",
@@ -86,24 +86,24 @@ impl Snapshot {
 
         // Discard any current changes made during the failed step
         let _ = Command::new("git")
-            .args(&["reset", "--hard"])
+            .args(["reset", "--hard"])
             .current_dir(&self.workspace)
             .output();
 
         let _ = Command::new("git")
-            .args(&["clean", "-fd"])
+            .args(["clean", "-fd"])
             .current_dir(&self.workspace)
             .output();
 
         if self.has_stashed {
             // Restore the stash
             let _ = Command::new("git")
-                .args(&["stash", "pop"])
+                .args(["stash", "pop"])
                 .current_dir(&self.workspace)
                 .output();
-            println!("   ⏪ Snapshot: rolled back via git stash pop");
+            println!("    Snapshot: rolled back via git stash pop");
         } else {
-            println!("   ⏪ Snapshot: reset workspace (no stash needed)");
+            println!("    Snapshot: reset workspace (no stash needed)");
         }
 
         if had_venv && !self.workspace.join("venv").exists() {
@@ -112,19 +112,28 @@ impl Snapshot {
                 let _ = std::os::unix::fs::symlink(&cache_venv, self.workspace.join("venv"));
             } else {
                 let _ = Command::new("python3")
-                    .args(&["-m", "venv", "venv"])
+                    .args(["-m", "venv", "venv"])
                     .current_dir(&self.workspace)
                     .output();
                 let _ = Command::new("venv/bin/pip")
-                    .args(&["install", "pytest", "-q"])
+                    .args(["install", "pytest", "-q"])
                     .current_dir(&self.workspace)
                     .output();
             }
         }
+        // v8.1: Ensure pytest is installed even if venv was pre-existing but lacked it
+        let pytest_bin = self.workspace.join("venv/bin/pytest");
+        let pip_bin = self.workspace.join("venv/bin/pip");
+        if self.workspace.join("venv").exists() && !pytest_bin.exists() && pip_bin.exists() {
+            let _ = Command::new(&pip_bin)
+                .args(["install", "pytest", "-q"])
+                .current_dir(&self.workspace)
+                .output();
+        }
         self.active = false;
     }
 
-    /// Commit — accept the changes, discard backup
+    /// Commit  accept the changes, discard backup
     pub fn commit(&mut self) {
         if !self.active {
             return;
@@ -133,7 +142,7 @@ impl Snapshot {
         if self.has_stashed {
             // Drop the stash since we're keeping the new changes
             let _ = Command::new("git")
-                .args(&["stash", "drop"])
+                .args(["stash", "drop"])
                 .current_dir(&self.workspace)
                 .output();
             eprintln!("[TRACE] Snapshot: git stash dropped (changes accepted)");
@@ -148,15 +157,15 @@ impl Drop for Snapshot {
             let had_venv = self.workspace.join("venv").exists();
             // Abnormal exit, try to rollback
             let _ = Command::new("git")
-                .args(&["reset", "--hard"])
+                .args(["reset", "--hard"])
                 .current_dir(&self.workspace)
                 .output();
             let _ = Command::new("git")
-                .args(&["clean", "-fd"])
+                .args(["clean", "-fd"])
                 .current_dir(&self.workspace)
                 .output();
             let _ = Command::new("git")
-                .args(&["stash", "pop"])
+                .args(["stash", "pop"])
                 .current_dir(&self.workspace)
                 .output();
 
@@ -166,14 +175,23 @@ impl Drop for Snapshot {
                     let _ = std::os::unix::fs::symlink(&cache_venv, self.workspace.join("venv"));
                 } else {
                     let _ = Command::new("python3")
-                        .args(&["-m", "venv", "venv"])
+                        .args(["-m", "venv", "venv"])
                         .current_dir(&self.workspace)
                         .output();
                     let _ = Command::new("venv/bin/pip")
-                        .args(&["install", "pytest", "-q"])
+                        .args(["install", "pytest", "-q"])
                         .current_dir(&self.workspace)
                         .output();
                 }
+            }
+            // v8.1: Ensure pytest is installed even if venv was pre-existing but lacked it
+            let pytest_bin = self.workspace.join("venv/bin/pytest");
+            let pip_bin = self.workspace.join("venv/bin/pip");
+            if self.workspace.join("venv").exists() && !pytest_bin.exists() && pip_bin.exists() {
+                let _ = Command::new(&pip_bin)
+                    .args(["install", "pytest", "-q"])
+                    .current_dir(&self.workspace)
+                    .output();
             }
         }
     }

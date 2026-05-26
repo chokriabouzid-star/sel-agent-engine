@@ -1,13 +1,13 @@
 //! SEL Agent v6.3 - Constraint Engine
 //!
-//! مسؤولياته:
-//! 1. Environment Lock: منع pytest في Node، منع npm في Python
-//! 2. Config Deduplication: منع كتابة jest.config.js إذا كان package.json يحتوي jest
-//! 3. Dependency Normalization: استبدال versions خاطئة بـ pinned stacks
-//! 4. Fatal Constraints: إيقاف الخطط الفاشلة تمامًا
+//! :
+//! 1. Environment Lock:  pytest  Node  npm  Python
+//! 2. Config Deduplication:   jest.config.js   package.json  jest
+//! 3. Dependency Normalization:  versions   pinned stacks
+//! 4. Fatal Constraints:    
 //!
-//! الترتيب مهم:
-//! 1️⃣ environment::enforce → 2️⃣ config::deduplicate → 3️⃣ dependencies::normalize
+//!  :
+//! 1 environment::enforce  2 config::deduplicate  3 dependencies::normalize
 
 use crate::context::Scanner;
 use crate::protocol::Cmd;
@@ -16,10 +16,10 @@ use std::collections::HashSet;
 use std::path::Path;
 
 // ============================================================================
-// أنواع البيانات الأساسية
+//   
 // ============================================================================
 
-/// بيئة المشروع - تُحسب مرة واحدة من Scanner
+///   -     Scanner
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProjectEnv {
     Node { has_typescript: bool },
@@ -30,7 +30,7 @@ pub enum ProjectEnv {
 }
 
 impl ProjectEnv {
-    /// كشف البيئة من workspace
+    ///    workspace
     pub fn detect(workspace: &Path) -> Self {
         if workspace.join("Cargo.toml").exists() {
             return ProjectEnv::Rust;
@@ -52,7 +52,7 @@ impl ProjectEnv {
     }
 }
 
-/// حالة المشروع على disk - ما هو موجود فعلاً
+///    disk -    
 #[derive(Debug, Clone, Default)]
 pub struct ProjectState {
     pub files: HashSet<String>,
@@ -63,7 +63,7 @@ pub struct ProjectState {
 }
 
 impl ProjectState {
-    /// مسح workspace لمعرفة الملفات الموجودة
+    ///  workspace   
     pub fn scan(workspace: &Path) -> Self {
         let mut files = HashSet::new();
         let has_jest_config;
@@ -71,7 +71,7 @@ impl ProjectState {
         let has_package_json;
         let jest_in_pkg_json;
 
-        // فحص jest.config.js
+        //  jest.config.js
         if workspace.join("jest.config.js").exists() {
             files.insert("jest.config.js".to_string());
             has_jest_config = true;
@@ -82,7 +82,7 @@ impl ProjectState {
             has_jest_config = false;
         }
 
-        // فحص tsconfig.json
+        //  tsconfig.json
         if workspace.join("tsconfig.json").exists() {
             files.insert("tsconfig.json".to_string());
             has_tsconfig = true;
@@ -90,7 +90,7 @@ impl ProjectState {
             has_tsconfig = false;
         }
 
-        // فحص package.json ووجود jest field
+        //  package.json  jest field
         let pkg_path = workspace.join("package.json");
         if pkg_path.exists() {
             files.insert("package.json".to_string());
@@ -124,23 +124,23 @@ impl ProjectState {
     }
 }
 
-/// نتيجة تطبيق القيود
+///   
 #[derive(Debug, Clone)]
 pub enum ConstraintResult {
-    /// نجاح - الأوامر المعدلة (أو الأصلية)
+    ///  -   ( )
     Ok(Vec<Cmd>),
-    /// فشل قاتل - يجب إعادة التخطيط من الصفر
+    ///   -     
     Fatal(String),
 }
 
 // ============================================================================
-// Pinned Stacks - النسخ المضمونة المتوافقة
+// Pinned Stacks -   
 // ============================================================================
 
-/// Pinned Stack لـ TypeScript + Jest
+/// Pinned Stack  TypeScript + Jest
 const TS_JEST_STACK: &str = "typescript@5.3.3 ts-jest@29.1.1 jest@29.7.0 @types/jest@29.5.11";
 
-/// قالب package.json الصحيح لـ TypeScript
+///  package.json   TypeScript
 const CORRECT_PACKAGE_JSON_TS: &str = r#"{
   "scripts": {
     "test": "jest",
@@ -159,10 +159,10 @@ const CORRECT_PACKAGE_JSON_TS: &str = r#"{
 }"#;
 
 // ============================================================================
-// القاعدة 1: Environment Lock
+//  1: Environment Lock
 // ============================================================================
 
-/// منع أوامر خارج بيئة المشروع
+///     
 fn enforce_environment(plan: Vec<Cmd>, env: &ProjectEnv) -> Vec<Cmd> {
     let mut filtered = Vec::new();
 
@@ -172,26 +172,26 @@ fn enforce_environment(plan: Vec<Cmd>, env: &ProjectEnv) -> Vec<Cmd> {
                 let cmd_lower = command.to_lowercase();
                 let is_allowed = match env {
                     ProjectEnv::Node { .. } => {
-                        // منع أوامر Python في Node
+                        //   Python  Node
                         !(cmd_lower.contains("pytest")
                             || cmd_lower.contains("venv")
                             || cmd_lower.contains("pip")
                             || cmd_lower.contains("python"))
                     }
                     ProjectEnv::Python => {
-                        // منع أوامر Node في Python
+                        //   Node  Python
                         !(cmd_lower.contains("npm")
                             || cmd_lower.contains("npx")
                             || cmd_lower.contains("node"))
                     }
                     ProjectEnv::Rust => {
-                        // منع npm و pip في Rust
+                        //  npm  pip  Rust
                         !(cmd_lower.contains("npm")
                             || cmd_lower.contains("pip")
                             || cmd_lower.contains("pytest"))
                     }
                     ProjectEnv::Go => {
-                        // منع npm و pip في Go
+                        //  npm  pip  Go
                         !(cmd_lower.contains("npm") || cmd_lower.contains("pip"))
                     }
                     ProjectEnv::Unknown => true,
@@ -200,7 +200,7 @@ fn enforce_environment(plan: Vec<Cmd>, env: &ProjectEnv) -> Vec<Cmd> {
                 if is_allowed {
                     filtered.push(cmd);
                 } else {
-                    eprintln!("🔒 Constraint: blocked '{}' (wrong environment)", command);
+                    eprintln!(" Constraint: blocked '{}' (wrong environment)", command);
                 }
             }
             _ => filtered.push(cmd),
@@ -211,10 +211,10 @@ fn enforce_environment(plan: Vec<Cmd>, env: &ProjectEnv) -> Vec<Cmd> {
 }
 
 // ============================================================================
-// القاعدة 2: Config Deduplication - منع jest.config.js
+//  2: Config Deduplication -  jest.config.js
 // ============================================================================
 
-/// معالجة WriteFile لـ package.json و jest.config.js
+///  WriteFile  package.json  jest.config.js
 fn intercept_write_file(
     path: &str,
     content: &str,
@@ -223,27 +223,27 @@ fn intercept_write_file(
 ) -> Option<Cmd> {
     let path_lower = path.to_lowercase();
 
-    // حالة 1: كتابة jest.config.js
+    //  1:  jest.config.js
     if path_lower.ends_with("jest.config.js") || path_lower.ends_with("jest.config.ts") {
-        // التحقق: هل package.json موجود وفيه jest field؟
+        // :  package.json   jest field
         if state.has_package_json && state.jest_in_pkg_json {
             eprintln!(
-                "🔒 Constraint: blocked write '{}' (jest already in package.json)",
+                " Constraint: blocked write '{}' (jest already in package.json)",
                 path
             );
-            return None; // تجاهل الكتابة تمامًا
+            return None; //   
         }
 
-        // إذا لم يكن هناك package.json أو ليس فيه jest field، نحتاج إلى تعديل package.json
+        //     package.json    jest field    package.json
         if state.has_package_json {
-            eprintln!("🔒 Constraint: converting jest.config.js → merge into package.json");
-            // سنقوم بإضافة jest config إلى package.json بدلاً من إنشاء الملف
-            // هذا يتم في normalize_package_json
-            return None; // نمنع الكتابة، وnormalize_package_json سيتولى الباقي
+            eprintln!(" Constraint: converting jest.config.js  merge into package.json");
+            //   jest config  package.json    
+            //    normalize_package_json
+            return None; //   normalize_package_json  
         }
     }
 
-    // حالة 2: كتابة package.json - نحتاج إلى تطبيع المحتوى
+    //  2:  package.json -    
     if path_lower.ends_with("package.json") {
         return Some(Cmd::WriteFile {
             path: path.to_string(),
@@ -258,17 +258,17 @@ fn intercept_write_file(
     })
 }
 
-/// تطبيع package.json: إضافة pinned stack، إزالة jest field إذا كان هناك jest.config.js
+///  package.json:  pinned stack  jest field    jest.config.js
 fn normalize_package_json(content: &str, state: &ProjectState, env: &ProjectEnv) -> String {
     let mut json: Value = match serde_json::from_str(content) {
         Ok(v) => v,
         Err(_) => {
-            eprintln!("⚠️ Constraint: invalid package.json, using template");
+            eprintln!(" Constraint: invalid package.json, using template");
             return CORRECT_PACKAGE_JSON_TS.to_string();
         }
     };
 
-    // فقط لـ TypeScript projects
+    //   TypeScript projects
     let is_ts_project = match env {
         ProjectEnv::Node { has_typescript } => *has_typescript,
         _ => false,
@@ -278,13 +278,13 @@ fn normalize_package_json(content: &str, state: &ProjectState, env: &ProjectEnv)
         return content.to_string();
     }
 
-    // 1. تطبيق pinned stack على devDependencies
+    // 1.  pinned stack  devDependencies
     let dev_deps = json
         .get_mut("devDependencies")
         .and_then(|d| d.as_object_mut());
 
     if let Some(deps) = dev_deps {
-        // استبدال typescript بالنسخة المثبتة
+        //  typescript  
         deps.insert("typescript".to_string(), Value::String("5.3.3".to_string()));
         deps.insert("ts-jest".to_string(), Value::String("29.1.1".to_string()));
         deps.insert("jest".to_string(), Value::String("29.7.0".to_string()));
@@ -293,7 +293,7 @@ fn normalize_package_json(content: &str, state: &ProjectState, env: &ProjectEnv)
             Value::String("29.5.11".to_string()),
         );
     } else {
-        // إذا لم يكن devDependencies موجودًا، أضفه
+        //    devDependencies  
         let mut deps = serde_json::Map::new();
         deps.insert("typescript".to_string(), Value::String("5.3.3".to_string()));
         deps.insert("ts-jest".to_string(), Value::String("29.1.1".to_string()));
@@ -305,10 +305,10 @@ fn normalize_package_json(content: &str, state: &ProjectState, env: &ProjectEnv)
         json["devDependencies"] = Value::Object(deps);
     }
 
-    // 2. تطبيق scripts الصحيحة
+    // 2.  scripts 
     let scripts = json.get_mut("scripts").and_then(|s| s.as_object_mut());
     if let Some(scripts) = scripts {
-        // فقط إذا لم يكن هناك script موجود أو كان خاطئًا
+        //      script    
         if !scripts.contains_key("test") {
             scripts.insert("test".to_string(), Value::String("jest".to_string()));
         }
@@ -322,7 +322,7 @@ fn normalize_package_json(content: &str, state: &ProjectState, env: &ProjectEnv)
         json["scripts"] = Value::Object(scripts);
     }
 
-    // 3. إضافة jest config داخل package.json (إذا لم يكن هناك jest.config.js)
+    // 3.  jest config  package.json (    jest.config.js)
     if !state.has_jest_config {
         let jest_config = json.get_mut("jest").and_then(|j| j.as_object_mut());
         if jest_config.is_none() {
@@ -335,19 +335,19 @@ fn normalize_package_json(content: &str, state: &ProjectState, env: &ProjectEnv)
             json["jest"] = Value::Object(jest);
         }
     } else {
-        // إذا كان هناك jest.config.js، نزيل jest field من package.json
+        //    jest.config.js  jest field  package.json
         if json.get("jest").is_some() {
             eprintln!(
-                "🔒 Constraint: removing 'jest' field from package.json (jest.config.js exists)"
+                " Constraint: removing 'jest' field from package.json (jest.config.js exists)"
             );
             json.as_object_mut().and_then(|obj| obj.remove("jest"));
         }
     }
 
-    // 4. التأكد من عدم وجود 'type': 'module' (يسبب مشاكل مع jest)
+    // 4.     'type': 'module' (   jest)
     if let Some(r#type) = json.get("type") {
         if r#type == "module" {
-            eprintln!("🔒 Constraint: removing 'type': 'module' from package.json");
+            eprintln!(" Constraint: removing 'type': 'module' from package.json");
             json.as_object_mut().and_then(|obj| obj.remove("type"));
         }
     }
@@ -356,10 +356,10 @@ fn normalize_package_json(content: &str, state: &ProjectState, env: &ProjectEnv)
 }
 
 // ============================================================================
-// القاعدة 3: Dependency Normalization
+//  3: Dependency Normalization
 // ============================================================================
 
-/// تطبيع أوامر npm install لاستخدام pinned stacks
+///   npm install  pinned stacks
 fn normalize_dependencies(plan: Vec<Cmd>, env: &ProjectEnv) -> Vec<Cmd> {
     let is_ts_project = match env {
         ProjectEnv::Node { has_typescript } => *has_typescript,
@@ -381,7 +381,7 @@ fn normalize_dependencies(plan: Vec<Cmd>, env: &ProjectEnv) -> Vec<Cmd> {
                 if cmd_lower.contains("npm install")
                     && (cmd_lower.contains("typescript") || cmd_lower.contains("ts-jest"))
                 {
-                    eprintln!("🔒 Constraint: normalizing npm install → using pinned stack");
+                    eprintln!(" Constraint: normalizing npm install  using pinned stack");
                     normalized.push(Cmd::Run {
                         command: format!("npm install {}", TS_JEST_STACK),
                     });
@@ -397,10 +397,10 @@ fn normalize_dependencies(plan: Vec<Cmd>, env: &ProjectEnv) -> Vec<Cmd> {
 }
 
 // ============================================================================
-// القاعدة 4: Fatal Constraints
+//  4: Fatal Constraints
 // ============================================================================
 
-/// فحص fatal errors - خطط فاشلة بالكامل
+///  fatal errors -   
 fn check_fatal(plan: &[Cmd], env: &ProjectEnv) -> Option<String> {
     let mut has_npm = false;
     let mut has_pip = false;
@@ -417,7 +417,7 @@ fn check_fatal(plan: &[Cmd], env: &ProjectEnv) -> Option<String> {
         }
     }
 
-    // فحص: مشروع Python لكن الخطة تحتوي npm
+    // :  Python    npm
     if let ProjectEnv::Python = env {
         if has_npm && !has_pip {
             return Some(format!(
@@ -427,7 +427,7 @@ fn check_fatal(plan: &[Cmd], env: &ProjectEnv) -> Option<String> {
         }
     }
 
-    // فحص: مشروع Node لكن الخطة تحتوي pip
+    // :  Node    pip
     if let ProjectEnv::Node { .. } = env {
         if has_pip && !has_npm {
             return Some(format!(
@@ -441,12 +441,12 @@ fn check_fatal(plan: &[Cmd], env: &ProjectEnv) -> Option<String> {
 }
 
 // ============================================================================
-// الواجهة الرئيسية
+//  
 // ============================================================================
 
-/// نقطة الدخول الرئيسية لتطبيق القيود
+///     
 pub fn apply(plan: Vec<Cmd>, env: &ProjectEnv, state: &ProjectState) -> ConstraintResult {
-    // 1. فحص fatal أولاً
+    // 1.  fatal 
     if let Some(reason) = check_fatal(&plan, env) {
         return ConstraintResult::Fatal(reason);
     }
@@ -454,7 +454,7 @@ pub fn apply(plan: Vec<Cmd>, env: &ProjectEnv, state: &ProjectState) -> Constrai
     // 2. Environment Lock
     let plan = enforce_environment(plan, env);
 
-    // 3. Config Deduplication - معالجة WriteFile
+    // 3. Config Deduplication -  WriteFile
     let mut processed = Vec::new();
     for cmd in plan {
         match cmd {
@@ -465,7 +465,7 @@ pub fn apply(plan: Vec<Cmd>, env: &ProjectEnv, state: &ProjectState) -> Constrai
                 if let Some(new_cmd) = intercept_write_file(path, content, state, env) {
                     processed.push(new_cmd);
                 }
-                // إذا كانت intercept_write_file أعادت None، نتجاهل الأمر (نمنع الكتابة)
+                //   intercept_write_file  None   ( )
             }
             _ => processed.push(cmd),
         }
@@ -478,7 +478,7 @@ pub fn apply(plan: Vec<Cmd>, env: &ProjectEnv, state: &ProjectState) -> Constrai
 }
 
 // ============================================================================
-// اختبارات الوحدة
+//  
 // ============================================================================
 
 #[cfg(test)]

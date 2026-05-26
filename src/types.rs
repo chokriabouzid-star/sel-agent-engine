@@ -1,11 +1,11 @@
-// src/types.rs — v1.3: الأنواع الأساسية
+// src/types.rs  v1.3:  
 
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-// ══════════════════════════════════════════════════════
+// 
 // State Machine
-// ══════════════════════════════════════════════════════
+// 
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentState {
@@ -17,9 +17,9 @@ pub enum AgentState {
     Failed(String),
 }
 
-// ══════════════════════════════════════════════════════
-// سياق التنفيذ — الحالة الفعلية للنظام
-// ══════════════════════════════════════════════════════
+// 
+//      
+// 
 
 #[derive(Debug, Clone)]
 pub struct MutationContext {
@@ -38,12 +38,14 @@ pub struct ExecutionContext {
     pub mutations_total: u32,
     pub mutations_killed: u32,
     pub replan_attempts: u8,                // v5.6: Unique Patch Enforcer
-    pub last_failed_steps: Vec<FailedStep>, // v5.8: نسخة احتياطية قبل المسح
+    pub last_failed_steps: Vec<FailedStep>, // v5.8:    
     pub current_failure_kind: Option<FailureKind>, // v6.4
     pub skip_mutation: bool, // v6.5: disable mutation enforcement for real-world bench
     pub last_mutation_context: Option<MutationContext>, // v7.5.2
     pub checklist_run_tests_injected: bool, // v7.6.1: Prevent infinite run_tests injections
     pub autofix_count: u32, // v7.9.9 P5: Track system-driven fixes
+    pub mutation_survival_counts: std::collections::HashMap<String, u8>, // v8.1: Equivalent mutant tracking
+    pub bench_mode: bool, // v8.1: Differentiate run mode and bench mode for test augmentation
 }
 
 impl ExecutionContext {
@@ -77,7 +79,7 @@ pub struct FailedStep {
     pub label: String,
     pub stderr: String,
     pub exit_code: i32,
-    pub culprit_file: Option<String>, // الملف المسؤول عن الخطأ
+    pub culprit_file: Option<String>, //    
 }
 
 impl FailedStep {
@@ -101,7 +103,7 @@ impl FailedStep {
             }
             // pytest: service.py:1: in <module>
             if line.contains(".py:") && line.contains(": in ") {
-                // تجاهل مسارات stdlib وvenv
+                //   stdlib venv
                 if line.contains("/usr/lib")
                     || line.contains("venv/")
                     || line.contains("site-packages")
@@ -146,9 +148,9 @@ impl FailedStep {
         None
     }
 }
-// ══════════════════════════════════════════════════════
-// نتيجة التنفيذ
-// ══════════════════════════════════════════════════════
+// 
+//  
+// 
 
 #[derive(Debug, Clone)]
 pub struct ExecResult {
@@ -183,16 +185,16 @@ impl ExecResult {
     }
 }
 
-// ══════════════════════════════════════════════════════
+// 
 // BenchCase
-// ══════════════════════════════════════════════════════
+// 
 
 #[derive(Debug, Clone)]
 pub struct BenchCase {
     pub name: String,
     pub lang: String,
     pub goal: String,
-    pub scaffold_files: Vec<(String, String)>, // v7.9.9: (path, content) — broken code to fix
+    pub scaffold_files: Vec<(String, String)>, // v7.9.9: (path, content)  broken code to fix
 }
 
 impl BenchCase {
@@ -220,9 +222,9 @@ impl BenchCase {
     }
 }
 
-// ══════════════════════════════════════════════════════
+// 
 // Message
-// ══════════════════════════════════════════════════════
+// 
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Message {
@@ -245,9 +247,9 @@ impl Message {
     }
 }
 
-// ══════════════════════════════════════════════════════
-// خطأ الأمان
-// ══════════════════════════════════════════════════════
+// 
+//  
+// 
 
 #[derive(Debug)]
 pub enum SafetyError {
@@ -268,9 +270,9 @@ impl std::fmt::Display for SafetyError {
 
 pub use crate::failure::FailureKind;
 
-// ══════════════════════════════════════════════════════
+// 
 // Execution Context
-// ══════════════════════════════════════════════════════
+// 
 
 impl ExecutionContext {
     pub fn load_hashes(&mut self, workspace: &std::path::Path) {
@@ -297,15 +299,15 @@ impl ExecutionContext {
     }
 }
 
-// ══════════════════════════════════════════════════════
+// 
 // v5.1: Context Configuration
-// ══════════════════════════════════════════════════════
+// 
 
 #[derive(Debug, Clone)]
 pub struct ContextConfig {
-    pub ref_file: Option<PathBuf>, // ملف مرجعي للأنواع والتوقيعات
-    pub focus_paths: Vec<String>,  // مسارات لإعطاء أولوية أعلى
-    pub max_context_files: usize,  // الحد الأقصى للملفات (50 بدل 20)
+    pub ref_file: Option<PathBuf>, //    
+    pub focus_paths: Vec<String>,  //    
+    pub max_context_files: usize,  //    (50  20)
 }
 
 impl Default for ContextConfig {
@@ -313,7 +315,7 @@ impl Default for ContextConfig {
         Self {
             ref_file: None,
             focus_paths: vec![],
-            max_context_files: 50, // رفع من 20 إلى 50
+            max_context_files: 50, //   20  50
         }
     }
 }

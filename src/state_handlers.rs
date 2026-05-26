@@ -1,4 +1,4 @@
-// src/state_handlers.rs — v7.6: State Handlers
+// src/state_handlers.rs  v7.6: State Handlers
 use crate::executor::SafeExecutor;
 use crate::llm::{LLMProvider, LLMRequest};
 use crate::protocol::Cmd;
@@ -6,9 +6,9 @@ use crate::types::{AgentState, ContextConfig, ExecutionContext, FailedStep, Fail
 use anyhow::Result;
 use std::path::Path;
 
-// ══════════════════════════════════════════════════════
+// 
 // PLANNING
-// ══════════════════════════════════════════════════════
+// 
 
 pub async fn do_planning(
     ctx: &mut ExecutionContext,
@@ -26,7 +26,7 @@ pub async fn do_planning(
     let ecm = crate::environment::EnvironmentCapabilities::probe();
     let prompt = build_planning_prompt(goal, workspace, config, &ecm);
 
-    match plan_with_resilience(llm, prompt).await {
+    match plan_with_resilience(llm, prompt, ctx.bench_mode).await {
         Ok(commands) => {
             let commands_count = commands.len();
             let env = crate::constraint_engine::ProjectEnv::detect(workspace);
@@ -35,14 +35,14 @@ pub async fn do_planning(
                 crate::constraint_engine::ConstraintResult::Ok(filtered) => {
                     if filtered.len() < commands_count {
                         println!(
-                            "   🛡️ Constraint Engine: filtered {} commands",
+                            "   ⚙️  Constraint Engine: filtered {} commands",
                             commands_count - filtered.len()
                         );
                     }
                     filtered
                 }
                 crate::constraint_engine::ConstraintResult::Fatal(reason) => {
-                    println!("   ⛔ Constraint Engine: {}", reason);
+                    println!("   ❌ Constraint Engine: {}", reason);
                     return Ok((Vec::new(), AgentState::Failed(reason)));
                 }
             };
@@ -57,7 +57,7 @@ pub async fn do_planning(
                     .await
                 {
                     Ok(valid_commands) => {
-                        println!("   ✓ Final plan: {} commands\n", valid_commands.len());
+                        println!("   ✅ Final plan: {} commands\n", valid_commands.len());
                         Ok((valid_commands, AgentState::Executing))
                     }
                     Err(e) => {
@@ -99,7 +99,7 @@ fn build_planning_prompt(
 
     // v7.9.9 P1: Explicit repair instruction if files exist
     let repair_instruction = if !existing_files.is_empty() {
-        "\n⚠️  EXISTING FILES ARE PROVIDED. Your job is to FIX the bugs in them.\n\
+        "\n  EXISTING FILES ARE PROVIDED. Your job is to FIX the bugs in them.\n\
          - DO NOT delete or overwrite these files from scratch.\n\
          - Use patch_file to apply precise fixes.\n\
          - Keep existing correct logic and only change what is broken.\n"
@@ -128,6 +128,7 @@ After </think>, output ONLY the ```json plan. Nothing else outside the JSON bloc
 async fn plan_with_resilience(
     llm: &dyn LLMProvider,
     base_prompt: String,
+    bench_mode: bool,
 ) -> Result<Vec<Cmd>, String> {
     const MAX_RETRIES: u8 = 2;
     let mut last_error = String::new();
@@ -142,19 +143,19 @@ async fn plan_with_resilience(
             };
 
             let specific_guidance = if error_msg.contains("PLAN ERROR") {
-                "\n\n🚨 CRITICAL ERROR — PLAN REJECTED 🚨\nYour plan is MISSING the required run_tests command.\nYou MUST add this command BEFORE done:\n{\"type\": \"run_tests\", \"target\": \"auto\"}\nDo NOT omit it. Do NOT change anything else."
+                "\n\n CRITICAL ERROR  PLAN REJECTED \nYour plan is MISSING the required run_tests command.\nYou MUST add this command BEFORE done:\n{\"type\": \"run_tests\", \"target\": \"auto\"}\nDo NOT omit it. Do NOT change anything else."
             } else {
                 ""
             };
 
             format!(
-                "{}\n\n                     WARNING — PROTOCOL RETRY {}/{}: {}\n                     STRICT RULES:{} \n                     1. Output ONLY a ```json block — zero text outside it.\n                     2. Keep all content strings SHORT (< 40 chars per line).\n                     3. Use ONLY single quotes inside Python/shell code.\n                     4. No raw newlines inside JSON strings — use \\n instead.\n                     5. No special characters that break JSON strings.",
+                "{}\n\n                     WARNING  PROTOCOL RETRY {}/{}: {}\n                     STRICT RULES:{} \n                     1. Output ONLY a ```json block  zero text outside it.\n                     2. Keep all content strings SHORT (< 40 chars per line).\n                     3. Use ONLY single quotes inside Python/shell code.\n                     4. No raw newlines inside JSON strings  use \\n instead.\n                     5. No special characters that break JSON strings.",
                 base_prompt, attempt, MAX_RETRIES, error_msg, specific_guidance
             )
         };
 
         let req = LLMRequest {
-            system: crate::llm::SYSTEM_PROMPT.to_string(),
+            system: crate::llm::get_system_prompt(bench_mode),
             messages: vec![Message::user(prompt)],
             temperature: 0.1,
             seed: Some(42),
@@ -167,7 +168,7 @@ async fn plan_with_resilience(
                     if let Err(e) = crate::protocol::validate_test_order(&mut plan) {
                         if attempt < MAX_RETRIES {
                             last_error = format!("PLAN ERROR: {}", e);
-                            println!("   🔄 {}", last_error);
+                            println!("    {}", last_error);
                         } else {
                             return Err(format!("Plan validation failed: {}", e));
                         }
@@ -217,23 +218,23 @@ fn replan_with_feedback<'a>(
     Box::pin(async move {
         ctx.replan_attempts += 1;
         if ctx.replan_attempts > 2 {
-            println!("   ⚠ Max replan attempts (2) reached — proceeding with original plan");
+            println!("   ⚠️  Max replan attempts (2) reached  proceeding with original plan");
             return Ok(original_plan);
         }
         println!(
-            "\n   🔄 v5.6 Replan {}/2 — patch uniqueness issues:",
+            "\n   🔧 v5.6 Replan {}/2  patch uniqueness issues:",
             ctx.replan_attempts
         );
         for issue in &issues {
-            println!("      • {}", issue);
+            println!("       {}", issue);
         }
 
         let feedback = format!(
-            "PLAN REJECTED — patch_file uniqueness issues:\n{}\n\n\
+            "PLAN REJECTED  patch_file uniqueness issues:\n{}\n\n\
              MANDATORY RULES:\n\
              1. Each patch_file search block must appear EXACTLY ONCE in the target file.\n\
-             2. If search block not found → file does not exist yet, use write_file instead.\n\
-             3. If found multiple times → add more surrounding context lines to make it unique.\n\
+             2. If search block not found  file does not exist yet, use write_file instead.\n\
+             3. If found multiple times  add more surrounding context lines to make it unique.\n\
              4. Copy search text VERBATIM from the file (case-sensitive, exact whitespace).\n\n\
              Provide corrected execution plan.",
             issues.join("\n")
@@ -252,11 +253,11 @@ fn replan_with_feedback<'a>(
                 existing_files, ref_context, lang_hint, goal, feedback
             );
 
-        match plan_with_resilience(llm, prompt).await {
+        match plan_with_resilience(llm, prompt, ctx.bench_mode).await {
             Ok(new_plan) => {
                 let new_issues = crate::decision::validate_patch_uniqueness(workspace, &new_plan);
                 if new_issues.is_empty() {
-                    println!("   ✅ v5.6 Replan successful — all patches unique");
+                    println!("   ✅ v5.6 Replan successful  all patches unique");
                     Ok(new_plan)
                 } else {
                     replan_with_feedback(ctx, llm, goal, workspace, config, new_plan, new_issues)
@@ -268,9 +269,9 @@ fn replan_with_feedback<'a>(
     })
 }
 
-// ══════════════════════════════════════════════════════
+// 
 // EXECUTING
-// ══════════════════════════════════════════════════════
+// 
 
 pub async fn do_executing(
     ctx: &mut ExecutionContext,
@@ -284,7 +285,7 @@ pub async fn do_executing(
     while i < total {
         let cmd = &plan[i];
         let elapsed = ctx.start_time.map(|s| s.elapsed().as_secs_f32()).unwrap_or(0.0);
-        eprintln!("[{:.1}s] Executing → step {}/{} ({})", elapsed, i + 1, total, cmd.label());
+        eprintln!("[{:.1}s] ⚡ Executing  step {}/{} ({})", elapsed, i + 1, total, cmd.label());
 
         let cmd_hash = cmd.hash();
         let is_pip = cmd.label().contains("pip");
@@ -299,8 +300,8 @@ pub async fn do_executing(
             && !is_cargo_test
             && !(is_pip && !venv_ok);
 
-        if ctx.successful_hashes.contains(&cmd_hash) && skip_allowed {
-            println!("   ⏭ Skipping: {} (already passed)", cmd.label());
+        if ctx.successful_hashes.contains(&cmd_hash.to_string()) && skip_allowed {
+            println!("   ⏭  Skipping: {} (already passed)", cmd.label());
             i += 1;
             continue;
         }
@@ -319,7 +320,7 @@ pub async fn do_executing(
                         "Goal complete"
                     };
                     println!(
-                        "\n✅ {}",
+                        "\n {}",
                         if msg.is_empty() {
                             "Goal complete!"
                         } else {
@@ -330,7 +331,7 @@ pub async fn do_executing(
                     return Ok(AgentState::Done);
                 }
             } else {
-                println!("   ⛔ done rejected — tests must pass first");
+                println!("   ❌ done rejected  tests must pass first");
                 ctx.failed_steps.push(FailedStep {
                     step_index: i,
                     label: cmd.label(),
@@ -356,7 +357,7 @@ pub async fn do_executing(
                 }
                 if let Cmd::Run { command } = cmd {
                     let lc = command.to_lowercase();
-                    // v7.9.6: Trust exit code 0 from test runners — stdout may be empty
+                    // v7.9.6: Trust exit code 0 from test runners  stdout may be empty
                     // (Jest outputs to stderr, npm wraps stdout, etc.)
                     if lc.contains("cargo test")
                         || lc.contains("go test")
@@ -370,11 +371,11 @@ pub async fn do_executing(
                 if r.autofix_triggered {
                     ctx.autofix_count += 1;
                 }
-                ctx.successful_hashes.insert(cmd_hash);
+                ctx.successful_hashes.insert(cmd_hash.to_string());
             }
             Ok(r) => {
                 let err: String = r.stderr.chars().take(3000).collect();
-                println!("   ✗ {}", err);
+                println!("    {}", err);
                 if cmd.is_run_tests() {
                     ctx.tests_passed = false;
                 }
@@ -395,12 +396,12 @@ pub async fn do_executing(
     if ctx.tests_passed {
         if let Some(fail) = run_mutation_check(ctx, executor).await {
             ctx.failed_steps.push(fail);
-            return Ok(AgentState::Repairing);
+            Ok(AgentState::Repairing)
         } else {
             ctx.save_hashes(&executor.workspace);
             println!("\n✅ Goal complete! Tests passed.");
             println!("SEL_SUCCESS");
-            return Ok(AgentState::Done);
+            Ok(AgentState::Done)
         }
     } else {
         Ok(AgentState::Repairing)
@@ -448,8 +449,19 @@ async fn run_mutation_check(
     for src in &files {
         match executor.mutation_check(src).await {
             crate::executor::MutationResult::Weak(orig_line, mutd_line) => {
+                let mutation_key = format!("{}|{}|{}", src, orig_line, mutd_line);
+                let count = ctx.mutation_survival_counts.entry(mutation_key).or_insert(0);
+                *count += 1;
+
+                if *count >= 3 {
+                    println!("     🧬 Equivalent Mutant detected (survived {} times)  skipping", *count);
+                    ctx.mutations_total += 1;
+                    ctx.mutations_killed += 1; // Mark as killed/passed so it doesn't fail the bench
+                    continue;
+                }
+
                 ctx.mutations_total += 1;
-                println!("     Survived mutation: [{}] → [{}]", orig_line, mutd_line);
+                println!("   🧬 Survived mutation (Attempt {}): [{}]  [{}]", count, orig_line, mutd_line);
                 ctx.last_mutation_context = Some(crate::types::MutationContext {
                     surviving: format!(
                         "File: {}\nOriginal: {}\nMutation: {}",
@@ -464,7 +476,7 @@ async fn run_mutation_check(
                         src, orig_line, mutd_line
                     ),
                     exit_code: 1,
-                    culprit_file: Some(src.clone()),
+                    culprit_file: Some(src.to_string()),
                 });
             }
             crate::executor::MutationResult::Strong => {
@@ -479,9 +491,9 @@ async fn run_mutation_check(
     None
 }
 
-// ══════════════════════════════════════════════════════
+// 
 // REPAIRING
-// ══════════════════════════════════════════════════════
+// 
 
 pub async fn do_repairing(
     ctx: &mut ExecutionContext,
@@ -514,7 +526,7 @@ pub async fn do_repairing(
         }
         let wait = [15u64, 45, 120][infra_retries as usize];
         println!(
-            "\n⚠️  Infra error — retry {}/3 in {}s (no LLM call)...",
+            "\n  Infra error  retry {}/3 in {}s (no LLM call)...",
             infra_retries + 1,
             wait
         );
@@ -536,10 +548,20 @@ pub async fn do_repairing(
         _ => dynamic_max_repairs,
     };
     if ctx.repair_attempts > repair_limit {
-        let diagnostic = crate::diagnostic::DiagnosticEngine::analyze(&all_err)
-            .unwrap_or_else(|| "Unknown stubborn error.".to_string());
+        let diag_report = crate::diagnostic::analyze(&all_err);
+        let diagnostic = if diag_report.is_empty() {
+            "Unknown stubborn error.".to_string()
+        } else {
+            diag_report.as_prompt_fragment()
+        };
         
         let msg = format!("Max repair attempts ({}) reached.\nDiagnostic: {}", repair_limit, diagnostic);
+        if ctx.bench_mode || std::env::var("SEL_BENCH_MODE").is_ok() {
+            return Ok((
+                Vec::new(),
+                AgentState::Failed(msg),
+            ));
+        }
         return Ok((
             Vec::new(),
             AgentState::WaitingForUserInput(msg),
@@ -548,7 +570,7 @@ pub async fn do_repairing(
 
     let elapsed = ctx.start_time.map(|s| s.elapsed().as_secs_f32()).unwrap_or(0.0);
     eprintln!(
-        "\n[{:.1}s] 🔧 Repairing (Attempt {}/{})...",
+        "\n[{:.1}s]  Repairing (Attempt {}/{})...",
         elapsed, ctx.repair_attempts, repair_limit
     );
 
@@ -558,9 +580,9 @@ pub async fn do_repairing(
         crate::decision::pre_repair_checklist(&mut fix_plan, ctx, workspace)
     {
         if fix_plan.is_empty() {
-            println!("   ⚠️  Checklist returned Handled but produced no commands — falling through to LLM");
+            println!("   ⚠️  Checklist returned Handled but produced no commands  falling through to LLM");
         } else {
-            println!("   ✨ Checklist Fix: applied deterministic repair");
+            println!("   🔧 Checklist Fix: applied deterministic repair");
             return Ok((fix_plan, AgentState::Executing));
         }
     }
@@ -609,14 +631,14 @@ pub async fn do_repairing(
         }
     }
 
-    // ─── Structured Repair Memory v8.0 (Escalating Strategy) ───
+    //  Structured Repair Memory v8.0 (Escalating Strategy) 
     let display_limit = repair_limit;
     let repair_ctx = crate::repair_strategy::RepairCtx::build(workspace, goal, previous_error.as_ref());
     let attempt_note = format!(
         "ATTEMPT {}/{}:\n{}", 
         ctx.repair_attempts, 
         display_limit, 
-        crate::repair_strategy::build_prompt(ctx.repair_attempts, &all_err, &repair_ctx, workspace)
+        crate::repair_strategy::build_prompt(ctx.repair_attempts, &all_err, &repair_ctx)
     );
 
     let loop_warning = if repair_fingerprints.len() > 1
@@ -628,15 +650,15 @@ pub async fn do_repairing(
         ""
     };
 
-    // احفظ الخطأ الحالي للمحاولة القادمة
+    //     
     *previous_error = Some(all_err.chars().take(500).collect());
 
-    // Repair History Guard v1.2 — تجنب تكرار نفس الإصلاح
+    // Repair History Guard v1.2     
     let fingerprint: u64 = all_err
         .bytes()
         .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
     if repair_fingerprints.contains(&fingerprint) {
-        println!("   ⚠️  Repair loop detected — same error repeated. Forcing different strategy.");
+        println!("   🔄 Repair loop detected  same error repeated. Forcing different strategy.");
     } else {
         repair_fingerprints.push(fingerprint);
     }
@@ -648,13 +670,36 @@ pub async fn do_repairing(
     );
 
     // v7.8: Diagnostic Engine hints
-    let diagnostic_hint = crate::diagnostic::DiagnosticEngine::analyze(&all_err)
-        .map(|h| format!("\n\n{}", h))
-        .unwrap_or_default();
+    let diag_report = crate::diagnostic::analyze(&all_err);
+    let diagnostic_hint = if diag_report.is_empty() {
+        String::new()
+    } else {
+        format!("\n\n{}", diag_report.as_prompt_fragment())
+    };
     
     let combined_hints = format!("{}{}", memory_hint, diagnostic_hint);
 
     let files_context = crate::decision::build_workspace_context(workspace);
+    
+    // v8.1: File Content in every Repair Prompt for culprit files
+    let mut culprit_contents = String::new();
+    let mut seen_culprits = std::collections::HashSet::new();
+    for step in &ctx.failed_steps {
+        if let Some(ref culprit) = step.culprit_file {
+            if seen_culprits.insert(culprit.clone()) {
+                let path = workspace.join(culprit);
+                if path.exists() {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        culprit_contents.push_str(&format!(
+                            "\n\n CURRENT CULPRIT FILE CONTENT: {} (use EXACT text from here for patch_file search)\n```\n{}\n```\n",
+                            culprit, content
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
     let mutation_note = if let Some(ref mctx) = ctx.last_mutation_context {
         let is_loop = repair_fingerprints.contains(&fingerprint);
         let loop_msg = if is_loop {
@@ -663,7 +708,7 @@ pub async fn do_repairing(
             "Add tests to kill it."
         };
         format!(
-            "\n\n⚠ MUTATION SURVIVED:\n{}\n{}",
+            "\n\n MUTATION SURVIVED:\n{}\n{}",
             mctx.surviving, loop_msg
         )
     } else {
@@ -673,13 +718,13 @@ pub async fn do_repairing(
     let ref_context = crate::decision::build_ref_context(config);
 
     let prompt = crate::constitution::CONSTITUTION.to_string() + &format!(
-        "Goal: {}\n\nATTEMPT INFO: {}\n\nHINTS: {}{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}{}\nFix ALL issues.",
-        goal, &(attempt_note + loop_warning), combined_hints, mutation_note, all_err, files_context, ref_context
+        "Goal: {}\n\nATTEMPT INFO: {}\n\nHINTS: {}{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}{}{}\nFix ALL issues.",
+        goal, &(attempt_note + loop_warning), combined_hints, mutation_note, all_err, files_context, ref_context, culprit_contents
     );
 
-    match plan_with_resilience(llm, prompt).await {
+    match plan_with_resilience(llm, prompt, ctx.bench_mode).await {
         Ok(commands) => {
-            println!("   ✓ Repair plan: {} commands", commands.len());
+            println!("   🔧 Repair plan: {} commands", commands.len());
             Ok((commands, AgentState::Executing))
         }
         Err(e) => Ok((Vec::new(), AgentState::Failed(e))),

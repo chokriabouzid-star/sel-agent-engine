@@ -34,26 +34,26 @@ impl LLMProvider for ReplayProvider {
         let file_path = self.record_dir.join(format!("{:03}.json", count));
         if !file_path.exists() {
             return Err(anyhow!(
-                "TRAJECTORY_INCOMPLETE: {} — re-run with --record to update fixtures",
+                "TRAJECTORY_INCOMPLETE: {}  re-run with --record to update fixtures",
                 file_path.display()
             ));
         }
 
         let json = fs::read_to_string(&file_path)?;
+        let json = crate::llm::json_sanitizer::fix_rust_doc_comments(&json);
         let record: TrajectoryRecord = serde_json::from_str(&json)?;
 
         let current_hash = crate::constitution::constitution_hash();
-        if !record.constitution_hash.is_empty() && record.constitution_hash != current_hash {
-            if count == 1 {
+        if !record.constitution_hash.is_empty() && record.constitution_hash != current_hash
+            && count == 1 {
                 eprintln!(
-                    "⚠️  REPLAY STALE: constitution changed since recording.\n   \
+                    "  REPLAY STALE: constitution changed since recording.\n   \
                      Recorded: {} | Current: {}\n   \
                      Run with --record to refresh fixtures.",
                     &record.constitution_hash.chars().take(8).collect::<String>(),
                     &current_hash.chars().take(8).collect::<String>()
                 );
             }
-        }
 
         // Simulate network delay
         let delay_ms = std::cmp::min(record.latency_ms, 500); // Max 500ms for fast replay

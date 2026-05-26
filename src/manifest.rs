@@ -1,4 +1,4 @@
-// src/manifest.rs — v7.5: Project Manifest
+// src/manifest.rs  v7.5: Project Manifest
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -14,7 +14,7 @@ pub struct FileEntry {
     pub path: String,
     pub kind: FileKind,
     pub exports: Vec<String>,
-    pub imports: Vec<String>, // خفيف — أسماء فقط
+    pub imports: Vec<String>, //    
     pub size: usize,
 }
 
@@ -25,12 +25,12 @@ pub enum FileKind {
     Config,
 }
 
-/// v7.5: File ownership policy — enforced in executor.rs
+/// v7.5: File ownership policy  enforced in executor.rs
 #[derive(Debug, Clone, PartialEq)]
 pub enum FilePolicy {
-    Mutable,   // source — LLM writes and modifies
-    ReadOnly,  // test/spec — LLM reads only
-    Protected, // config/scaffold — fully protected
+    Mutable,   // source  LLM writes and modifies
+    ReadOnly,  // test/spec  LLM reads only
+    Protected, // config/scaffold  fully protected
 }
 
 impl FileEntry {
@@ -116,7 +116,7 @@ impl ProjectManifest {
         })
     }
 
-    // ─── Exports ───────────────────────────────────────────
+    //  Exports 
     fn extract_exports(content: &str, ext: &str) -> Vec<String> {
         let mut out = Vec::new();
         for line in content.lines() {
@@ -125,44 +125,41 @@ impl ProjectManifest {
                 "ts" | "js" => {
                     if let Some(rest) = t.strip_prefix("export ") {
                         if let Some(n) = Self::first_ident(rest) {
-                            // تجاهل keywords
+                            //  keywords
                             if !matches!(n.as_str(), "default" | "type" | "interface" | "{") {
                                 out.push(n);
                             }
                         }
                     }
                 }
-                "py" => {
-                    // دوال وكلاسات على مستوى أعلى (بدون indent)
+                "py"
+                    //      ( indent)
                     if !line.starts_with(' ')
                         && !line.starts_with('\t')
                         && (t.starts_with("def ") || t.starts_with("class "))
-                    {
+                    => {
                         if let Some(n) = Self::ident_after_keyword(t) {
                             if !n.starts_with('_') {
                                 out.push(n);
                             }
                         }
                     }
-                }
-                "rs" => {
-                    if t.starts_with("pub fn ")
+                "rs"
+                    if (t.starts_with("pub fn ")
                         || t.starts_with("pub struct ")
                         || t.starts_with("pub enum ")
-                        || t.starts_with("pub trait ")
-                    {
+                        || t.starts_with("pub trait "))
+                    => {
                         if let Some(n) = Self::ident_after_pub(t) {
                             out.push(n);
                         }
                     }
-                }
-                "go" => {
-                    if t.starts_with("func ") || t.starts_with("type ") {
+                "go"
+                    if (t.starts_with("func ") || t.starts_with("type ")) => {
                         if let Some(n) = Self::extract_go_export(t) {
                             out.push(n);
                         }
                     }
-                }
                 _ => {}
             }
         }
@@ -170,15 +167,15 @@ impl ProjectManifest {
         out
     }
 
-    // ─── Imports (خفيف) ─────────────────────────────────────
+    //  Imports () 
     fn extract_imports(content: &str, ext: &str) -> Vec<String> {
         let mut out = Vec::new();
         for line in content.lines() {
             let t = line.trim();
             match ext {
-                "ts" | "js" => {
+                "ts" | "js"
                     // import ... from "./database"
-                    if t.starts_with("import ") {
+                    if t.starts_with("import ") => {
                         if let Some(from) = t.rfind("from ") {
                             let src = t[from + 5..]
                                 .trim()
@@ -188,25 +185,22 @@ impl ProjectManifest {
                             }
                         }
                     }
-                }
-                "py" => {
+                "py"
                     // from .database import X  or  import os
-                    if t.starts_with("from ") || t.starts_with("import ") {
+                    if (t.starts_with("from ") || t.starts_with("import ")) => {
                         let parts: Vec<&str> = t.split_whitespace().collect();
                         if parts.len() >= 2 {
                             out.push(parts[1].trim_end_matches(',').to_string());
                         }
                     }
-                }
-                "go" => {
+                "go"
                     // import "fmt"
-                    if t.starts_with('"') && t.ends_with('"') {
+                    if t.starts_with('"') && t.ends_with('"') => {
                         out.push(t.trim_matches('"').to_string());
                     }
-                }
-                "rs" => {
+                "rs"
                     // use crate::X;  use std::...
-                    if t.starts_with("use ") {
+                    if t.starts_with("use ") => {
                         let src = t[4..]
                             .trim_end_matches(';')
                             .split("::")
@@ -217,7 +211,6 @@ impl ProjectManifest {
                             out.push(src);
                         }
                     }
-                }
                 _ => {}
             }
         }
@@ -225,11 +218,11 @@ impl ProjectManifest {
         out
     }
 
-    // ─── Helpers ────────────────────────────────────────────
+    //  Helpers 
     fn first_ident(s: &str) -> Option<String> {
-        // "function add(" → "add"
-        // "class User"    → "User"
-        // "const PI"      → "PI"
+        // "function add("  "add"
+        // "class User"     "User"
+        // "const PI"       "PI"
         let words: Vec<&str> = s.split_whitespace().collect();
         let start = if matches!(
             words.first(),
@@ -251,18 +244,18 @@ impl ProjectManifest {
     }
 
     fn ident_after_keyword(line: &str) -> Option<String> {
-        // "def add():" → "add"
-        // "def get_all(store):" → "get_all"
+        // "def add():"  "add"
+        // "def get_all(store):"  "get_all"
         line.split_whitespace().nth(1).map(|w| {
-            // قطع عند أول ( أو : أو )
+            //    (  :  )
             let end = w.find(['(', ':', ')']).unwrap_or(w.len());
             w[..end].to_string()
         })
     }
 
     fn ident_after_pub(line: &str) -> Option<String> {
-        // "pub fn add(" → "add"
-        // "pub struct User" → "User"
+        // "pub fn add("  "add"
+        // "pub struct User"  "User"
         line.split_whitespace().nth(2).map(|w| {
             w.trim_end_matches(|c: char| !c.is_alphanumeric() && c != '_')
                 .to_string()
@@ -270,8 +263,8 @@ impl ProjectManifest {
     }
 
     fn extract_go_export(line: &str) -> Option<String> {
-        // "func Add(" → "Add"  (capital = exported)
-        // "type User struct" → "User"
+        // "func Add("  "Add"  (capital = exported)
+        // "type User struct"  "User"
         let parts: Vec<&str> = line.split_whitespace().collect();
         let name = parts
             .get(1)?
@@ -283,7 +276,7 @@ impl ProjectManifest {
         }
     }
 
-    // ─── Summary للـ LLM ────────────────────────────────────
+    //  Summary  LLM 
     pub fn to_summary(&self) -> String {
         if self.files.is_empty() {
             return String::new();

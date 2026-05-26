@@ -1,13 +1,13 @@
-// src/context/scanner.rs — v2.0: Centralized Project Scanner
-// مسؤول عن اكتشاف اللغة وبنية المشروع
+// src/context/scanner.rs  v2.0: Centralized Project Scanner
+//      
 
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-// ─────────────────────────────────────────
+// 
 // Types
-// ─────────────────────────────────────────
+// 
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum Language {

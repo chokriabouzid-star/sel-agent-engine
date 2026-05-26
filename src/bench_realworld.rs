@@ -1,5 +1,5 @@
-// src/bench_realworld.rs — v7.5 Feature-Targeted Benchmark
-// يختبر: Compile-First | quick_fix | Language Guard | Real-World Patterns
+// src/bench_realworld.rs  v7.5 Feature-Targeted Benchmark
+// : Compile-First | quick_fix | Language Guard | Real-World Patterns
 
 use crate::agent;
 use crate::types;
@@ -59,10 +59,13 @@ pub async fn run_bench_realworld(
     skip_recorded: bool,
     focus: &[String],
 ) -> Result<()> {
-    println!("\n╔═══════════════════════════════════════════════════════════════════╗");
-    println!("║   SEL Agent v8.2.0 — Feature-Targeted Benchmark                  ║");
-    println!("║   Compile-First | quick_fix | Language Guard | Real-World         ║");
-    println!("╚═══════════════════════════════════════════════════════════════════╝\n");
+    println!();
+    println!("{}", "╔══════════════════════════════════════════════════╗".cyan());
+    println!("{}", "║   SEL Agent v8.3.0 — suite: realworld            ║".cyan());
+    println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
+    println!("{}", "║   Feature-Targeted Benchmark                     ║".cyan());
+    println!("{}", "╚══════════════════════════════════════════════════╝".cyan());
+    println!();
 
     let all_cases = build_cases();
 
@@ -97,8 +100,8 @@ pub async fn run_bench_realworld(
     print_test_plan(&cases);
 
     // Print active flags
-    if replay  { println!("   Mode:         🔄 REPLAY{}",  if rerecord { " + auto-rerecord on fail" } else { "" }); }
-    if record  { println!("   Mode:         ⏺  RECORD"); }
+    if replay  { println!("   Mode:          REPLAY{}",  if rerecord { " + auto-rerecord on fail" } else { "" }); }
+    if record  { println!("   Mode:           RECORD"); }
     if skip_recorded { println!("   skip-recorded: enabled"); }
     println!("   Cooldown:      {}s between cases\n", delay);
 
@@ -113,7 +116,7 @@ pub async fn run_bench_realworld(
     let tmpdir = std::env::temp_dir();
 
     for (i, case) in cases.iter().enumerate() {
-        // Trajectory path — stable slug per case name
+        // Trajectory path  stable slug per case name
         let traj_slug = case
             .name
             .to_lowercase()
@@ -128,8 +131,8 @@ pub async fn run_bench_realworld(
         // 3. skip-recorded: skip cases whose trajectory directory already exists
         if skip_recorded && traj_dir.exists() {
             println!(
-                "  {} T{} [{}] {} — skipped (trajectory exists)",
-                "⏭".yellow(),
+                "  {} T{} [{}] {}  skipped (trajectory exists)",
+                "".yellow(),
                 case.tier,
                 case.lang.blue(),
                 case.name.bold()
@@ -215,7 +218,7 @@ pub async fn run_bench_realworld(
         // 4. rerecord: if replay failed, re-run with LiveProvider + RecorderProvider
         if replay && !case_ok && rerecord {
             println!(
-                "   ⚠️  [{}] replay failed — auto-rerecording...",
+                "     [{}] replay failed  auto-rerecording...",
                 case.name
             );
 
@@ -254,9 +257,9 @@ pub async fn run_bench_realworld(
             case_ok = heal_ag.is_success();
             if case_ok {
                 healed += 1;
-                println!("   ✅ [{}] auto-rerecorded successfully.", case.name);
+                println!("    [{}] auto-rerecorded successfully.", case.name);
             } else {
-                println!("   ❌ [{}] auto-rerecord also failed.", case.name);
+                println!("    [{}] auto-rerecord also failed.", case.name);
             }
         }
 
@@ -268,7 +271,7 @@ pub async fn run_bench_realworld(
             entry.0 += 1;
             println!(
                 "  {} T{} [{}] {} ({}s, {} repairs) | {}",
-                "✅".green(),
+                "".green(),
                 case.tier,
                 case.lang.blue(),
                 case.name.bold(),
@@ -283,7 +286,7 @@ pub async fn run_bench_realworld(
             };
             println!(
                 "  {} T{} [{}] {} ({}s, {} repairs){} | {}",
-                "❌".red(),
+                "".red(),
                 case.tier,
                 case.lang.blue(),
                 case.name.bold(),
@@ -296,12 +299,11 @@ pub async fn run_bench_realworld(
 
         let _ = std::fs::remove_dir_all(&workspace);
 
-        if i < total - 1 {
-            if delay > 0 {
-                println!("     ⏳ {}s cooldown...", delay);
+        if i < total - 1
+            && delay > 0 {
+                println!("      {}s cooldown...", delay);
                 tokio::time::sleep(Duration::from_secs(delay)).await;
             }
-        }
     }
 
     print_results(
@@ -317,16 +319,16 @@ pub async fn run_bench_realworld(
     Ok(())
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Cases — مصممة لاختبار ميزات v7.5
-// ═══════════════════════════════════════════════════════════════════════════
+// 
+// Cases     v7.5
+// 
 
 fn build_cases() -> Vec<BenchCase> {
     vec![
-        // ────────────────────────────────────────────────────────────
+        // 
         // TIER 1: Compile-First Pipeline
-        // هدف: التحقق أن compile check يعمل لكل لغة
-        // ────────────────────────────────────────────────────────────
+        // :   compile check   
+        // 
         BenchCase::new(
             "Compile-Check Python",
             "Create a Python module 'calculator.py' with functions: add(a,b), subtract(a,b), multiply(a,b), divide(a,b). divide must raise ValueError if b is zero.\n\nTests: python -m pytest test_calculator.py -v",
@@ -443,10 +445,10 @@ describe('utils', () => {
 "#,
         ),
 
-        // ────────────────────────────────────────────────────────────
-        // TIER 2: quick_fix (إصلاح تلقائي بدون LLM)
-        // هدف: AutoFix Go imports + ModuleNotFoundError handling
-        // ────────────────────────────────────────────────────────────
+        // 
+        // TIER 2: quick_fix (   LLM)
+        // : AutoFix Go imports + ModuleNotFoundError handling
+        // 
         BenchCase::new(
             "QuickFix Go imports",
             "Create a Go program in main.go with package main. Implement func Greet(name string) string that returns 'HELLO, NAME!' in uppercase using strings.ToUpper and fmt.Sprintf. The file must compile and pass the existing tests.",
@@ -537,10 +539,10 @@ func TestIsPalindrome(t *testing.T) {
         )
         .with_scaffold("go.mod", "module textutils\n\ngo 1.21\n"),
 
-        // ────────────────────────────────────────────────────────────
+        // 
         // TIER 3: Language Guard + Bug Fix
-        // هدف: الوكيل يُصلح ملفاً موجوداً دون كسر workspace
-        // ────────────────────────────────────────────────────────────
+        // :       workspace
+        // 
         BenchCase::new(
             "BugFix Rust: wrong operator",
             "Fix the bug in src/lib.rs. The add function currently returns a - b instead of a + b. Fix only this bug and run cargo test to verify all tests pass.",
@@ -668,10 +670,10 @@ def test_minimum():
 "#,
         ),
 
-        // ────────────────────────────────────────────────────────────
+        // 
         // TIER 4: Real-World Patterns
-        // هدف: السيناريوهات الحقيقية الأكثر طلباً
-        // ────────────────────────────────────────────────────────────
+        // :    
+        // 
         BenchCase::new(
             "Real: Python CLI wordcount",
             "Build a Python module 'wordcount.py' with two functions: count_words(text: str) -> dict that counts word frequencies (case-insensitive), and top_words(counts: dict, n: int) -> list of (word, count) tuples sorted by frequency descending.\n\nTests: python -m pytest test_wordcount.py -v",
@@ -759,7 +761,7 @@ func TestMatchLinesRegex(t *testing.T) {
 
         BenchCase::new(
             "Real: TypeScript validator",
-            "Create a TypeScript file 'validator.ts' exporting three functions:\n- isEmail(s: string): boolean — validate standard email formats\n- isUrl(s: string): boolean — true only for http:// or https:// URLs, use try/catch with new URL() and check protocol\n- isStrongPassword(s: string, minLen?: number): boolean — default minLen=8, requires >= 1 uppercase, >= 1 lowercase, >= 1 digit\n\nTests: npx jest validator.test.ts",
+            "Create a TypeScript file 'validator.ts' exporting three functions:\n- isEmail(s: string): boolean  validate standard email formats\n- isUrl(s: string): boolean  true only for http:// or https:// URLs, use try/catch with new URL() and check protocol\n- isStrongPassword(s: string, minLen?: number): boolean  default minLen=8, requires >= 1 uppercase, >= 1 lowercase, >= 1 digit\n\nTests: npx jest validator.test.ts",
             "TypeScript",
             4,
             "real: TS library",
@@ -821,12 +823,12 @@ describe('isStrongPassword', () => {
     ]
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// طباعة الخطة
-// ═══════════════════════════════════════════════════════════════════════════
+// 
+//  
+// 
 
 fn print_test_plan(cases: &[BenchCase]) {
-    println!("📋 Test Plan ({} cases):\n", cases.len());
+    println!(" Test Plan ({} cases):\n", cases.len());
 
     let mut by_tier: std::collections::BTreeMap<u8, Vec<&BenchCase>> =
         std::collections::BTreeMap::new();
@@ -844,8 +846,8 @@ fn print_test_plan(cases: &[BenchCase]) {
     for (tier, name) in &tier_names {
         if let Some(tier_cases) = by_tier.get(tier) {
             println!(
-                "  {} Tier {} — {} ({} cases)",
-                "●".yellow(),
+                "  {} Tier {}  {} ({} cases)",
+                "".yellow(),
                 tier,
                 name.bold(),
                 tier_cases.len()
@@ -853,7 +855,7 @@ fn print_test_plan(cases: &[BenchCase]) {
             for c in tier_cases {
                 println!(
                     "      {} [{:12}] {}",
-                    "→".dimmed(),
+                    "".dimmed(),
                     c.lang.blue(),
                     c.tests_feature.magenta()
                 );
@@ -863,9 +865,9 @@ fn print_test_plan(cases: &[BenchCase]) {
     println!();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// طباعة النتائج
-// ═══════════════════════════════════════════════════════════════════════════
+// 
+//  
+// 
 
 fn print_results(
     passed: usize,
@@ -887,26 +889,26 @@ fn print_results(
         0.0
     };
 
-    println!("\n╔══════════════════════════════════════════════════════════════╗");
-    println!("║   SEL Agent v8.2.0 — Benchmark Results                       ║");
-    println!("╠══════════════════════════════════════════════════════════════╣");
+    println!("\n");
+    println!("   SEL Agent v8.3.0  Benchmark Results                       ");
+    println!("");
     println!(
-        "║  Tier    : {}",
+        "  Tier    : {}",
         tier.map_or("ALL".to_string(), |t| format!("Tier {}", t))
     );
     println!(
-        "║  Time    : {}m {}s",
+        "  Time    : {}m {}s",
         elapsed.as_secs() / 60,
         elapsed.as_secs() % 60
     );
-    println!("║  Result  : {}/{} ({:.1}%)", passed, total, pct);
-    println!("║  AvgFix  : {:.1} repairs/success", avg_r);
+    println!("  Result  : {}/{} ({:.1}%)", passed, total, pct);
+    println!("  AvgFix  : {:.1} repairs/success", avg_r);
     if healed > 0 {
-        println!("║  Healed  : {} auto-rerecorded ✨", healed);
+        println!("  Healed  : {} auto-rerecorded ", healed);
     }
-    println!("╠══════════════════════════════════════════════════════════════╣");
-    println!("║  Feature Breakdown                                          ║");
-    println!("╠══════════════════════════════════════════════════════════════╣");
+    println!("");
+    println!("  Feature Breakdown                                          ");
+    println!("");
 
     let mut sorted: Vec<_> = feature_stats.iter().collect();
     sorted.sort_by_key(|(k, _)| *k);
@@ -918,7 +920,7 @@ fn print_results(
             0.0
         };
         let filled = (fpct / 10.0) as usize;
-        let bar_raw = format!("{}{}", "█".repeat(filled), "░".repeat(10 - filled));
+        let bar_raw = format!("{}{}", "".repeat(filled), "".repeat(10 - filled));
         let bar = if fpct >= 80.0 {
             bar_raw.green().to_string()
         } else if fpct >= 50.0 {
@@ -926,25 +928,25 @@ fn print_results(
         } else {
             bar_raw.red().to_string()
         };
-        println!("║  {:<38} {} {}/{}", feature, bar, p, t);
+        println!("  {:<38} {} {}/{}", feature, bar, p, t);
     }
 
-    println!("╠══════════════════════════════════════════════════════════════╣");
+    println!("");
 
     let verdict = if pct >= 90.0 {
-        format!("  {} STABLE — ready for production", "✅".green())
+        format!("  {} STABLE  ready for production", "".green())
     } else if pct >= 70.0 {
         format!(
-            "  {} FUNCTIONAL — investigate failures before proceeding",
-            "⚠️".yellow()
+            "  {} FUNCTIONAL  investigate failures before proceeding",
+            "".yellow()
         )
     } else {
         format!(
-            "  {} UNSTABLE — fix issues before any new feature",
-            "❌".red()
+            "  {} UNSTABLE  fix issues before any new feature",
+            "".red()
         )
     };
 
-    println!("║  {}  ║", verdict);
-    println!("╚══════════════════════════════════════════════════════════════╝\n");
+    println!("  {}  ", verdict);
+    println!("\n");
 }

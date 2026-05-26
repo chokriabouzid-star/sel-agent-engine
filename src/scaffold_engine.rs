@@ -1,6 +1,6 @@
-// scaffold_engine.rs — v6.3
-// Phase 1: يُجهّز البيئة قبل LLM — حتمي 100%
-// Pipeline: ScaffoldEngine::prepare() → LLM::plan_logic_only() → Executor::run()
+// scaffold_engine.rs  v6.3
+// Phase 1:    LLM   100%
+// Pipeline: ScaffoldEngine::prepare()  LLM::plan_logic_only()  Executor::run()
 
 use crate::goal_parser;
 use std::path::Path;
@@ -18,11 +18,11 @@ pub enum ProjectKind {
 pub struct ScaffoldResult {
     pub kind: ProjectKind,
     pub ready: bool,
-    pub logic_hint: String, // يُرسَل للـ LLM بدلاً من تعليمات البيئة
+    pub logic_hint: String, //   LLM    
     pub files_created: Vec<String>,
 }
 
-// ─── Pinned Stacks ────────────────────────────────────────
+//  Pinned Stacks 
 const TS_JEST_DEPS: &str = "typescript@5.3.3 ts-jest@29.1.1 jest@29.7.0 @types/jest@29.5.11";
 
 const PACKAGE_JSON_TS: &str = r#"{
@@ -59,7 +59,7 @@ const TSCONFIG_JSON: &str = r#"{
   "exclude": ["node_modules", "dist"]
 }"#;
 
-// ─── نقطة الدخول ──────────────────────────────────────────
+//    
 pub async fn prepare(workspace: &Path, goal: &str, replay_mode: bool) -> ScaffoldResult {
     if replay_mode {
         return prepare_from_cache(workspace, goal).await;
@@ -143,7 +143,7 @@ async fn prepare_from_cache(workspace: &Path, goal: &str) -> ScaffoldResult {
 
                     if !missing_deps.is_empty() {
                         println!(
-                            "   📦 Cache hit: installing missing extra deps: {}",
+                            "    Cache hit: installing missing extra deps: {}",
                             missing_deps.join(", ")
                         );
                         let mut args = vec!["install", "--no-save"];
@@ -212,7 +212,7 @@ async fn prepare_from_cache(workspace: &Path, goal: &str) -> ScaffoldResult {
 
                     if !missing_deps.is_empty() {
                         println!(
-                            "   📦 Cache hit: installing missing extra deps: {}",
+                            "    Cache hit: installing missing extra deps: {}",
                             missing_deps.join(", ")
                         );
                         let mut pip_args = vec!["install", "-q"];
@@ -265,17 +265,17 @@ async fn prepare_from_cache(workspace: &Path, goal: &str) -> ScaffoldResult {
     }
 }
 
-// detect_kind moved to goal_parser.rs — v6.5
+// detect_kind moved to goal_parser.rs  v6.5
 
-// ─── Scaffold TypeScript ──────────────────────────────────
+//  Scaffold TypeScript 
 async fn scaffold_typescript(workspace: &Path, extra_deps: &[String]) -> ScaffoldResult {
     println!("   🏗  Scaffold: TypeScript environment");
     let mut created = vec![];
 
-    // 1) package.json — ثابت دائماً
+    // 1) package.json   
     let pkg_path = workspace.join("package.json");
     let pkg_content = if pkg_path.exists() {
-        // صحّح الموجود بدلاً من الكتابة فوقه
+        //      
         normalize_existing_package_json(&pkg_path)
     } else {
         PACKAGE_JSON_TS.to_string()
@@ -291,23 +291,23 @@ async fn scaffold_typescript(workspace: &Path, extra_deps: &[String]) -> Scaffol
         println!("   ✅ tsconfig.json ready");
         created.push("tsconfig.json".to_string());
     } else {
-        println!("   ⏭  tsconfig.json exists — skip");
+        println!("   ⏭  tsconfig.json exists  skip");
     }
 
-    // 3) احذف jest.config.js إذا وُجد (يسبب conflict)
+    // 3)  jest.config.js   ( conflict)
     let jest_cfg = workspace.join("jest.config.js");
     let jest_cfg_ts = workspace.join("jest.config.ts");
     for cfg in [&jest_cfg, &jest_cfg_ts] {
         if cfg.exists() {
             std::fs::remove_file(cfg).ok();
             println!(
-                "   🗑  Removed {:?} — config in package.json only",
+                "     Removed {:?}  config in package.json only",
                 cfg.file_name().unwrap_or_default()
             );
         }
     }
 
-    // 4) npm install بالـ pinned stack
+    // 4) npm install  pinned stack
     let node_modules = workspace.join("node_modules");
     if !node_modules.exists() {
         println!("   📦 Installing pinned TS stack...");
@@ -338,10 +338,10 @@ async fn scaffold_typescript(workspace: &Path, extra_deps: &[String]) -> Scaffol
             Ok(o) => {
                 let err = String::from_utf8_lossy(&o.stderr);
                 eprintln!(
-                    "   ❌ TypeScript Scaffold FATAL: npm install failed with status {}",
+                    "    TypeScript Scaffold FATAL: npm install failed with status {}",
                     o.status
                 );
-                eprintln!("   💡 Details: {}", &err[..err.len().min(200)]);
+                eprintln!("    Details: {}", &err[..err.len().min(200)]);
                 return ScaffoldResult {
                     kind: ProjectKind::TypeScript,
                     ready: false,
@@ -350,8 +350,8 @@ async fn scaffold_typescript(workspace: &Path, extra_deps: &[String]) -> Scaffol
                 };
             }
             Err(e) => {
-                eprintln!("   ❌ TypeScript Scaffold FATAL: npm install failed: {}", e);
-                eprintln!("   💡 Fix: ensure node/npm are installed and workspace is writable");
+                eprintln!("    TypeScript Scaffold FATAL: npm install failed: {}", e);
+                eprintln!("    Fix: ensure node/npm are installed and workspace is writable");
                 return ScaffoldResult {
                     kind: ProjectKind::TypeScript,
                     ready: false,
@@ -361,7 +361,7 @@ async fn scaffold_typescript(workspace: &Path, extra_deps: &[String]) -> Scaffol
             }
         }
     } else {
-        println!("   ⏭  node_modules exists — skip install");
+        println!("   ⏭  node_modules exists  skip install");
     }
 
     ScaffoldResult {
@@ -372,7 +372,7 @@ async fn scaffold_typescript(workspace: &Path, extra_deps: &[String]) -> Scaffol
     }
 }
 
-// ─── Scaffold Python ──────────────────────────────────────
+//  Scaffold Python 
 async fn scaffold_python(workspace: &Path, extra_deps: &[String]) -> ScaffoldResult {
     println!("   🏗  Scaffold: Python environment");
     let mut created = vec![];
@@ -391,7 +391,7 @@ async fn scaffold_python(workspace: &Path, extra_deps: &[String]) -> ScaffoldRes
             println!("   ✅ venv created");
             created.push("venv".to_string());
 
-            // 2) تثبيت pytest مباشرة بعد إنشاء venv (مع مكتبات البانش الشائعة لتجهيز الكاش الأوفلاين)
+            // 2)  pytest    venv (      )
             let pip_out = tokio::process::Command::new("venv/bin/pip")
                 .args([
                     "install",
@@ -415,10 +415,10 @@ async fn scaffold_python(workspace: &Path, extra_deps: &[String]) -> ScaffoldRes
                 Ok(o) => {
                     let err = String::from_utf8_lossy(&o.stderr);
                     eprintln!(
-                        "   ❌ Python Scaffold FATAL: pip install failed with status {}",
+                        "    Python Scaffold FATAL: pip install failed with status {}",
                         o.status
                     );
-                    eprintln!("   💡 Details: {}", &err[..err.len().min(200)]);
+                    eprintln!("    Details: {}", &err[..err.len().min(200)]);
                     return ScaffoldResult {
                         kind: ProjectKind::Python,
                         ready: false,
@@ -427,7 +427,7 @@ async fn scaffold_python(workspace: &Path, extra_deps: &[String]) -> ScaffoldRes
                     };
                 }
                 Err(e) => {
-                    eprintln!("   ❌ Python Scaffold FATAL: pip install failed: {}", e);
+                    eprintln!("    Python Scaffold FATAL: pip install failed: {}", e);
                     return ScaffoldResult {
                         kind: ProjectKind::Python,
                         ready: false,
@@ -437,7 +437,7 @@ async fn scaffold_python(workspace: &Path, extra_deps: &[String]) -> ScaffoldRes
                 }
             }
 
-            // تثبيت extra_deps من GoalParser
+            //  extra_deps  GoalParser
             if !extra_deps.is_empty() {
                 println!("   📦 Installing extra deps: {}", extra_deps.join(", "));
                 let mut pip_args = vec!["install", "-q"];
@@ -451,18 +451,18 @@ async fn scaffold_python(workspace: &Path, extra_deps: &[String]) -> ScaffoldRes
                 match pip_out2 {
                     Ok(o) if o.status.success() => println!("   ✅ Extra deps installed"),
                     Ok(o) => println!(
-                        "   ⚠️  Extra deps warning: {}",
+                        "     Extra deps warning: {}",
                         String::from_utf8_lossy(&o.stderr)
                             .chars()
                             .take(200)
                             .collect::<String>()
                     ),
-                    Err(e) => println!("   ⚠️  Extra deps failed: {}", e),
+                    Err(e) => println!("   ❌ Extra deps failed: {}", e),
                 }
             }
         }
     } else {
-        println!("   ⏭  venv exists — skip");
+        println!("   ⏭  venv exists  skip");
     }
 
     ScaffoldResult {
@@ -473,27 +473,27 @@ async fn scaffold_python(workspace: &Path, extra_deps: &[String]) -> ScaffoldRes
     }
 }
 
-// ─── تصحيح package.json الموجود ───────────────────────────
+//   package.json  
 fn normalize_existing_package_json(path: &Path) -> String {
     let src = std::fs::read_to_string(path).unwrap_or_default();
     if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&src) {
-        // أضف jest config داخل package.json
+        //  jest config  package.json
         v["jest"] = serde_json::json!({
             "preset": "ts-jest",
             "testEnvironment": "node",
             "testMatch": ["**/*.test.ts"]
         });
-        // صحّح scripts
+        //  scripts
         v["scripts"]["test"] = serde_json::json!("jest");
         v["scripts"]["build"] = serde_json::json!("tsc");
-        // صحّح devDependencies بالـ pinned stack
+        //  devDependencies  pinned stack
         v["devDependencies"] = serde_json::json!({
             "typescript": "5.3.3",
             "ts-jest": "29.1.1",
             "jest": "29.7.0",
             "@types/jest": "29.5.11"
         });
-        // احذف "type":"module" — يكسر jest
+        //  "type":"module"   jest
         if let Some(obj) = v.as_object_mut() {
             obj.remove("type");
         }
@@ -502,7 +502,7 @@ fn normalize_existing_package_json(path: &Path) -> String {
     PACKAGE_JSON_TS.to_string()
 }
 
-// ─── Logic Hints للـ LLM ──────────────────────────────────
+//  Logic Hints  LLM 
 fn build_ts_logic_hint(workspace: &Path) -> String {
     let files: Vec<String> = std::fs::read_dir(workspace)
         .map(|rd| {
@@ -520,14 +520,14 @@ fn build_ts_logic_hint(workspace: &Path) -> String {
     };
 
     format!(
-        "\n[SCAFFOLD READY — TypeScript]\n\
+        "\n[SCAFFOLD READY  TypeScript]\n\
         Environment is fully configured. Do NOT create or modify:\n\
         - package.json (ready with pinned deps + jest config)\n\
         - tsconfig.json (ready)\n\
-        - jest.config.js (not needed — config is in package.json)\n\
+        - jest.config.js (not needed  config is in package.json)\n\
         - node_modules (installed)\n\
         Your job: write ONLY .ts files (TypeScript). NEVER write .js files.\n\
-        Jest testMatch is: **/*.test.ts — .js files will NOT be found by Jest.\n\
+        Jest testMatch is: **/*.test.ts  .js files will NOT be found by Jest.\n\
         RULE: Every source file must end in .ts, every test file must end in .test.ts\n\
         Test command: npm test{}\n",
         existing
@@ -536,7 +536,7 @@ fn build_ts_logic_hint(workspace: &Path) -> String {
 
 fn build_py_logic_hint(workspace: &Path) -> String {
     format!(
-        "\n[SCAFFOLD READY — Python]\n\
+        "\n[SCAFFOLD READY  Python]\n\
         Environment is fully configured. Do NOT create venv or install pytest.\n\
         venv is at: {}/venv\n\
         pytest is installed and ready.\n\

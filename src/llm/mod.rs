@@ -34,7 +34,8 @@ pub struct LLMResponse {
     pub task_kind: String,
 }
 
-pub const SYSTEM_PROMPT: &str = r#"You are SEL Agent, an autonomous execution engine.
+pub fn get_system_prompt(bench_mode: bool) -> String {
+    let mut prompt = r#"You are SEL Agent, an autonomous execution engine.
 CRITICAL: Respond ONLY with a valid JSON object matching the schema below. No markdown text outside the JSON block.
 
 SCHEMA:
@@ -54,19 +55,32 @@ RULES:
 - TS/Node: run_tests target MUST be "npm test"
 - STRONG TESTS: Write comprehensive tests with both positive and negative cases.
 
-JSON SAFETY — MANDATORY:
+JSON SAFETY  MANDATORY:
 1. Use \n for newlines inside content strings, NEVER raw line breaks.
 2. Use \" for quotes inside content, NEVER unescaped quotes.
 3. NEVER put arrow functions (=>) inside JSON content strings.
 4. Keep each content value SHORT (< 200 chars per line).
 5. For complex files: split into multiple write_file commands.
 6. NEVER use raw template literals (`...`) inside JSON strings.
+"#.to_string();
 
-SPEC FILE PROTECTION — MANDATORY:
+    if bench_mode {
+        prompt.push_str(r#"
+SPEC FILE PROTECTION  MANDATORY:
 - NEVER modify existing test files (test_*.py, *_test.go, *.test.ts, *.spec.ts).
 - If tests fail, fix the SOURCE code, NOT the tests.
 - Creating NEW test files is allowed; modifying EXISTING ones is FORBIDDEN.
-"#;
+"#);
+    } else {
+        prompt.push_str(r#"
+SPEC FILE PROTECTION  RELAXED (RUN MODE):
+- You may augment existing test files with NEW test cases to cover edge cases.
+- NEVER delete or alter the logic of existing test cases.
+"#);
+    }
+
+    prompt
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct LlmCallStats {
@@ -92,12 +106,12 @@ pub trait LLMProvider: Send + Sync {
 
 pub fn classify_json_error(reason: &str) -> String {
     if reason.contains("No ```json") || reason.contains("json block") {
-        "⚠️  [النموذج] رد بنص بدل JSON — إعادة بـ prompt مبسط".to_string()
+        "  []    JSON    prompt ".to_string()
     } else if reason.contains("missing field") {
-        "⚠️  [النموذج] JSON ناقص حقل مطلوب".to_string()
+        "  [] JSON   ".to_string()
     } else {
         format!(
-            "⚠️  [النموذج] فشل تحليل JSON — {}",
+            "  []   JSON  {}",
             &reason[..reason.len().min(50)]
         )
     }
@@ -152,7 +166,7 @@ pub fn preflight_quota_check(task_count: usize, provider: &dyn LLMProvider) {
     
     // Estimate: 1 planning + 1 repair per task = 2 calls per task
     let total_estimated = task_count * 2;
-    println!("\n📊 [Quota] Preflight check:");
+    println!("\n 📊 [Quota] Preflight check:");
     println!("   Tasks:      {}", task_count);
     println!("   Est. Calls: {} (planning + avg repairs)", total_estimated);
     
@@ -181,11 +195,10 @@ pub fn preflight_quota_check(task_count: usize, provider: &dyn LLMProvider) {
         if total_estimated > 30 {
             println!("   ⚠️  HIGH LOAD: {} tasks may exhaust free-tier quotas quickly.", task_count);
         } else {
-            println!("   ✅ Load seems manageable for the configured providers.");
+            println!("    Load seems manageable for the configured providers.");
         }
         
         if remaining < total_estimated {
-            println!("   🚨 CRITICAL: Estimated remaining capacity is LESS than required calls! You might face exhaustion mid-run.");
         }
     }
 }

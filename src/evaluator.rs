@@ -1,4 +1,4 @@
-// evaluator.rs — v6.1 RAS + DTO
+// evaluator.rs  v6.1 RAS + DTO
 use std::cmp::Ordering;
 
 #[derive(Debug, Clone, Default)]
@@ -68,69 +68,69 @@ fn compute_efficiency(elapsed: u64, max_time: u64) -> f64 {
     if max_time == 0 {
         return 1.0;
     }
-    // إذا كان الفرق أقل من 20% → كلاهما متساويان عملياً
+    //      20%    
     let ratio = elapsed as f64 / max_time as f64;
     if ratio >= 0.80 {
-        // الأبطأ يحصل على 0.80 كحد أدنى معقول
-        let penalty = (ratio - 0.80) * 2.0; // penalty بطيء
+        //    0.80   
+        let penalty = (ratio - 0.80) * 2.0; // penalty 
         (1.0 - penalty).clamp(0.70, 1.0)
     } else {
-        // الأسرع يحصل على bonus
+        //    bonus
         (1.0 - ratio * 0.5).clamp(0.70, 1.0)
     }
 }
 
-// DTO — Deterministic Total Ordering (5 مستويات)
+// DTO  Deterministic Total Ordering (5 )
 pub fn rank_models(mut scores: Vec<ModelScore>) -> Vec<ModelScore> {
     scores.sort_by(|a, b| {
-        // UNSTABLE يخسر دائماً
+        // UNSTABLE  
         match (a.unstable, b.unstable) {
             (true, false) => return Ordering::Greater,
             (false, true) => return Ordering::Less,
             _ => {}
         }
-        // مستوى 1: correctness
+        //  1: correctness
         b.correctness
             .partial_cmp(&a.correctness)
             .unwrap_or(Ordering::Equal)
-            // مستوى 2: reliability
+            //  2: reliability
             .then_with(|| {
                 b.reliability
                     .partial_cmp(&a.reliability)
                     .unwrap_or(Ordering::Equal)
             })
-            // مستوى 3: efficiency
+            //  3: efficiency
             .then_with(|| {
                 b.efficiency
                     .partial_cmp(&a.efficiency)
                     .unwrap_or(Ordering::Equal)
             })
-            // مستوى 4: اسم النموذج
+            //  4:  
             .then_with(|| a.model.cmp(&b.model))
-            // مستوى 5: run_id
+            //  5: run_id
             .then_with(|| a.run_id.cmp(&b.run_id))
     });
     scores
 }
 
-// عرض جدول المقارنة
+//   
 pub fn print_comparison_table(scores: &[ModelScore]) {
-    println!("\n{}", "═".repeat(80));
-    println!("  Model Comparison — v6.1 Reliability-Aware Scoring");
-    println!("{}", "═".repeat(80));
+    println!("\n{}", "".repeat(80));
+    println!("  Model Comparison  v6.1 Reliability-Aware Scoring");
+    println!("{}", "".repeat(80));
     println!(
         "  {:<28} {:>8} {:>9} {:>9} {:>9}  Status",
         "Model", "Correct", "Reliable", "Effic.", "Composite"
     );
-    println!("{}", "─".repeat(80));
+    println!("{}", "".repeat(80));
 
     for (i, s) in scores.iter().enumerate() {
         let winner = if i == 0 && !s.unstable {
-            "✓ Winner"
+            " Winner"
         } else {
             ""
         };
-        let status = if s.unstable { "⚠ UNSTABLE" } else { winner };
+        let status = if s.unstable { " UNSTABLE" } else { winner };
         println!(
             "  {:<28} {:>7.2} {:>8.2} {:>9.2} {:>9.3}  {}",
             s.model, s.correctness, s.reliability, s.efficiency, s.composite, status
@@ -139,6 +139,6 @@ pub fn print_comparison_table(scores: &[ModelScore]) {
             "  {:<28} repairs:{} retries:{} conn_err:{} rate_lim:{}",
             "", s.raw.repairs, s.raw.retries, s.raw.connection_errors, s.raw.rate_limits
         );
-        println!("{}", "─".repeat(80));
+        println!("{}", "".repeat(80));
     }
 }

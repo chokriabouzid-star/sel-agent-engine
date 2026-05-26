@@ -72,22 +72,22 @@ impl EnvironmentCapabilities {
                 ));
                 if p.venv {
                     lines.push(format!(
-                        "- Use \"{} -m venv venv\" directly — venv module confirmed",
+                        "- Use \"{} -m venv venv\" directly  venv module confirmed",
                         p.cmd
                     ));
                 } else {
-                    lines.push("- venv NOT available — do not plan venv commands".to_string());
+                    lines.push("- venv NOT available  do not plan venv commands".to_string());
                 }
             }
             None => {
-                lines.push("- Python NOT available — do not plan any python commands".to_string())
+                lines.push("- Python NOT available  do not plan any python commands".to_string())
             }
         }
         if self.node.is_none() {
-            lines.push("- Node.js NOT available — do not plan npm/node commands".to_string());
+            lines.push("- Node.js NOT available  do not plan npm/node commands".to_string());
         }
         if self.go.is_none() {
-            lines.push("- Go NOT available — do not plan go commands".to_string());
+            lines.push("- Go NOT available  do not plan go commands".to_string());
         }
         lines.join("\n")
     }

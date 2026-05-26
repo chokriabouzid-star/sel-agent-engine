@@ -1,12 +1,12 @@
-// goal_parser.rs — v6.5
-// يحوّل goal النصي إلى ParsedGoal منظم
-// ScaffoldEngine يستخدمه بدلاً من string matching المتفرق
+// goal_parser.rs  v6.5
+//  goal   ParsedGoal 
+// ScaffoldEngine    string matching 
 
 use crate::scaffold_engine::ProjectKind;
 
-// ══════════════════════════════════════════════════════
-// SubKind — نوع المشروع الفرعي
-// ══════════════════════════════════════════════════════
+// 
+// SubKind    
+// 
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SubKind {
@@ -21,20 +21,20 @@ pub enum SubKind {
     Plain,
 }
 
-// ══════════════════════════════════════════════════════
-// ParsedGoal — ناتج التحليل
-// ══════════════════════════════════════════════════════
+// 
+// ParsedGoal   
+// 
 
 #[derive(Debug, Clone)]
 pub struct ParsedGoal {
     pub kind: ProjectKind,
     pub sub_kind: SubKind,
-    pub extra_deps: Vec<String>, // حزم إضافية للتثبيت في Scaffold
+    pub extra_deps: Vec<String>, //     Scaffold
 }
 
-// ══════════════════════════════════════════════════════
-// parse() — نقطة الدخول الوحيدة
-// ══════════════════════════════════════════════════════
+// 
+// parse()    
+// 
 
 pub fn parse(workspace: &std::path::Path, goal: &str) -> ParsedGoal {
     let kind = detect_kind(workspace, goal);
@@ -48,10 +48,10 @@ pub fn parse(workspace: &std::path::Path, goal: &str) -> ParsedGoal {
     }
 }
 
-// ─── اكتشاف ProjectKind ───────────────────────────────
+//   ProjectKind 
 
 fn detect_kind(workspace: &std::path::Path, goal: &str) -> ProjectKind {
-    // من ملفات موجودة أولاً
+    //    
     if workspace.join("Cargo.toml").exists() {
         return ProjectKind::Rust;
     }
@@ -65,7 +65,7 @@ fn detect_kind(workspace: &std::path::Path, goal: &str) -> ProjectKind {
         return ProjectKind::Python;
     }
 
-    // من الـ goal
+    //   goal
     let g = goal.to_lowercase();
     if g.contains("typescript")
         || g.contains(" ts ")
@@ -94,7 +94,7 @@ fn detect_kind(workspace: &std::path::Path, goal: &str) -> ProjectKind {
     ProjectKind::Unknown
 }
 
-// ─── اكتشاف SubKind ───────────────────────────────────
+//   SubKind 
 
 fn detect_sub_kind(kind: &ProjectKind, goal: &str) -> SubKind {
     let g = goal.to_lowercase();
@@ -123,7 +123,7 @@ fn detect_sub_kind(kind: &ProjectKind, goal: &str) -> SubKind {
     }
 }
 
-// ─── اكتشاف extra_deps ────────────────────────────────
+//   extra_deps 
 
 fn detect_extra_deps(kind: &ProjectKind, sub_kind: &SubKind, goal: &str) -> Vec<String> {
     let g = goal.to_lowercase();
@@ -144,7 +144,7 @@ fn detect_extra_deps(kind: &ProjectKind, sub_kind: &SubKind, goal: &str) -> Vec<
                 SubKind::FastAPI => {
                     deps.push("fastapi".into());
                     deps.push("uvicorn[standard]".into());
-                    deps.push("httpx".into()); // TestClient يحتاجه
+                    deps.push("httpx".into()); // TestClient 
                 }
                 SubKind::Flask => {
                     deps.push("flask".into());
@@ -154,7 +154,7 @@ fn detect_extra_deps(kind: &ProjectKind, sub_kind: &SubKind, goal: &str) -> Vec<
                     deps.push("pytest-django".into());
                 }
                 _ => {
-                    // اكتشاف إضافي من النص
+                    //    
                     if g.contains("requests") {
                         deps.push("requests".into());
                     }
@@ -187,9 +187,9 @@ fn detect_extra_deps(kind: &ProjectKind, sub_kind: &SubKind, goal: &str) -> Vec<
     deps
 }
 
-// ══════════════════════════════════════════════════════
+// 
 // Tests
-// ══════════════════════════════════════════════════════
+// 
 
 #[cfg(test)]
 mod tests {

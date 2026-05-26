@@ -8,7 +8,7 @@
         "003.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-11T18:15:39.593942557+00:00",
+      "recorded_at": "2026-05-13T23:24:42.958240544+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -31,34 +31,30 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-11T18:18:02.738569155+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-20T21:17:34.406904721+00:00",
+      "constitution_hash": "eb245bccd96278c5",
       "has_repairs": false,
       "language": "trajectories"
     },
     {
       "task_id": "wrong_logic",
       "files": [
-        "001.json",
-        "002.json",
-        "003.json"
+        "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-11T18:19:01.830925146+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-25T21:32:54.749719142+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
     {
       "task_id": "type_mismatch",
       "files": [
-        "001.json",
-        "002.json",
-        "003.json"
+        "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-11T18:19:57.491872521+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-20T21:18:25.348885560+00:00",
+      "constitution_hash": "eb245bccd96278c5",
       "has_repairs": false,
       "language": "trajectories"
     },
@@ -108,7 +104,7 @@
         "002.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-11T18:25:37.315795819+00:00",
+      "recorded_at": "2026-05-13T23:36:27.381519663+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -121,7 +117,7 @@
         "003.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-11T18:26:34.769940717+00:00",
+      "recorded_at": "2026-05-13T23:37:45.088766296+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -143,10 +139,11 @@
       "files": [
         "001.json",
         "002.json",
-        "003.json"
+        "003.json",
+        "004.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-11T18:30:46.480587374+00:00",
+      "recorded_at": "2026-05-13T23:42:48.550693635+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -154,42 +151,33 @@
     {
       "task_id": "go_add",
       "files": [
-        "001.json",
-        "002.json",
-        "003.json",
-        "004.json"
+        "001.json"
       ],
-      "interaction_count": 4,
-      "recorded_at": "2026-05-11T18:31:23.799087990+00:00",
+      "interaction_count": 1,
+      "recorded_at": "2026-05-17T17:31:14.031019816+00:00",
       "constitution_hash": "263b0ff719b27441",
-      "has_repairs": true,
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
       "task_id": "go_fizzbuzz",
       "files": [
         "001.json",
-        "002.json",
-        "003.json"
+        "002.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-11T18:33:25.369395233+00:00",
+      "interaction_count": 2,
+      "recorded_at": "2026-05-17T17:31:33.261276254+00:00",
       "constitution_hash": "263b0ff719b27441",
-      "has_repairs": false,
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
       "task_id": "go_reverse",
       "files": [
-        "001.json",
-        "002.json",
-        "003.json",
-        "004.json",
-        "005.json",
-        "006.json"
+        "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-11T18:33:51.344481879+00:00",
+      "recorded_at": "2026-05-17T17:31:45.494796389+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -197,28 +185,21 @@
     {
       "task_id": "go_divide",
       "files": [
-        "001.json",
-        "002.json",
-        "003.json",
-        "004.json",
-        "005.json",
-        "006.json",
-        "007.json"
+        "001.json"
       ],
-      "interaction_count": 3,
-      "recorded_at": "2026-05-11T18:34:29.429555668+00:00",
-      "constitution_hash": "263b0ff719b27441",
-      "has_repairs": true,
+      "interaction_count": 1,
+      "recorded_at": "2026-05-20T21:21:39.039332863+00:00",
+      "constitution_hash": "eb245bccd96278c5",
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
       "task_id": "node_add",
       "files": [
-        "001.json",
-        "002.json"
+        "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-10T23:03:19.297231721+00:00",
+      "recorded_at": "2026-05-14T22:44:24.260985578+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -230,7 +211,7 @@
         "002.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-10T23:04:05.222554389+00:00",
+      "recorded_at": "2026-05-13T22:22:43.533820897+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -238,12 +219,10 @@
     {
       "task_id": "node_factorial",
       "files": [
-        "001.json",
-        "002.json",
-        "003.json"
+        "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-10T23:04:45.307003975+00:00",
+      "recorded_at": "2026-05-14T22:45:35.785245027+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -251,11 +230,10 @@
     {
       "task_id": "node_filter",
       "files": [
-        "001.json",
-        "002.json"
+        "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-10T23:05:38.680197339+00:00",
+      "recorded_at": "2026-05-14T22:46:34.724153318+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -267,7 +245,7 @@
         "002.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-10T23:06:55.439761673+00:00",
+      "recorded_at": "2026-05-13T22:26:34.627810198+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -279,7 +257,7 @@
         "002.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-10T23:08:49.557947018+00:00",
+      "recorded_at": "2026-05-13T22:27:45.100880078+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -287,11 +265,10 @@
     {
       "task_id": "ts_factorial",
       "files": [
-        "001.json",
-        "002.json"
+        "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-10T23:09:34.027529205+00:00",
+      "recorded_at": "2026-05-14T22:48:29.419281404+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -299,11 +276,10 @@
     {
       "task_id": "ts_stack",
       "files": [
-        "001.json",
-        "002.json"
+        "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-10T23:10:31.281329088+00:00",
+      "recorded_at": "2026-05-14T22:50:08.464189035+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -316,7 +292,7 @@
         "003.json"
       ],
       "interaction_count": 3,
-      "recorded_at": "2026-05-10T23:11:55.775085214+00:00",
+      "recorded_at": "2026-05-17T18:24:15.652340437+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": true,
       "language": "trajectories"
@@ -327,7 +303,7 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-10T23:12:03.402799636+00:00",
+      "recorded_at": "2026-05-17T17:40:17.114748327+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -335,14 +311,12 @@
     {
       "task_id": "rust_reverse",
       "files": [
-        "001.json",
-        "002.json",
-        "003.json"
+        "001.json"
       ],
-      "interaction_count": 3,
-      "recorded_at": "2026-05-10T23:12:27.409524+00:00",
+      "interaction_count": 1,
+      "recorded_at": "2026-05-17T17:40:36.968159491+00:00",
       "constitution_hash": "263b0ff719b27441",
-      "has_repairs": true,
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
@@ -352,7 +326,7 @@
         "002.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-10T23:12:46.048140183+00:00",
+      "recorded_at": "2026-05-13T22:31:31.485009534+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -363,7 +337,7 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-10T23:13:28.184846091+00:00",
+      "recorded_at": "2026-05-17T12:43:20.878505753+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -371,12 +345,13 @@
     {
       "task_id": "fastapi_route",
       "files": [
-        "001.json"
+        "001.json",
+        "002.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-10T23:15:45.702882947+00:00",
+      "interaction_count": 2,
+      "recorded_at": "2026-05-17T12:49:29.913363686+00:00",
       "constitution_hash": "263b0ff719b27441",
-      "has_repairs": false,
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -387,7 +362,7 @@
         "003.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-10T23:16:52.894282011+00:00",
+      "recorded_at": "2026-05-13T22:35:21.056332475+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -400,7 +375,7 @@
         "003.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-10T23:17:32.142363323+00:00",
+      "recorded_at": "2026-05-13T22:36:04.650187323+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -413,10 +388,10 @@
         "003.json",
         "004.json"
       ],
-      "interaction_count": 3,
-      "recorded_at": "2026-05-10T23:18:31.970935616+00:00",
+      "interaction_count": 1,
+      "recorded_at": "2026-05-13T22:57:09.342126940+00:00",
       "constitution_hash": "263b0ff719b27441",
-      "has_repairs": true,
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
@@ -425,21 +400,19 @@
         "001.json",
         "002.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-10T21:08:45.825177605+00:00",
-      "constitution_hash": "263b0ff719b27441",
-      "has_repairs": false,
+      "interaction_count": 2,
+      "recorded_at": "2026-05-20T21:27:58.990052248+00:00",
+      "constitution_hash": "eb245bccd96278c5",
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
       "task_id": "v7_rust_quotes",
       "files": [
-        "001.json",
-        "002.json",
-        "003.json"
+        "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-10T21:09:11.762982715+00:00",
+      "recorded_at": "2026-05-17T17:42:49.685553038+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
       "language": "trajectories"
@@ -447,11 +420,12 @@
     {
       "task_id": "compile-check_python",
       "files": [
-        "001.json"
+        "001.json",
+        "002.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-11T16:36:22.540324332+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-26T10:01:42.014760112+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
@@ -467,10 +441,10 @@
         "007.json",
         "008.json"
       ],
-      "interaction_count": 8,
-      "recorded_at": "2026-05-11T16:38:00.925265404+00:00",
-      "constitution_hash": "263b0ff719b27441",
-      "has_repairs": true,
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T10:02:04.530786610+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
@@ -479,10 +453,10 @@
         "001.json",
         "002.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-05-06T23:34:30.602581408+00:00",
-      "constitution_hash": "4525836e4f0338a5",
-      "has_repairs": true,
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T10:02:23.713147406+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
@@ -492,10 +466,10 @@
         "002.json",
         "003.json"
       ],
-      "interaction_count": 3,
-      "recorded_at": "2026-05-07T00:44:35.188820203+00:00",
-      "constitution_hash": "4525836e4f0338a5",
-      "has_repairs": true,
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T10:03:03.046780993+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
@@ -504,10 +478,10 @@
         "001.json",
         "002.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-05-07T00:45:21.979226837+00:00",
-      "constitution_hash": "4525836e4f0338a5",
-      "has_repairs": true,
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T10:03:33.682353903+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
@@ -517,12 +491,14 @@
         "002.json",
         "003.json",
         "004.json",
-        "005.json"
+        "005.json",
+        "006.json",
+        "007.json"
       ],
-      "interaction_count": 5,
-      "recorded_at": "2026-05-07T01:12:54.809589998+00:00",
-      "constitution_hash": "4525836e4f0338a5",
-      "has_repairs": true,
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T10:04:49.524334593+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
@@ -531,9 +507,747 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-10T21:10:24.011390854+00:00",
+      "recorded_at": "2026-05-12T22:46:48.921612977+00:00",
       "constitution_hash": "263b0ff719b27441",
       "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "inverted_logic",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-13T23:28:56.615616030+00:00",
+      "constitution_hash": "263b0ff719b27441",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "recursion_bug",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-20T21:19:08.759400764+00:00",
+      "constitution_hash": "eb245bccd96278c5",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "name_typo",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-20T21:20:46.940981921+00:00",
+      "constitution_hash": "eb245bccd96278c5",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "wrong_function",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-13T23:33:05.970571172+00:00",
+      "constitution_hash": "263b0ff719b27441",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "missing_method",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-13T23:40:59.387354659+00:00",
+      "constitution_hash": "263b0ff719b27441",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "quickfix_go_strings_package",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T10:05:10.782399894+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "bugfix_rust_wrong_operator",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T10:05:32.059198731+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "bugfix_go_wrong_return",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T10:05:49.206252543+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "bugfix_python_off-by-one",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T10:06:07.555302128+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "real_python_cli_wordcount",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T10:07:35.352281421+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "real_go_grep-lite",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-26T10:08:05.653554541+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "real_typescript_validator",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T10:10:34.079884956+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "real_rust_calculator_library",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-16T21:33:32.364429421+00:00",
+      "constitution_hash": "263b0ff719b27441",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "fix_all_bugs_in_pricingpy_calc_1778883535",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
+      ],
+      "interaction_count": 6,
+      "recorded_at": "2026-05-15T22:19:19.355213184+00:00",
+      "constitution_hash": "263b0ff719b27441",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "run_fix_this_broken_binary_search_",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-22T21:03:31.525923706+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "run_create_a_temperature_class_in_",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-22T21:05:27.035473301+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "run_create_a_simple_go_worker_pool",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json",
+        "007.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-22T21:05:46.462758862+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "run_create_a_generic_stack_in_go_u",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-22T21:07:11.443413882+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "run_create_typescript_utility_func",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-22T21:08:36.048794403+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "run_create_a_typescript_function_r",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json",
+        "007.json",
+        "008.json",
+        "009.json",
+        "010.json"
+      ],
+      "interaction_count": 6,
+      "recorded_at": "2026-05-22T21:12:31.438202843+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "run_create_a_simple_csv_line_parse",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-22T21:13:25.578480309+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "run_create_a_fibonacci_calculator_",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-22T21:13:47.833194331+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "run_write_a_typescript_client_in_a",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-22T21:16:07.933369218+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "run_write_a_go_struct_safecounter_",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-22T21:17:26.751656852+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "run_write_a_python_user_dataclass_",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-22T21:18:59.696124100+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "run_implement_the_stdfmtdisplay_tr",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-22T21:19:15.567542661+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_py_02",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-25T22:12:30.157290210+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_py_01",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-25T22:11:45.622364495+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_py_03",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-25T22:14:19.692667090+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_py_04",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-25T22:15:10.502326851+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_ts_01",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json",
+        "007.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-25T22:57:00.659737264+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_ts_02",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-25T23:10:04.651592439+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_ts_03",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-25T23:11:49.754207862+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_ts_04",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-25T23:12:41.578655193+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_ts_05",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-25T23:13:31.736129370+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_ts_06",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json"
+      ],
+      "interaction_count": 4,
+      "recorded_at": "2026-05-25T23:14:39.340706045+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_py_05",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-25T22:15:49.212995715+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_py_06",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-25T22:16:37.855069486+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_py_07",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-25T22:18:16.064420802+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_py_08",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
+      ],
+      "interaction_count": 5,
+      "recorded_at": "2026-05-25T22:19:58.928932402+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_py_09",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-25T22:21:33.273196882+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_py_10",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-25T22:22:23.647254117+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_go_01",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-25T22:23:09.511677918+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_go_02",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 3,
+      "recorded_at": "2026-05-25T22:23:47.533220103+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_go_03",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json"
+      ],
+      "interaction_count": 4,
+      "recorded_at": "2026-05-25T22:24:55.835269102+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_go_04",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-25T22:25:30.182973125+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_go_05",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
+      ],
+      "interaction_count": 3,
+      "recorded_at": "2026-05-25T22:26:27.180900220+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_go_06",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-25T22:27:08.819856987+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_go_07",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-25T22:27:29.838531614+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_rs_01",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-25T22:27:48.996478488+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_rs_02",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-25T22:29:09.049315167+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_rs_03",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-25T22:29:28.866510977+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_rs_04",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
+      ],
+      "interaction_count": 6,
+      "recorded_at": "2026-05-25T22:30:23.830791029+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_rs_05",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-25T22:30:53.027181626+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_rs_06",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-25T22:31:19.276704725+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "swe_rs_07",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-25T22:34:02.347544794+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
       "language": "trajectories"
     }
   ]

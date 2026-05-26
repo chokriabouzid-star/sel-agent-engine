@@ -1,4 +1,4 @@
-// src/memory.rs — v7.2.0: Error Fingerprinting
+// src/memory.rs  v7.2.0: Error Fingerprinting
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -19,12 +19,12 @@ pub struct FailureMemory {
     pub entries: Vec<MemoryEntry>,
 }
 
-/// تطبيع نص الخطأ — يجرّد التفاصيل المتغيرة
+///       
 pub fn normalize_error(error: &str) -> String {
     let first_line = error.lines().next().unwrap_or(error);
     let s = first_line.to_lowercase();
 
-    // استبدل أرقام بـ N
+    //    N
     let mut out = String::new();
     let mut in_num = false;
     for c in s.chars() {
@@ -35,7 +35,7 @@ pub fn normalize_error(error: &str) -> String {
             }
         } else {
             in_num = false;
-            // استبدل single quotes بـ Q
+            //  single quotes  Q
             if c == '\'' || c == '`' {
                 out.push('Q');
             } else {
@@ -47,14 +47,14 @@ pub fn normalize_error(error: &str) -> String {
     out.trim().to_string()
 }
 
-/// تجزئة FNV للنص المطبَّع
+///  FNV  
 pub fn hash_normalized(s: &str) -> u64 {
     s.bytes().fold(0xcbf29ce484222325u64, |acc, b| {
         acc.wrapping_mul(0x100000001b3).wrapping_add(b as u64)
     })
 }
 
-// ─── QuickFix ────────────────────────────────────────────────────────────────
+//  QuickFix 
 
 #[derive(Debug, Clone)]
 pub enum QuickFix {
@@ -62,7 +62,7 @@ pub enum QuickFix {
     AddGoImport { symbol: String },
 }
 
-/// إصلاح فوري بدون LLM
+///    LLM
 pub fn quick_fix(error: &str) -> Option<QuickFix> {
     let lower = error.to_lowercase();
 
@@ -130,7 +130,7 @@ fn extract_go_undefined(error: &str) -> Option<String> {
     None
 }
 
-// ─── FailureMemory ───────────────────────────────────────────────────────────
+//  FailureMemory 
 
 fn memory_path() -> PathBuf {
     if let Ok(home) = std::env::var("HOME") {
@@ -165,7 +165,7 @@ impl FailureMemory {
         }
     }
 
-    /// حفظ repair ناجح — يستخدم normalized_hash للتجميع
+    ///  repair    normalized_hash 
     pub fn record_success(&mut self, failure_kind: &str, error_sig: &str, fix_summary: &str) {
         let normalized = normalize_error(error_sig);
         let hash = hash_normalized(&normalized);
@@ -192,7 +192,7 @@ impl FailureMemory {
         self.save();
     }
 
-    /// جلب hints بالـ normalized_hash
+    ///  hints  normalized_hash
     pub fn get_hints(&self, failure_kind: &str, error_sig: &str) -> String {
         let hash = hash_normalized(&normalize_error(error_sig));
 

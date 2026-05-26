@@ -1,4 +1,4 @@
-// src/agent.rs — v1.3: State Machine
+// src/agent.rs  v1.3: State Machine
 
 use crate::{
     executor::SafeExecutor,
@@ -132,32 +132,33 @@ impl Agent {
         }
     }
 
-    // ══════════════════════════════════════════════════════════
+    // 
     // All planning, execution, and repair logic delegated to
     // state_handlers.rs (v7.6 refactor)
-    // ══════════════════════════════════════════════════════════
+    // 
 
-    // ══════════════════════════════════════════════════════════
+    // 
 
     pub async fn run(&mut self) -> Result<()> {
         self.ctx.start_time = Some(std::time::Instant::now());
+        self.ctx.bench_mode = self.bench_mode; // v8.1: Sync bench mode to context
 
         // v7.6.1: Activate replay mode on executor to prevent internet access
         if self.llm.mode() == "replay" {
             self.executor.replay_mode = true;
-            eprintln!("[TRACE] Replay mode ON — network operations disabled in executor");
+            eprintln!("[TRACE] Replay mode ON  network operations disabled in executor");
         }
 
         self.send_event("start", None, None, None, None);
-        // v5.8.1: امسح الـ cache في بداية كل run — كل جلسة تبدأ نظيفة
+        // v5.8.1:   cache    run     
         let ws = self.executor.workspace.clone();
         let cache_path = ws.join(".sel_hashes");
         if cache_path.exists() {
             let _ = std::fs::remove_file(&cache_path);
-            println!("   🗑  Cache cleared — fresh start");
+            println!("     Cache cleared  fresh start");
         }
 
-        // v6.3: ScaffoldEngine — يُجهّز البيئة قبل LLM
+        // v6.3: ScaffoldEngine     LLM
         let scaffold =
             crate::scaffold_engine::prepare(&ws, &self.goal, self.llm.mode() == "replay").await;
         if scaffold.ready {
@@ -175,15 +176,55 @@ impl Agent {
             }
         }
 
-        // v7.9.10: Initial snapshot AFTER scaffold — so bugfix scaffold files
+        // v7.9.10: Initial snapshot AFTER scaffold  so bugfix scaffold files
         // are committed to git baseline and survive the stash cycle.
         // Previously this was BEFORE scaffold_engine, which stashed away
         // the scaffold_files written by the bench runner.
+        // v8.1: Preflight Workspace Scan before taking the initial snapshot
+        let mut has_tests = false;
+        for entry in walkdir::WalkDir::new(&ws).into_iter().filter_map(|e| e.ok()) {
+            if entry.file_type().is_file() {
+                let name = entry.file_name().to_string_lossy();
+                if name.starts_with("test_") || name.ends_with("_test.go") || name.ends_with(".test.ts") || name.ends_with(".spec.ts") || name.ends_with("test.py") || name.ends_with("test.rs") {
+                    has_tests = true;
+                    break;
+                }
+                if name.ends_with(".rs") {
+                    if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                        if content.contains("#[test]") || content.contains("#[cfg(test)]") {
+                            has_tests = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if !has_tests {
+            // In bench_mode, benchmarks orchestrate tests on their own
+            if self.bench_mode {
+                // Do not enforce preflight checks
+            } else {
+                let is_creation_task = [
+                    "create a", "create the",
+                    "implement a", "implement the",
+                    "write a", "write the",
+                    "build a", "build the",
+                ].iter().any(|s| self.goal.to_lowercase().contains(s));
+
+                if !is_creation_task {
+                    eprintln!("\u{26a0}\u{fe0f}  No test files found in workspace  agent cannot verify fixes");
+                    // We removed the bench_mode Err return here since bench_mode skips this entirely
+                } else {
+                    println!("   \u{2139}\u{fe0f}  Creation task  no pre-existing tests required. Proceeding...");
+                }
+            }
+        }
+
         {
             let _ = std::process::Command::new("git").arg("add").arg(".")
                 .current_dir(&ws).output();
             let _ = std::process::Command::new("git")
-                .args(&["commit", "-m", "scaffold_baseline", "--allow-empty"])
+                .args(["commit", "-m", "scaffold_baseline", "--allow-empty"])
                 .current_dir(&ws).output();
         }
         self.initial_snapshot = Some(crate::snapshot::Snapshot::take(&ws));
@@ -253,23 +294,23 @@ impl Agent {
                 }
                 AgentState::WaitingForUserInput(msg) => {
                     // v8.0: In bench mode, skip EXPLAIN MODE immediately using env var or struct field
-                    if self.bench_mode || std::env::var("SEL_BENCH_MODE").is_ok() || !std::io::stdin().is_terminal() {
-                        println!("   ⏭  [Bench] Repairs exhausted — marking failed (skip EXPLAIN MODE)");
+                    if self.bench_mode || std::env::var("SEL_BENCH_MODE").is_ok() || !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+                        println!("     [Bench] Repairs exhausted  marking failed (skip EXPLAIN MODE)");
                         self.state = AgentState::Failed("max_repairs_bench".into());
                         continue;
                     }
 
-                    println!("\n⏸  [EXPLAIN MODE] Agent is stuck and needs help!");
+                    println!("\n  [EXPLAIN MODE] Agent is stuck and needs help!");
                     println!("{}", msg);
 
-                    println!("\n💡 Type a hint to guide the agent, or type 'abort' to fail:");
+                    println!("\n Type a hint to guide the agent, or type 'abort' to fail:");
                     use std::io::Write;
                     print!("> ");
                     std::io::stdout().flush().unwrap();
 
                     let mut input = String::new();
                     if let Err(e) = std::io::stdin().read_line(&mut input) {
-                        println!("   ❌ Input read error: {}", e);
+                        println!("    Input read error: {}", e);
                         self.state = AgentState::Failed("Aborted due to input error".to_string());
                         continue;
                     }
@@ -290,7 +331,7 @@ impl Agent {
                         self.ctx.repair_attempts = self.ctx.max_repairs;
                         self.ctx.max_repairs += 1;
                         self.state = AgentState::Repairing;
-                        println!("   🔄 Resuming repair with your hint...");
+                        println!("    Resuming repair with your hint...");
                     }
                 }
 
@@ -318,7 +359,7 @@ impl Agent {
                     return Ok(());
                 }
                 AgentState::Failed(reason) => {
-                    println!("\n❌ Agent failed: {}", reason);
+                    println!("\n Agent failed: {}", reason);
                     println!("SEL_FAILED: {}", reason.lines().next().unwrap_or("unknown"));
                     if let Some(mut snap) = self.initial_snapshot.take() {
                         snap.rollback();

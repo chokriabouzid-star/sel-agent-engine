@@ -1,5 +1,5 @@
-// src/failure.rs — v1.0: Failure Classification
-// منطق تصنيف الأخطاء واتخاذ قرار الإصلاح
+// src/failure.rs  v1.0: Failure Classification
+//      
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FailureKind {
@@ -74,7 +74,7 @@ impl FailureKind {
         if s.contains("SyntaxError") || s.contains("was never closed") {
             return Self::SyntaxError;
         }
-        // v7.5.1: NameError (standalone) — missing import or undefined name
+        // v7.5.1: NameError (standalone)  missing import or undefined name
         if s.contains("NameError") && s.contains("is not defined") {
             return Self::ImportError;
         }

@@ -1,5 +1,5 @@
-// src/bench_compile.rs — SEL Bench Compile Suite v1.1
-// إصلاحات: operator precedence, content verification, mutation requirement
+// src/bench_compile.rs  SEL Bench Compile Suite v1.1
+// : operator precedence, content verification, mutation requirement
 
 use std::path::Path;
 
@@ -48,28 +48,26 @@ pub fn check_result(
         notes: Vec::new(),
     };
 
-    // فحص عام: لم ينشئ ملفات من لغة خاطئة
+    //  :      
     match name {
-        n if n.starts_with("go_") => {
-            if path_exists(ws, "*.py") || path_exists(ws, "test_*.py") {
+        n if n.starts_with("go_")
+            && (path_exists(ws, "*.py") || path_exists(ws, "test_*.py")) => {
                 result.created_wrong_files = true;
                 result.passed = false;
                 result.notes.push("created .py files in Go project".into());
             }
-        }
-        n if n.starts_with("python_") => {
-            if path_exists(ws, "*.go") {
+        n if n.starts_with("python_")
+            && path_exists(ws, "*.go") => {
                 result.created_wrong_files = true;
                 result.passed = false;
                 result
                     .notes
                     .push("created .go files in Python project".into());
             }
-        }
         _ => {}
     }
 
-    // فحص خاص لكل حالة — يقرأ الملف النهائي ويتحقق
+    //         
     match name {
         "go_undefined_import" => {
             if repairs > 1 {
@@ -100,7 +98,7 @@ pub fn check_result(
                 result.passed = false;
                 result.notes.push("created unexpected files".into());
             }
-            // تحقق أن main.go لم يتغير (الخطأ في test فقط)
+            //   main.go   (  test )
             if let Ok(content) = std::fs::read_to_string(ws.join("main.go")) {
                 if !content.contains("func Reverse(s string) string") {
                     result.passed = false;
@@ -112,7 +110,7 @@ pub fn check_result(
         "go_wrong_logic" => {
             match std::fs::read_to_string(ws.join("main.go")) {
                 Ok(content) => {
-                    // Add يجب أن يكون a + b
+                    // Add    a + b
                     let has_correct_add = content.contains("a + b")
                         && content.lines().any(|l| {
                             l.contains("Add") && l.contains("func")
@@ -121,10 +119,10 @@ pub fn check_result(
                                     && !l.contains("Multiply"))
                         });
 
-                    // Multiply يجب أن يكون a * b
+                    // Multiply    a * b
                     let has_correct_multiply = content.contains("a * b");
 
-                    // لا يزال فيه الأخطاء القديمة؟
+                    //     
                     let still_has_subtract = content.lines().any(|l| l.contains("a - b"));
 
                     if still_has_subtract {
@@ -136,7 +134,7 @@ pub fn check_result(
                         result.notes.push("Multiply not fixed to a * b".into());
                     }
                     if !has_correct_add && !still_has_subtract {
-                        // تحقق إضافي
+                        //  
                         result.notes.push("Add implementation unclear".into());
                     }
                 }
@@ -145,10 +143,10 @@ pub fn check_result(
                     result.notes.push("main.go not found".into());
                 }
             }
-            // mutation مطلوب
+            // mutation 
             if mutation < 0.0 {
                 result.notes.push("mutation not measured".into());
-                // لا نفشّله لهذا — لكن نسجل
+                //      
             } else if mutation < 1.0 {
                 result.mutation_ok = false;
                 result.passed = false;
@@ -169,13 +167,13 @@ pub fn check_result(
 
         "python_wrong_logic" => {
             if let Ok(content) = std::fs::read_to_string(ws.join("calculator.py")) {
-                // divide يجب أن يستخدم / أو //
+                // divide    /  //
                 let has_divide_op = content.lines().any(|l| {
                     l.contains("return")
                         && (l.contains("a / b") || l.contains("a // b"))
                         && !l.contains("a * b")
                 });
-                // power يجب أن يستخدم **
+                // power    **
                 let has_power_op = content.contains("**");
 
                 if !has_divide_op {
@@ -200,7 +198,7 @@ pub fn check_result(
                     result.notes.push("not importing from models".into());
                 }
             }
-            // models.py يجب أن لا يتغير
+            // models.py    
             if let Ok(content) = std::fs::read_to_string(ws.join("models.py")) {
                 if !content.contains("class User:") {
                     result.passed = false;
@@ -216,7 +214,7 @@ pub fn check_result(
                 result.passed = false;
                 result.notes.push(format!("too many repairs: {}", repairs));
             }
-            // تحقق أن Fibonacci صالحة
+            //   Fibonacci 
             if let Ok(content) = std::fs::read_to_string(ws.join("main.go")) {
                 let open_braces = content.matches('{').count();
                 let close_braces = content.matches('}').count();
@@ -233,7 +231,7 @@ pub fn check_result(
                 result.notes.push(format!("too many repairs: {}", repairs));
             }
             if let Ok(content) = std::fs::read_to_string(ws.join("processor.py")) {
-                // لا syntax errors
+                //  syntax errors
                 if content.contains("== 0\n") && !content.contains("== 0:") {
                     result.passed = false;
                     result.notes.push("missing colon after if".into());
@@ -248,7 +246,7 @@ pub fn check_result(
         _ => {}
     }
 
-    // إذا لا ملاحظات والنتيجة ناجحة
+    //     
     if result.notes.is_empty() && result.passed {
         result.notes.push("ok".into());
     }
@@ -268,7 +266,7 @@ pub fn all_cases() -> Vec<CompileCase> {
         CompileCase {
             name: "go_unescaped_quotes",
             lang: "go",
-            goal: "Fix the test file main_test.go — it has unescaped quotes in the Errorf call. Fix ONLY the test file. Do NOT create new files. Run go test.",
+            goal: "Fix the test file main_test.go  it has unescaped quotes in the Errorf call. Fix ONLY the test file. Do NOT create new files. Run go test.",
             max_repairs: 3,
             require_mutation: false,
         },
@@ -317,9 +315,9 @@ pub fn all_cases() -> Vec<CompileCase> {
     ]
 }
 
-// ══════════════════════════════════════════════════════
+// 
 // Setup functions
-// ══════════════════════════════════════════════════════
+// 
 
 fn setup_go_undefined_import(ws: &Path) {
     let _ = std::fs::write(

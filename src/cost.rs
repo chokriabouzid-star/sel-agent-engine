@@ -12,6 +12,12 @@ pub struct ProviderUsage {
 
 pub struct CostTracker {}
 
+impl Default for CostTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CostTracker {
     pub fn new() -> Self {
         Self {}
@@ -41,10 +47,10 @@ pub fn print_session_summary() {
     let stats = stats_mutex.lock().unwrap();
     if stats.is_empty() { return; }
 
-    println!("\n💸 Session Summary:");
-    println!("   ┌──────────────┬───────┬──────────┬──────────┐");
-    println!("   │ Provider     │ Calls │ Tokens   │ Est.$    │");
-    println!("   ├──────────────┼───────┼──────────┼──────────┤");
+    println!("\n Session Summary:");
+    println!("   ");
+    println!("    Provider      Calls  Tokens    Est.$    ");
+    println!("   ");
 
     let mut total_calls = 0;
     let mut total_tokens = 0;
@@ -56,14 +62,14 @@ pub fn print_session_summary() {
     for (p, u) in sorted_stats {
         let tokens = u.tokens_in + u.tokens_out;
         let cost = estimate_usd(p, u.tokens_in, u.tokens_out);
-        println!("   │ {:<12} │ {:>5} │ {:>8} │ ${:<8.3} │", truncate(p, 12), u.calls, tokens, cost);
+        println!("    {:<12}  {:>5}  {:>8}  ${:<8.3} ", truncate(p, 12), u.calls, tokens, cost);
         total_calls += u.calls;
         total_tokens += tokens;
         total_cost += cost;
     }
-    println!("   ├──────────────┼───────┼──────────┼──────────┤");
-    println!("   │ {:<12} │ {:>5} │ {:>8} │ ${:<8.3} │", "Total", total_calls, total_tokens, total_cost);
-    println!("   └──────────────┴───────┴──────────┴──────────┘");
+    println!("   ");
+    println!("    {:<12}  {:>5}  {:>8}  ${:<8.3} ", "Total", total_calls, total_tokens, total_cost);
+    println!("   ");
 }
 
 fn truncate(s: &str, max_chars: usize) -> String {

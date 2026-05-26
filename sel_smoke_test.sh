@@ -6,8 +6,10 @@
 # ============================================================
 
 set -euo pipefail
+export SEL_BENCH_MODE=1
 
 SEL="${1:-./target/debug/sel-agent}"
+EXTRA_ARGS="${@:2}"
 PASS=0
 FAIL=0
 SKIP=0
@@ -39,6 +41,7 @@ run_case() {
         --workspace "$workspace" \
         --goal "$goal" \
         --max-repairs 3 \
+        $EXTRA_ARGS \
         2>&1) || exit_code=$?
 
     rm -rf "$workspace"
@@ -129,7 +132,7 @@ run_case "smoke_ts_retry" "typescript" \
 that retries a failing async function up to N times with delay between attempts. \
 Write retry.ts with the implementation and retry.test.ts that tests: \
 succeeds on first try, succeeds after 2 failures, fails after max attempts. \
-Use jest.useFakeTimers() to avoid real delays in tests."
+Use jest.useFakeTimers() to avoid real delays in tests. IMPORTANT Jest rule: When using fake timers, always use await jest.advanceTimersByTimeAsync(ms) instead of advanceTimersByTime to ensure microtasks resolve correctly."
 
 # ── 7. Rust: CSV parser بسيط ─────────────────────────────────────
 run_case "smoke_rust_csv" "rust" \

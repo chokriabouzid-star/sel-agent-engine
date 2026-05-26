@@ -8,19 +8,40 @@ pub struct KeyPool {
 impl KeyPool {
     pub fn from_env(prefix: &str) -> Self {
         let mut keys = Vec::new();
-        // Fallback for the base key (e.g., GROQ_API_KEY)
+
+        // 1. Base key: e.g. GROQ_API_KEY
         if let Ok(key) = std::env::var(prefix) {
-            keys.push(key);
+            if !key.trim().is_empty() { keys.push(key); }
         }
-        // Check for multiple keys (e.g., GROQ_API_KEY_1, GROQ_API_KEY_2)
+
         for i in 1..=10 {
-            let var = format!("{}_{}", prefix, i);
-            if let Ok(key) = std::env::var(&var) {
-                if !keys.contains(&key) {
+            // 2. Standard format:  GROQ_API_KEY_1, GROQ_API_KEY_2, 
+            let var_underscore = format!("{}_{}", prefix, i);
+            if let Ok(key) = std::env::var(&var_underscore) {
+                if !key.trim().is_empty() && !keys.contains(&key) {
                     keys.push(key);
                 }
             }
+            // 3. No-underscore format (common user mistake): GROQ_API_KEY1
+            let var_nounderscore = format!("{}{}", prefix, i);
+            if let Ok(key) = std::env::var(&var_nounderscore) {
+                if !key.trim().is_empty() && !keys.contains(&key) {
+                    keys.push(key);
+                }
+            }
+            // 4. Short prefix format: GROQ_1 (e.g. when user sets GROQ_1 instead of GROQ_API_KEY_1)
+            // Derive short prefix: GROQ_API_KEY  GROQ, CEREBRAS_API_KEY  CEREBRAS
+            let short = prefix.replace("_API_KEY", "").replace("_TOKEN", "");
+            if short != prefix {
+                let var_short = format!("{}_{}", short, i);
+                if let Ok(key) = std::env::var(&var_short) {
+                    if !key.trim().is_empty() && !keys.contains(&key) {
+                        keys.push(key);
+                    }
+                }
+            }
         }
+
         
         let mut exhausted = std::collections::HashSet::new();
         // v7.9.9 P2: Load from disk cache
@@ -29,7 +50,7 @@ impl KeyPool {
             if cache.is_key_exhausted(prefix, i) {
                 exhausted.insert(i);
                 eprintln!(
-                    "   ⏭️  Key #{} for {} pre-skipped (exhausted in previous session)",
+                    "   🔑 Key #{} for {} pre-skipped (exhausted in previous session)",
                     i + 1, prefix
                 );
             }
@@ -56,7 +77,7 @@ impl KeyPool {
     pub fn mark_expired(&mut self) {
         if self.keys.is_empty() { return; }
         eprintln!(
-            "🔑 Key #{} for {} PERMANENTLY EXPIRED — removed from rotation",
+            " ❌ Key #{} for {} PERMANENTLY EXPIRED  removed from rotation",
             self.current + 1, self.prefix
         );
         self.exhausted.insert(self.current);
@@ -71,7 +92,7 @@ impl KeyPool {
     pub fn mark_exhausted(&mut self) {
         if self.keys.is_empty() { return; }
         eprintln!(
-            "🔑 Key #{} for {} exhausted → rotating to next key",
+            " 🔄 Key #{} for {} exhausted  rotating to next key",
             self.current + 1, self.prefix
         );
         self.exhausted.insert(self.current);

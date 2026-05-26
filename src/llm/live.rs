@@ -1,4 +1,4 @@
-// src/llm/live.rs — LiveProvider بدون SPO
+// src/llm/live.rs  LiveProvider  SPO
 use super::{LLMProvider, LLMRequest, LLMResponse, LlmCallStats};
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -90,6 +90,12 @@ pub struct LiveProvider {
     tracker: Arc<Mutex<super::limit_tracker::LimitTracker>>,
 }
 
+impl Default for LiveProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LiveProvider {
     pub fn from_env() -> Self {
         Self::new()
@@ -107,7 +113,7 @@ impl LiveProvider {
         let mut missing_keys = Vec::new();
         let mut exhausted_providers = Vec::new();
 
-        // الترتيب: Groq → Gemini → Cerebras → OpenRouter → GitHub
+        // : Groq  Gemini  Cerebras  OpenRouter  GitHub
         let candidates = vec![
             ("GROQ_API_KEY", Provider::groq()),
             ("GEMINI_API_KEY", Provider::gemini()),
@@ -133,12 +139,12 @@ impl LiveProvider {
         if providers.is_empty() {
             if !missing_keys.is_empty() && exhausted_providers.is_empty() {
                 eprintln!(
-                    "⚠️  No API keys found in environment. Please set at least one of: {}",
+                    "  ❌ No API keys found in environment. Please set at least one of: {}",
                     missing_keys.join(", ")
                 );
             } else if missing_keys.is_empty() && !exhausted_providers.is_empty() {
                 eprintln!(
-                    "⚠️  All configured providers ({}) are currently EXHAUSTED in the cache. \
+                    "  ⚠️  All configured providers ({}) are currently EXHAUSTED in the cache. \
                      Wait for quota reset or clear ~/.sel-agent/provider_state.json",
                     exhausted_providers.join(", ")
                 );
@@ -147,7 +153,7 @@ impl LiveProvider {
                 // the bench loop to skip already-recorded cases without crashing.
             } else {
                 eprintln!(
-                    "⚠️  No LLM provider available. Missing: [{}]. Exhausted: [{}].",
+                    "  ❌ No LLM provider available. Missing: [{}]. Exhausted: [{}].",
                     missing_keys.join(", "),
                     exhausted_providers.join(", ")
                 );
@@ -163,10 +169,10 @@ impl LiveProvider {
     }
 
     /// v7.9.6: Clone that SHARES KeyPools, tracker, and stats across tasks
-    /// Exhausted keys stay exhausted — no wasted API calls on dead keys
+    /// Exhausted keys stay exhausted  no wasted API calls on dead keys
     pub fn clone_shared(&self) -> Self {
         LiveProvider {
-            providers: self.providers.clone(), // Provider is Clone → shares Arc<Mutex<KeyPool>>
+            providers: self.providers.clone(), // Provider is Clone  shares Arc<Mutex<KeyPool>>
             stats: self.stats.clone(),
             active_index: std::sync::atomic::AtomicUsize::new(
                 self.active_index.load(std::sync::atomic::Ordering::SeqCst),
@@ -279,7 +285,7 @@ impl LLMProvider for LiveProvider {
         {
             let tracker = self.tracker.lock().unwrap();
             if !tracker.any_available(&provider_names) {
-                return Err(anyhow!("❌ All providers exhausted for today"));
+                return Err(anyhow!(" All providers exhausted for today"));
             }
         }
 
@@ -296,7 +302,7 @@ impl LLMProvider for LiveProvider {
                     let has_keys = provider.key_pool.lock().unwrap().has_available();
                     if !tracker.is_available(&provider.name) || !has_keys {
                         if !has_keys && attempt == 1 {
-                            println!("   ⏭️  Skipping {} — all keys expired/exhausted", provider.name);
+                            println!("   ⏭  Skipping {}  all keys expired/exhausted", provider.name);
                         }
                         self.active_index.store((idx + 1) % self.providers.len(), std::sync::atomic::Ordering::SeqCst);
                         break;
@@ -304,14 +310,14 @@ impl LLMProvider for LiveProvider {
                 }
                 
                 let is_primary = idx == 0;
-                let prefix = if is_primary { "🟢" } else { "🔄" };
+                let prefix = if is_primary { "📡" } else { "🔀" };
                 if attempt == 1 {
                     println!("{} Calling {} ({})", prefix, provider.name, provider.model);
                 } else {
                     let err_short: String = last_error.as_ref()
                         .map(|e: &anyhow::Error| e.to_string().chars().take(80).collect::<String>())
                         .unwrap_or_default();
-                    println!("   ⚠️  Attempt {}/3 [{}] - retrying {}...", attempt, err_short, provider.name);
+                    println!("   🔄 Attempt {}/3 [{}] - retrying {}...", attempt, err_short, provider.name);
                 }
 
                 match self.try_call(provider, &req).await {
@@ -358,17 +364,17 @@ impl LLMProvider for LiveProvider {
                             }
                             ErrorKind::RpmLimit => {
                                 rpm_waits += 1;
-                                // v8.0: لا تستنزف المفتاح بسبب RPM — هو مؤقت ولا علاقة له بالمفتاح
-                                // بعد 3 انتظارات، انتقل للـ provider التالي مؤقتاً (لا تحرق المفتاح)
+                                // v8.0:     RPM       
+                                //  3    provider   (  )
                                 if rpm_waits >= 3 {
-                                    println!("   ⚠️  RPM limit persists → skipping {} temporarily (key preserved)", provider.name);
+                                    println!("   ⚠️  RPM limit persists  skipping {} temporarily (key preserved)", provider.name);
                                     self.tracker.lock().unwrap().mark_rpm(&provider.name, 60);
                                     last_error = Some(e);
                                     self.active_index.store((idx + 1) % self.providers.len(), std::sync::atomic::Ordering::SeqCst);
-                                    break; // انتقل للـ provider التالي بدون mark_exhausted
+                                    break; //   provider   mark_exhausted
                                 }
                                 self.tracker.lock().unwrap().mark_rpm(&provider.name, 30);
-                                println!("   ⏳ [{}] RPM limit — cooling 30s", provider.name);
+                                println!("   ⏳ [{}] RPM limit  cooling 30s", provider.name);
                                 tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
                                 continue;
                             }
@@ -426,12 +432,12 @@ impl LiveProvider {
             response_format: None,
         };
 
-        // JSON mode لـ Planning فقط
+        // JSON mode  Planning 
         if req.model.contains("plan") || req.system.contains("SCHEMA") {
             body.response_format = Some(serde_json::json!({ "type": "json_object" }));
         }
 
-        // v7.9.10: Allowlists — providers that don't support seed or JSON response_format
+        // v7.9.10: Allowlists  providers that don't support seed or JSON response_format
         // Extend this list when adding new providers (e.g. Mistral, Anthropic, SambaNova)
         const SEED_UNSUPPORTED: &[&str] = &["Gemini", "Mistral", "Anthropic"];
         const JSON_MODE_UNSUPPORTED: &[&str] = &["GitHub", "Mistral", "Anthropic"];
@@ -482,7 +488,7 @@ impl LiveProvider {
 
 impl LiveProvider {
     pub fn print_info(&self) {
-        println!("🔗 Providers: {} configured", self.providers.len());
+        println!(" 🔗 Providers: {} configured", self.providers.len());
         for (i, p) in self.providers.iter().enumerate() {
             let badge = if i == 0 { "🟢" } else { "⚪" };
             println!("   {} {}: {}", badge, p.name, p.key_preview());

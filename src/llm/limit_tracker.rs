@@ -2,8 +2,14 @@ use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct LimitTracker {
-    daily_dead: HashSet<String>,   // مات حتى منتصف الليل
-    rpm_dead_until: std::collections::HashMap<String, u64>, // مات X ثانية
+    daily_dead: HashSet<String>,   //    
+    rpm_dead_until: std::collections::HashMap<String, u64>, //  X 
+}
+
+impl Default for LimitTracker {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LimitTracker {
@@ -15,14 +21,14 @@ impl LimitTracker {
     }
 
     pub fn mark_daily(&mut self, provider: &str) {
-        eprintln!("📵 [{}] daily limit hit — skipping for rest of session", provider);
+        eprintln!(" [{}] daily limit hit  skipping for rest of session", provider);
         self.daily_dead.insert(provider.to_string());
     }
 
     pub fn mark_rpm(&mut self, provider: &str, wait_secs: u64) {
         let resume_at = self.now() + wait_secs;
         self.rpm_dead_until.insert(provider.to_string(), resume_at);
-        eprintln!("⏳ [{}] RPM limit — cooling {}s", provider, wait_secs);
+        eprintln!(" [{}] RPM limit  cooling {}s", provider, wait_secs);
     }
 
     pub fn is_available(&self, provider: &str) -> bool {

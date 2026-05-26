@@ -1,5 +1,15 @@
-// src/repair_strategy.rs — v8.0: Directed Repair + Escalating Strategy
+// src/repair_strategy.rs  v8.1: Directed Repair + Escalating Strategy
+//
+// Provides context-aware repair prompts that escalate based on attempt number
+// and loop detection. Separates source files from test files to prevent the
+// common anti-pattern of "fixing" tests instead of source code.
 
+use std::path::Path;
+
+/// Supported source file extensions.
+const SUPPORTED_EXTENSIONS: &[&str] = &["ts", "js", "py", "go", "rs"];
+
+/// Accumulated context for a repair session.
 pub struct RepairCtx {
     pub source_files: Vec<String>,
     pub test_files: Vec<String>,
@@ -9,53 +19,53 @@ pub struct RepairCtx {
 }
 
 impl RepairCtx {
-    pub fn build(workspace: &std::path::Path, goal: &str, prev_error: Option<&String>) -> Self {
+    /// Build a new repair context by scanning `workspace` for source and test files.
+    ///
+    /// # Arguments
+    /// * `workspace`  directory to scan for project files
+    /// * `goal`       the high-level task description (used to extract function name)
+    /// * `prev_error`  the previous error message, if any
+    pub fn build(workspace: &Path, goal: &str, prev_error: Option<&String>) -> Self {
         let mut source_files = Vec::new();
         let mut test_files = Vec::new();
 
-        let supported = ["ts", "js", "py", "go", "rs"];
         if let Ok(entries) = std::fs::read_dir(workspace) {
             for entry in entries.flatten() {
-                if let Ok(ft) = entry.file_type() {
-                    if ft.is_file() {
-                        let name = entry.file_name().to_string_lossy().to_string();
-                        let ext = std::path::Path::new(&name)
-                            .extension()
-                            .and_then(|e| e.to_str())
-                            .unwrap_or("");
-                        if supported.contains(&ext) {
-                            if name.contains("test")
-                                || name.ends_with("_test.go")
-                                || name.ends_with(".spec.ts")
-                            {
-                                test_files.push(name.clone());
-                            } else {
-                                source_files.push(name.clone());
-                            }
-                        }
-                    }
+                let ft = match entry.file_type() {
+                    Ok(ft) => ft,
+                    Err(_) => continue,
+                };
+                if !ft.is_file() {
+                    continue;
+                }
+                let name = entry.file_name().to_string_lossy().to_string();
+                let ext = Path::new(&name)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+
+                if !SUPPORTED_EXTENSIONS.contains(&ext) {
+                    continue;
+                }
+
+                if Self::is_test_file(&name) {
+                    test_files.push(name);
+                } else {
+                    source_files.push(name);
                 }
             }
         }
+
+        // Sort for deterministic output
+        source_files.sort();
+        test_files.sort();
 
         let source_file = source_files
             .first()
             .cloned()
             .unwrap_or_else(|| "main".to_string());
 
-        // Extract function name from goal heuristically
-        let mut function_name = "the function".to_string();
-        let tokens: Vec<&str> = goal.split_whitespace().collect();
-        if let Some(idx) = tokens.iter().position(|&t| t == "Fix" || t == "implement") {
-            if idx + 1 < tokens.len() {
-                function_name = tokens[idx + 1]
-                    .replace("(", "")
-                    .replace(")", "")
-                    .trim_end_matches('.')
-                    .trim_end_matches(',')
-                    .to_string();
-            }
-        }
+        let function_name = Self::extract_function_name(goal);
 
         let prev_errors = prev_error.map(|s| vec![s.clone()]).unwrap_or_default();
 
@@ -67,90 +77,239 @@ impl RepairCtx {
             prev_errors,
         }
     }
-}
 
-/// Read source file content from workspace, capped at max_bytes for prompt safety
-fn read_source(workspace: &std::path::Path, filename: &str, max_bytes: usize) -> String {
-    let path = workspace.join(filename);
-    match std::fs::read_to_string(&path) {
-        Ok(content) => {
-            if content.len() > max_bytes {
-                format!("{}... [truncated]", &content[..max_bytes])
-            } else {
-                content
+    /// Determine whether a filename represents a test file.
+    fn is_test_file(name: &str) -> bool {
+        // Go convention: *_test.go
+        if name.ends_with("_test.go") {
+            return true;
+        }
+        // TypeScript / JavaScript conventions
+        if name.ends_with(".spec.ts")
+            || name.ends_with(".spec.js")
+            || name.ends_with(".test.ts")
+            || name.ends_with(".test.js")
+        {
+            return true;
+        }
+        // Python convention: test_*.py or *_test.py
+        if name.starts_with("test_") && name.ends_with(".py") {
+            return true;
+        }
+        if name.ends_with("_test.py") {
+            return true;
+        }
+        // Rust convention: file in tests/ already handled by dir; also catch inline
+        if name.contains("test") {
+            return true;
+        }
+        false
+    }
+
+    /// Extract a likely function name from the goal description.
+    fn extract_function_name(goal: &str) -> String {
+        let keywords = ["Fix", "fix", "implement", "Implement", "repair", "Repair"];
+        let tokens: Vec<&str> = goal.split_whitespace().collect();
+        for &kw in &keywords {
+            if let Some(idx) = tokens.iter().position(|&t| t == kw) {
+                if idx + 1 < tokens.len() {
+                    let raw = tokens[idx + 1];
+                    // Strip common punctuation wrappers
+                    let cleaned = raw
+                        .trim_matches(|c: char| c == '(' || c == ')' || c == '`' || c == '\'' || c == '"');
+                    if !cleaned.is_empty() {
+                        return cleaned.to_string();
+                    }
+                }
             }
         }
-        Err(_) => format!("[could not read {}]", filename),
+        "the function".to_string()
     }
 }
 
-/// Build an escalating repair prompt based on attempt number.
-/// Now includes actual source file content from disk so the LLM sees what it's fixing.
-pub fn build_prompt(
-    attempt: u8,
-    error: &str,
-    ctx: &RepairCtx,
-    workspace: &std::path::Path,
-) -> String {
-    let is_loop = ctx.prev_errors.windows(2).any(|w| w[0] == w[1]) || attempt > 2;
+/// Maximum repair attempts before giving up.
+pub const MAX_REPAIR_ATTEMPTS: u8 = 5;
 
-    let source_content = read_source(workspace, &ctx.source_file, 600);
-    let error_snippet = &error[..error.len().min(600)];
+/// Build an escalating repair prompt.
+///
+/// Prompt severity increases with each attempt, and when a loop is detected
+/// (same error repeated), the strategy skips to a more aggressive approach.
+pub fn build_prompt(attempt: u8, error: &str, ctx: &RepairCtx) -> String {
+    if attempt > MAX_REPAIR_ATTEMPTS {
+        return format!(
+            "GIVING UP after {} attempts. Last error:\n{}",
+            attempt, error
+        );
+    }
 
-    let protected = if ctx.test_files.is_empty() {
-        String::new()
-    } else {
-        format!("PROTECTED (do NOT modify): {}\n", ctx.test_files.join(", "))
-    };
+    let is_loop = detect_error_loop(ctx, attempt);
 
-    match attempt {
-        1 => format!(
-            "REPAIR 1/N — STRATEGY: Minimal fix.\n\
-             Fix SOURCE FILES only: {sources}\n\
-             {protected}\
-             CURRENT {file}:\n```\n{src}\n```\n\
-             ERROR:\n```\n{err}\n```\n\
-             Fix ONLY the failing line. Do NOT rewrite the whole file.",
-            sources = ctx.source_files.join(", "),
-            protected = protected,
-            file = ctx.source_file,
-            src = source_content,
-            err = error_snippet,
+    match (attempt, is_loop) {
+        (1, _) => format!(
+            "Fix SOURCE FILES only: [{}]\n\
+             NEVER touch test files: [{}]\n\
+             Error:\n{}",
+            ctx.source_files.join(", "),
+            ctx.test_files.join(", "),
+            error
         ),
-        2 if is_loop => format!(
-            "REPAIR 2/N — SAME ERROR REPEATED.\n\
-             The minimal patch failed. Rewrite {file} completely from scratch.\n\
-             Implement {func} correctly.\n\
-             {protected}\
-             ERROR:\n```\n{err}\n```",
-            file = ctx.source_file,
-            func = ctx.function_name,
-            protected = protected,
-            err = error_snippet,
+        (2, false) => format!(
+            "Repair attempt 2. Focus on {}, function `{}`.\n\
+             Error:\n{}",
+            ctx.source_file, ctx.function_name, error
         ),
-        2 => format!(
-            "REPAIR 2/N — STRATEGY: Rewrite the failing function.\n\
-             The minimal fix failed. Rewrite {func} in {file} from scratch.\n\
-             {protected}\
-             CURRENT {file}:\n```\n{src}\n```\n\
-             ERROR:\n```\n{err}\n```",
-            func = ctx.function_name,
-            file = ctx.source_file,
-            protected = protected,
-            src = source_content,
-            err = error_snippet,
+        (2, true) => format!(
+            "SAME ERROR REPEATED  stop patching tests.\n\
+             Which exact line in {} is wrong? Fix ONLY that line.\n\
+             Error:\n{}",
+            ctx.source_file, error
         ),
-        _ => format!(
-            "REPAIR {attempt}/N — FINAL ATTEMPT. Use the simplest possible algorithm.\n\
-             ALL previous patches failed. REWRITE {file} completely.\n\
-             Implement {func} using the most basic approach — ignore edge cases if needed.\n\
-             {protected}\
-             ERROR:\n```\n{err}\n```",
-            attempt = attempt,
-            file = ctx.source_file,
-            func = ctx.function_name,
-            protected = protected,
-            err = error_snippet,
+        (_, true) => format!(
+            "ALL patches failed. REWRITE `{}` from scratch.\n\
+             Implement `{}` correctly. Don't copy the broken version.\n\
+             Error:\n{}",
+            ctx.source_file, ctx.function_name, error
         ),
+        (_, false) => format!(
+            "Repair attempt {}. Carefully read the error and fix the root cause.\n\
+             Error:\n{}",
+            attempt, error
+        ),
+    }
+}
+
+/// Detect whether the repair session is stuck in a loop.
+fn detect_error_loop(ctx: &RepairCtx, attempt: u8) -> bool {
+    // Explicit consecutive duplicate detection
+    if ctx.prev_errors.windows(2).any(|w| w[0] == w[1]) {
+        return true;
+    }
+    // Heuristic: if we're past attempt 3 without progress, assume a loop
+    if attempt > 3 && !ctx.prev_errors.is_empty() {
+        return true;
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_is_test_file_go() {
+        assert!(RepairCtx::is_test_file("calc_test.go"));
+        assert!(!RepairCtx::is_test_file("calc.go"));
+    }
+
+    #[test]
+    fn test_is_test_file_ts() {
+        assert!(RepairCtx::is_test_file("app.spec.ts"));
+        assert!(RepairCtx::is_test_file("app.test.ts"));
+        assert!(!RepairCtx::is_test_file("app.ts"));
+    }
+
+    #[test]
+    fn test_is_test_file_python() {
+        assert!(RepairCtx::is_test_file("test_calc.py"));
+        assert!(RepairCtx::is_test_file("calc_test.py"));
+        assert!(!RepairCtx::is_test_file("calc.py"));
+    }
+
+    #[test]
+    fn test_extract_function_name_basic() {
+        assert_eq!(RepairCtx::extract_function_name("Fix add() function"), "add");
+        assert_eq!(RepairCtx::extract_function_name("implement `sort` method"), "sort");
+    }
+
+    #[test]
+    fn test_extract_function_name_fallback() {
+        assert_eq!(RepairCtx::extract_function_name("do something"), "the function");
+    }
+
+    #[test]
+    fn test_build_prompt_attempt_1() {
+        let ctx = RepairCtx {
+            source_files: vec!["main.go".into()],
+            test_files: vec!["main_test.go".into()],
+            source_file: "main.go".into(),
+            function_name: "Add".into(),
+            prev_errors: vec![],
+        };
+        let prompt = build_prompt(1, "undefined: Add", &ctx);
+        assert!(prompt.contains("Fix SOURCE FILES only"));
+        assert!(prompt.contains("NEVER touch test files"));
+    }
+
+    #[test]
+    fn test_build_prompt_loop_detected() {
+        let ctx = RepairCtx {
+            source_files: vec!["main.go".into()],
+            test_files: vec![],
+            source_file: "main.go".into(),
+            function_name: "Add".into(),
+            prev_errors: vec!["same error".into(), "same error".into()],
+        };
+        let prompt = build_prompt(2, "same error", &ctx);
+        assert!(prompt.contains("SAME ERROR REPEATED"));
+    }
+
+    #[test]
+    fn test_build_prompt_rewrite_on_persistent_loop() {
+        let ctx = RepairCtx {
+            source_files: vec!["lib.rs".into()],
+            test_files: vec![],
+            source_file: "lib.rs".into(),
+            function_name: "parse".into(),
+            prev_errors: vec!["err".into(), "err".into()],
+        };
+        let prompt = build_prompt(4, "err", &ctx);
+        assert!(prompt.contains("REWRITE"));
+    }
+
+    #[test]
+    fn test_max_attempts_gives_up() {
+        let ctx = RepairCtx {
+            source_files: vec![],
+            test_files: vec![],
+            source_file: "main".into(),
+            function_name: "f".into(),
+            prev_errors: vec![],
+        };
+        let prompt = build_prompt(MAX_REPAIR_ATTEMPTS + 1, "fatal", &ctx);
+        assert!(prompt.contains("GIVING UP"));
+    }
+
+    #[test]
+    fn test_detect_error_loop_consecutive_duplicates() {
+        let ctx = RepairCtx {
+            source_files: vec![],
+            test_files: vec![],
+            source_file: "main".into(),
+            function_name: "f".into(),
+            prev_errors: vec!["a".into(), "a".into()],
+        };
+        assert!(detect_error_loop(&ctx, 2));
+    }
+
+    #[test]
+    fn test_detect_error_loop_no_duplicates() {
+        let ctx = RepairCtx {
+            source_files: vec![],
+            test_files: vec![],
+            source_file: "main".into(),
+            function_name: "f".into(),
+            prev_errors: vec!["a".into(), "b".into()],
+        };
+        assert!(!detect_error_loop(&ctx, 2));
+    }
+
+    #[test]
+    fn test_build_with_empty_workspace() {
+        let dir = PathBuf::from("/nonexistent_dir_12345");
+        let ctx = RepairCtx::build(&dir, "Fix something", None);
+        assert!(ctx.source_files.is_empty());
+        assert!(ctx.test_files.is_empty());
+        assert_eq!(ctx.source_file, "main");
     }
 }

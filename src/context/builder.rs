@@ -59,13 +59,13 @@ impl BudgetReport {
     }
 
     pub fn print(&self) {
-        println!("\n📊 Context Budget:");
+        println!("\n Context Budget:");
         println!(
-            "  Files:  {} total → {} selected",
+            "  Files:  {} total  {} selected",
             self.total_files, self.selected_files
         );
         println!(
-            "  Tokens: {} → {} (-{}%)",
+            "  Tokens: {}  {} (-{}%)",
             self.tokens_before,
             self.tokens_after,
             self.reduction_pct()
@@ -138,7 +138,7 @@ fn read_and_score(path: &Path, ctx: &RepairContext) -> Option<ScoredFile> {
         if !locs.is_empty() {
             match get_file_content_smart(path, &locs) {
                 Ok(SmartContent::Chunk(chunk)) => format!(
-                    "// ⚠️ CHUNKED: {} ({} lines, showing {}-{})\n{}",
+                    "//  CHUNKED: {} ({} lines, showing {}-{})\n{}",
                     path.display(),
                     line_count,
                     chunk.start_line,
@@ -238,14 +238,14 @@ pub fn read_ref_file(ref_file: &Path) -> Option<String> {
     match std::fs::read_to_string(ref_file) {
         Ok(content) => {
             println!(
-                "📄 Loaded ref file: {} ({} lines)",
+                " Loaded ref file: {} ({} lines)",
                 ref_file.display(),
                 content.lines().count()
             );
             Some(content)
         }
         Err(e) => {
-            eprintln!("⚠️  Failed to read ref file: {}", e);
+            eprintln!("  Failed to read ref file: {}", e);
             None
         }
     }
