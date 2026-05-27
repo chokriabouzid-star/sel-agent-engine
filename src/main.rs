@@ -7,7 +7,7 @@ mod failure;
 pub mod llm;
 mod trajectory_index;
 mod workspace_oracle;
-// src/main.rs  SEL Agent v8.3.0
+// src/main.rs  SEL Agent v8.4.1
 mod agent;
 mod chunker;
 mod constraint_engine;
@@ -29,6 +29,7 @@ mod state_handlers;
 mod types;
 pub mod cache;
 pub mod bench_swe;
+pub mod bench_sel;
 pub mod cost;
 pub mod diagnostic;
 pub mod provider_state;
@@ -93,8 +94,8 @@ async fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
-        Commands::Stress { max_repairs } => {
-            commands::run_stress(&api_key, max_repairs).await?;
+        Commands::Stress { max_repairs, cases, delay, record, replay, rerecord } => {
+            commands::run_stress(&api_key, max_repairs, cases, delay, record, replay, rerecord).await?;
         }
         Commands::Scan { workspace, json } => {
             commands::cmd_scan(&workspace, json);
@@ -114,7 +115,7 @@ async fn main() -> Result<()> {
             commands::run_plan(&api_key, &workspace, &plan, max_repairs).await?;
         }
         Commands::BenchSwe {
-            lang, focus, max_repairs, delay, record, replay,
+            lang, focus, max_repairs, delay, record, replay, rerecord,
         } => {
             let key = api_key;
             commands::bench::run_bench_swe_cmd(
@@ -125,6 +126,7 @@ async fn main() -> Result<()> {
                 delay,
                 record,
                 replay,
+                rerecord,
             ).await?;
         }
         Commands::BenchRealWorld {
@@ -149,6 +151,39 @@ async fn main() -> Result<()> {
                 &focus,
             )
             .await?;
+        }
+        Commands::BenchSelV11 {
+            focus, max_repairs, delay, include_system,
+            record, replay, rerecord,
+        } => {
+            crate::bench_sel::run_bench_sel_v11(
+                &api_key,
+                focus.as_deref(),
+                max_repairs,
+                delay,
+                include_system,
+                record,
+                replay,
+                rerecord,
+            ).await?;
+        }
+        Commands::BenchSel {
+            focus,
+            max_repairs,
+            delay,
+            record,
+            replay,
+            rerecord,
+        } => {
+            crate::bench_sel::run_bench_sel(
+                &api_key,
+                focus.as_deref(),
+                max_repairs,
+                delay,
+                record,
+                replay,
+                rerecord,
+            ).await?;
         }
         Commands::ResetProviders => {
             let path = std::env::current_exe()
@@ -197,7 +232,7 @@ async fn main() -> Result<()> {
             use crate::llm::LLMProvider;
 
             println!("\n");
-            println!("   SEL Agent v8.3.0  State Machine Engine   ");
+            println!("   SEL Agent v8.4.1  State Machine Engine   ");
             println!("");
             println!("\n Goal: \"{}\"", goal);
             {

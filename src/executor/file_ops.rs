@@ -36,12 +36,12 @@ impl SafeExecutor {
         }
         let p = self.safe_path(path)?;
         
-        // Protection: do not overwrite protected files if they exist
-        let protected = ["Cargo.toml", "Cargo.lock", "go.mod", "go.sum"];
+        // Protection: Cargo.toml is writable (dependency updates), but lockfiles/go.mod stay protected
+        let protected = ["Cargo.lock", "go.mod", "go.sum"];
         let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if protected.contains(&name) && p.exists() {
             return Ok(ExecResult::fail(format!(
-                "write_file: '{}' is protected  use patch_file to modify existing files", path
+                "write_file: '{}' is protected and cannot be overwritten", path
             )));
         }
         if let Some(parent) = p.parent() { std::fs::create_dir_all(parent)?; }
@@ -258,8 +258,13 @@ impl SafeExecutor {
         if search.trim().is_empty() {
             return Ok(ExecResult::fail("patch_file: search block is empty".to_string()));
         }
-        let content = std::fs::read_to_string(&p)?;
-        let content = sanitize_code(&content);
+        let raw_content = std::fs::read_to_string(&p)?;
+        let content = sanitize_code(&raw_content); // v8.4: sanitize file content
+        // v8.4: sanitize search/replace too — LLM may send unicode quotes
+        let search_sanitized = sanitize_code(search);
+        let search = search_sanitized.as_str();
+        let replace_sanitized = sanitize_code(replace);
+        let replace = replace_sanitized.as_str();
         let count = content.matches(search).count();
         
         // If not found directly, try normalizing whitespace

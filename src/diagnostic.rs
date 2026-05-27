@@ -180,6 +180,31 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
         });
     }
 
+    // --- Python dataclass mutable default / field() misuse ---
+    if error_text.contains("Field' object has no attribute")
+        || error_text.contains("Field object has no attribute")
+        || error_text.contains("mutable default")
+        || error_text.contains("default_factory")
+    {
+        hints.push(Hint {
+            severity: Severity::Error,
+            category: "python/dataclass-default",
+            message: "dataclass field uses mutable default or field() incorrectly".into(),
+            suggestion: "Keep @dataclass, import `field` from dataclasses, and replace `items: list = []` with `items: list = field(default_factory=list)`".into(),
+        });
+    }
+
+    if (error_text.contains("SyntaxError") && error_text.contains("dataclass"))
+        || error_text.contains("dataclass class")
+    {
+        hints.push(Hint {
+            severity: Severity::Error,
+            category: "python/dataclass-syntax",
+            message: "invalid dataclass syntax".into(),
+            suggestion: "Use `@dataclass` on its own line directly above `class Name:`; do not write `dataclass class ...`".into(),
+        });
+    }
+
     // --- TypeScript patterns ---
     if error_text.contains("TS2304") {
         let sym = extract_after(error_text, "TS2304:", 50);
@@ -312,5 +337,21 @@ mod tests {
         let report = analyze(err);
         let cats: Vec<_> = report.hints.iter().map(|h| h.category).collect();
         assert!(cats.contains(&"go/unused-import"));
+    }
+
+    #[test]
+    fn test_python_dataclass_default_detected() {
+        let err = "AttributeError: 'Field' object has no attribute 'append'";
+        let report = analyze(err);
+        let cats: Vec<_> = report.hints.iter().map(|h| h.category).collect();
+        assert!(cats.contains(&"python/dataclass-default"));
+    }
+
+    #[test]
+    fn test_python_dataclass_syntax_detected() {
+        let err = "SyntaxError: invalid syntax\n dataclass class Item:";
+        let report = analyze(err);
+        let cats: Vec<_> = report.hints.iter().map(|h| h.category).collect();
+        assert!(cats.contains(&"python/dataclass-syntax"));
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "sel-agent"
-version = "8.3.0"
+version = "8.4.1"
 edition = "2021"
 authors = ["Chokri Bouzid"]
 description = "SEL Agent — Autonomous Software Engineering Agent with directed repair, compile-check, and LLM-powered code generation."

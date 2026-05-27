@@ -4,7 +4,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use std::time::Duration;
 
-use crate::{agent, types};
+use crate::types;
 
 use crate::commands::health::{ProviderStats, shorten_provider};
 
@@ -364,7 +364,7 @@ pub async fn run_bench(
     // POST to Observatory
     let model =
         std::env::var("SEL_MODEL").unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string());
-    let version = std::env::var("SEL_VERSION").unwrap_or_else(|_| "v8.3.0".to_string());
+    let version = std::env::var("SEL_VERSION").unwrap_or_else(|_| "v8.4.1".to_string());
     let body = serde_json::json!({
         "version": version,
         "suite": suite,
@@ -387,15 +387,34 @@ pub async fn run_bench(
     Ok(failed_cases)
 }
 
-pub async fn run_stress(api_key: &str, max_repairs: u8) -> Result<()> {
-    println!("\n");
-    println!("   SEL Agent v7.6.0 🔥 Stress Test                     ");
-    println!("\n");
+pub async fn run_stress(
+    api_key: &str,
+    max_repairs: u8,
+    case_limit: usize,
+    delay: u64,
+    record: bool,
+    replay: bool,
+    rerecord: bool,
+) -> Result<()> {
+    println!();
+    println!("{}", "╔══════════════════════════════════════════════════╗".cyan());
+    println!("{}", "║   SEL Agent v8.4.1 🔥 Stress Test               ║".cyan());
+    println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
+    println!("║  Cases: {:3}  Mode: {:<20}  ║",
+        case_limit,
+        if replay && rerecord { "REPLAY+RERECORD" }
+        else if replay { "REPLAY" }
+        else if record { "RECORD" }
+        else { "LIVE" });
+    println!("{}", "╚══════════════════════════════════════════════════╝".cyan());
+    println!();
 
-    let cases = crate::bench_cases::suite_cases("all");
+    let all_cases = crate::bench_cases::suite_cases("all");
+    let cases: Vec<_> = all_cases.into_iter().take(case_limit).collect();
 
     let total = cases.len();
     let mut passed = 0usize;
+    let mut healed = 0usize;
     let mut total_repairs = 0usize;
     let tmpdir = std::env::temp_dir();
 
@@ -405,36 +424,97 @@ pub async fn run_stress(api_key: &str, max_repairs: u8) -> Result<()> {
         let workspace = tmpdir.join(format!("sel-stress-{}", i));
         let _ = std::fs::remove_dir_all(&workspace);
 
+        // trajectory directory
+        let traj_dir = std::env::current_dir()
+            .unwrap_or_default()
+            .join("fixtures")
+            .join("trajectories")
+            .join(format!("stress_{}", case.name.to_lowercase().replace(' ', "_")));
+
         let pb = ProgressBar::new_spinner();
         pb.set_style(
             ProgressStyle::default_spinner()
-                .template(&format!("{{spinner:.yellow}}  Running: {}...", name))
+                .template(&format!("{{spinner:.yellow}}  [{:02}/{:02}] {}...", i+1, total, name))
                 .unwrap(),
         );
         pb.enable_steady_tick(Duration::from_millis(80));
 
-        let mut ag = agent::Agent::new(
+        let provider: Box<dyn crate::llm::LLMProvider> = if replay {
+            Box::new(crate::llm::replay::ReplayProvider::new(&traj_dir))
+        } else {
+            let live = crate::llm::live::LiveProvider::from_env();
+            if record {
+                let _ = std::fs::create_dir_all(&traj_dir);
+                Box::new(crate::llm::record::RecorderProvider::new(
+                    Box::new(live),
+                    &traj_dir,
+                ))
+            } else {
+                Box::new(live)
+            }
+        };
+
+        let mut ag = crate::agent::Agent::new_with_model(
             api_key.to_string(),
+            String::new(),
             workspace.clone(),
             goal.to_string(),
             max_repairs,
             types::ContextConfig::default(),
+            provider,
         );
+        ag.bench_mode = true;
         let result = ag.run().await;
         pb.finish_and_clear();
 
-        match result {
+        let mut case_passed = false;
+        match &result {
             Ok(_) => {
-                let repairs = ag.repair_count();
-                total_repairs += repairs;
-                println!("    {} (repairs: {})", name.green(), repairs);
-                passed += 1;
+                if ag.is_success() {
+                    case_passed = true;
+                }
             }
-            Err(_) => println!("    {}", name.red()),
+            Err(_) => {}
+        }
+
+        // rerecord on failure
+        if !case_passed && rerecord {
+            let _ = std::fs::remove_dir_all(&workspace);
+            let _ = std::fs::create_dir_all(&workspace);
+            let _ = std::fs::create_dir_all(&traj_dir);
+            let live = crate::llm::live::LiveProvider::from_env();
+            let rec = Box::new(crate::llm::record::RecorderProvider::new(
+                Box::new(live), &traj_dir,
+            ));
+            let mut ag2 = crate::agent::Agent::new_with_model(
+                api_key.to_string(),
+                String::new(),
+                workspace.clone(),
+                goal.to_string(),
+                max_repairs,
+                types::ContextConfig::default(),
+                rec,
+            );
+            ag2.bench_mode = true;
+            let _ = ag2.run().await;
+            if ag2.is_success() {
+                case_passed = true;
+                healed += 1;
+            }
+        }
+
+        if case_passed {
+            let repairs = ag.repair_count();
+            total_repairs += repairs;
+            println!("    {} (repairs: {}{})", name.green(), repairs,
+                if rerecord && healed > 0 { " 🩹" } else { "" });
+            passed += 1;
+        } else {
+            println!("    {}", name.red());
         }
         let _ = std::fs::remove_dir_all(&workspace);
         if i < total - 1 {
-            tokio::time::sleep(Duration::from_secs(12)).await;
+            tokio::time::sleep(Duration::from_secs(delay)).await;
         }
     }
 
@@ -443,10 +523,14 @@ pub async fn run_stress(api_key: &str, max_repairs: u8) -> Result<()> {
     } else {
         0.0
     };
-    println!(
-        "\n=== Stress Results: {}/{} passed | avg repairs: {:.1} ===\n",
-        passed, total, avg
-    );
+    println!();
+    println!("{}", "╔══════════════════════════════════════════════════╗".cyan());
+    println!("║  Stress Results: {}/{} passed | avg repairs: {:.1}  ║", passed, total, avg);
+    if healed > 0 {
+        println!("║  Auto-healed: {}                                   ║", healed);
+    }
+    println!("{}", "╚══════════════════════════════════════════════════╝".cyan());
+    println!();
     Ok(())
 }
 
@@ -821,6 +905,7 @@ pub async fn run_bench_swe_cmd(
     delay: u64,
     record: bool,
     replay: bool,
+    rerecord: bool,
 ) -> Result<()> {
     crate::bench_swe::run_bench_swe(
         api_key,
@@ -830,5 +915,6 @@ pub async fn run_bench_swe_cmd(
         focus,
         record,
         replay,
+        rerecord,
     ).await
 }

@@ -25,7 +25,7 @@ impl RepairCtx {
     /// * `workspace`  directory to scan for project files
     /// * `goal`       the high-level task description (used to extract function name)
     /// * `prev_error`  the previous error message, if any
-    pub fn build(workspace: &Path, goal: &str, prev_error: Option<&String>) -> Self {
+    pub fn build(workspace: &Path, goal: &str, error_history: &[String]) -> Self {
         let mut source_files = Vec::new();
         let mut test_files = Vec::new();
 
@@ -67,7 +67,7 @@ impl RepairCtx {
 
         let function_name = Self::extract_function_name(goal);
 
-        let prev_errors = prev_error.map(|s| vec![s.clone()]).unwrap_or_default();
+        let prev_errors = error_history.to_vec();
 
         Self {
             source_files,
@@ -180,11 +180,31 @@ pub fn build_prompt(attempt: u8, error: &str, ctx: &RepairCtx) -> String {
 
 /// Detect whether the repair session is stuck in a loop.
 fn detect_error_loop(ctx: &RepairCtx, attempt: u8) -> bool {
-    // Explicit consecutive duplicate detection
+    // v8.4: Exact consecutive duplicates
     if ctx.prev_errors.windows(2).any(|w| w[0] == w[1]) {
         return true;
     }
-    // Heuristic: if we're past attempt 3 without progress, assume a loop
+    // v8.4: Same error class — first 120 chars match
+    if ctx.prev_errors.len() >= 2 {
+        let n = ctx.prev_errors.len();
+        let a = &ctx.prev_errors[n - 1][..ctx.prev_errors[n - 1].len().min(120)];
+        let b = &ctx.prev_errors[n - 2][..ctx.prev_errors[n - 2].len().min(120)];
+        if a == b {
+            return true;
+        }
+    }
+    // v8.4: Cycling — same error class seen earlier (not just last pair)
+    if ctx.prev_errors.len() >= 3 {
+        let last = &ctx.prev_errors[ctx.prev_errors.len() - 1];
+        let prefix_len = last.len().min(120);
+        let cycling = ctx.prev_errors[..ctx.prev_errors.len() - 1]
+            .iter()
+            .any(|e| e[..e.len().min(120)] == last[..prefix_len]);
+        if cycling {
+            return true;
+        }
+    }
+    // Heuristic: past attempt 3 without progress
     if attempt > 3 && !ctx.prev_errors.is_empty() {
         return true;
     }
@@ -307,7 +327,7 @@ mod tests {
     #[test]
     fn test_build_with_empty_workspace() {
         let dir = PathBuf::from("/nonexistent_dir_12345");
-        let ctx = RepairCtx::build(&dir, "Fix something", None);
+        let ctx = RepairCtx::build(&dir, "Fix something", &[]);
         assert!(ctx.source_files.is_empty());
         assert!(ctx.test_files.is_empty());
         assert_eq!(ctx.source_file, "main");

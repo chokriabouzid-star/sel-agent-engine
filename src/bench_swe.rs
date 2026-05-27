@@ -76,6 +76,7 @@ pub async fn run_bench_swe(
     focus: Option<&str>,
     record: bool,
     replay: bool,
+    rerecord: bool,
 ) -> Result<()> {
     let all = all_cases();
 
@@ -101,7 +102,7 @@ pub async fn run_bench_swe(
     println!("║  Cases: {:3}  Lang: {:<8}  Mode: {:<11}  ║",
         total,
         lang_filter,
-        if replay { "REPLAY" } else if record { "RECORD" } else { "LIVE" });
+        if replay && rerecord { "REPLAY+RERECORD" } else if replay { "REPLAY" } else if record { "RECORD" } else { "LIVE" });
     println!("{}", "╚══════════════════════════════════════════════════╝".cyan());
     println!();
 
@@ -151,7 +152,7 @@ pub async fn run_bench_swe(
         // تشغيل الوكيل
         let agent_result = run_agent_for_case(
             &ws, &goal, api_key, max_repairs, case.lang,
-            record, replay, &traj_dir,
+            record, replay, rerecord, &traj_dir,
         ).await;
 
         let elapsed = start.elapsed().as_secs_f64();
@@ -349,6 +350,7 @@ async fn run_agent_for_case(
     _lang: &str,
     record: bool,
     replay: bool,
+    rerecord: bool,
     traj_dir: &Path,
 ) -> Result<(bool, u8)> {
     let provider: Box<dyn crate::llm::LLMProvider> = if replay {
@@ -379,6 +381,28 @@ async fn run_agent_for_case(
     agent.bench_mode = true;
     
     let res = agent.run().await;
+    let success = agent.is_success();
+
+    // rerecord: إذا فشل، أعد التسجيل مباشرة
+    if rerecord && !success {
+        let live = crate::llm::live::LiveProvider::from_env();
+        let _ = fs::create_dir_all(traj_dir);
+        let rec = Box::new(crate::llm::record::RecorderProvider::new(
+            Box::new(live), traj_dir,
+        ));
+        let _ = std::fs::remove_dir_all(ws);
+        let _ = std::fs::create_dir_all(ws);
+        let mut ag2 = crate::agent::Agent::new_with_model(
+            String::new(), String::new(),
+            ws.to_path_buf(), goal.to_string(),
+            max_repairs, crate::types::ContextConfig::default(), rec,
+        );
+        ag2.ctx.skip_mutation = true;
+        ag2.bench_mode = true;
+        let _ = ag2.run().await;
+        return Ok((ag2.is_success(), ag2.repair_count() as u8));
+    }
+
     match res {
         Ok(_) => Ok((agent.is_success(), agent.repair_count() as u8)),
         Err(e) => Err(e),

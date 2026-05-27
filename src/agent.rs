@@ -16,7 +16,7 @@ pub struct Agent {
     pub llm: Box<dyn crate::llm::LLMProvider>,
     goal: String,
     plan: Vec<Cmd>,
-    previous_error: Option<String>,
+    error_history: Vec<String>,
     repair_fingerprints: Vec<u64>, // Repair History Guard v1.2
     context_config: ContextConfig,
     failure_memory: crate::memory::FailureMemory, // v5.8
@@ -39,7 +39,7 @@ impl Agent {
             llm: Box::new(crate::llm::live::LiveProvider::from_env()),
             goal,
             plan: Vec::new(),
-            previous_error: None,
+            error_history: Vec::new(),
             repair_fingerprints: Vec::new(),
             context_config,
             failure_memory: crate::memory::FailureMemory::load(),
@@ -63,7 +63,7 @@ impl Agent {
             llm,
             goal,
             plan: Vec::new(),
-            previous_error: None,
+            error_history: Vec::new(),
             repair_fingerprints: Vec::new(),
             context_config,
             failure_memory: crate::memory::FailureMemory::load(),
@@ -279,7 +279,7 @@ impl Agent {
                         &self.executor.workspace,
                         &self.context_config,
                         &mut self.repair_fingerprints,
-                        &mut self.previous_error,
+                        &mut self.error_history,
                     )
                     .await
                     {
@@ -319,12 +319,10 @@ impl Agent {
                     if input.eq_ignore_ascii_case("abort") {
                         self.state = AgentState::Failed("Aborted by user".to_string());
                     } else {
-                        // Append user hint to previous_error so the LLM sees it as feedback
+                        // Append user hint to error_history so the LLM sees it as feedback
                         let hint = format!("\nUSER HINT: {}\n", input);
-                        if let Some(ref mut prev) = self.previous_error {
-                            prev.push_str(&hint);
-                        } else {
-                            self.previous_error = Some(hint);
+                        {
+                    self.error_history.push(hint);
                         }
                         
                         // Give the agent one more repair attempt

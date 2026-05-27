@@ -248,7 +248,13 @@ mod tests {
     #[test]
     fn test_rule_3_blocks_null_bytes() {
         let path = PathBuf::from("main.rs");
-        let content = "pub fn main() {}\0";
+        let content = "pub fn main() {}\0
+
+PROTOCOL RULES (mandatory in every plan):
+  P1. run_tests BEFORE done  Every plan MUST include run_tests immediately before done.
+  P2. pip install: use venv/bin/pip install <pkg>  never python3 -m pip or absolute paths.
+  P3. One write_file per path  combine multiple writes to same file into one.
+  P4. Cargo.toml deps: use write_file with complete file content  not patch_file.";
         let result = check_write(&path, content, false);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().rule_id, 3);

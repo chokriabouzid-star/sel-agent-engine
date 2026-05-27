@@ -61,7 +61,7 @@ pub async fn run_bench_realworld(
 ) -> Result<()> {
     println!();
     println!("{}", "╔══════════════════════════════════════════════════╗".cyan());
-    println!("{}", "║   SEL Agent v8.3.0 — suite: realworld            ║".cyan());
+    println!("{}", "║   SEL Agent v8.4.1 — suite: realworld            ║".cyan());
     println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
     println!("{}", "║   Feature-Targeted Benchmark                     ║".cyan());
     println!("{}", "╚══════════════════════════════════════════════════╝".cyan());
@@ -890,7 +890,7 @@ fn print_results(
     };
 
     println!("\n");
-    println!("   SEL Agent v8.3.0  Benchmark Results                       ");
+    println!("   SEL Agent v8.4.1  Benchmark Results                       ");
     println!("");
     println!(
         "  Tier    : {}",

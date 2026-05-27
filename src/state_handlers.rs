@@ -31,7 +31,7 @@ pub async fn do_planning(
             let commands_count = commands.len();
             let env = crate::constraint_engine::ProjectEnv::detect(workspace);
             let state = crate::constraint_engine::ProjectState::scan(workspace);
-            let commands = match crate::constraint_engine::apply(commands, &env, &state) {
+            let mut commands = match crate::constraint_engine::apply(commands, &env, &state) {
                 crate::constraint_engine::ConstraintResult::Ok(filtered) => {
                     if filtered.len() < commands_count {
                         println!(
@@ -66,6 +66,32 @@ pub async fn do_planning(
                     }
                 }
             } else {
+                // v8.4: Dedup write_file — keep only LAST write per path
+                {
+                    let mut last_write: std::collections::HashMap<String, usize> =
+                        std::collections::HashMap::new();
+                    for (i, cmd) in commands.iter().enumerate() {
+                        if let crate::protocol::Cmd::WriteFile { path, .. } = cmd {
+                            last_write.insert(path.clone(), i);
+                        }
+                    }
+                    let mut keep = vec![true; commands.len()];
+                    for (i, cmd) in commands.iter().enumerate() {
+                        if let crate::protocol::Cmd::WriteFile { path, .. } = cmd {
+                            if last_write.get(path) != Some(&i) {
+                                keep[i] = false;
+                                println!("   ⚠️  Dedup: skipping earlier write_file for '{}'", path);
+                            }
+                        }
+                    }
+                    let had_dups = keep.iter().any(|k| !k);
+                    if had_dups {
+                        commands = commands.into_iter().zip(keep)
+                            .filter(|(_, k)| *k)
+                            .map(|(c, _)| c)
+                            .collect();
+                    }
+                }
                 println!("   ✓ All patches unique\n");
                 Ok((commands, AgentState::Executing))
             }
@@ -102,7 +128,9 @@ fn build_planning_prompt(
         "\n  EXISTING FILES ARE PROVIDED. Your job is to FIX the bugs in them.\n\
          - DO NOT delete or overwrite these files from scratch.\n\
          - Use patch_file to apply precise fixes.\n\
-         - Keep existing correct logic and only change what is broken.\n"
+         - Keep existing correct logic and only change what is broken.\n\
+         - EXCEPTION: For Cargo.toml dependency changes, use write_file with the COMPLETE file content.\n\
+           Example: write_file Cargo.toml with [package] + [dependencies] sections complete.\n"
     } else {
         ""
     };
@@ -116,7 +144,12 @@ Before writing the JSON plan, think step-by-step inside <think>...</think> tags:
 - What imports are MANDATORY for this language?\n\
 - What edge cases must the tests cover?\n\
 </think>\n\
-After </think>, output ONLY the ```json plan. Nothing else outside the JSON block.\n{}", repair_instruction);
+After </think>, output ONLY the ```json plan. Nothing else outside the JSON block.\n\
+CRITICAL PROTOCOL REMINDER:\n\
+- Every plan MUST contain run_tests BEFORE done (non-negotiable)\n\
+- pip install: use venv/bin/pip install <pkg>\n\
+- Cargo.toml: use write_file with complete content when adding dependencies\n\
+{}", repair_instruction);
 
     crate::constitution::CONSTITUTION.to_string()
         + &format!(
@@ -502,7 +535,7 @@ pub async fn do_repairing(
     workspace: &Path,
     config: &ContextConfig,
     repair_fingerprints: &mut Vec<u64>,
-    previous_error: &mut Option<String>,
+    error_history: &mut Vec<String>,
 ) -> Result<(Vec<Cmd>, AgentState)> {
     let all_err = ctx
         .failed_steps
@@ -633,7 +666,7 @@ pub async fn do_repairing(
 
     //  Structured Repair Memory v8.0 (Escalating Strategy) 
     let display_limit = repair_limit;
-    let repair_ctx = crate::repair_strategy::RepairCtx::build(workspace, goal, previous_error.as_ref());
+    let repair_ctx = crate::repair_strategy::RepairCtx::build(workspace, goal, error_history);
     let attempt_note = format!(
         "ATTEMPT {}/{}:\n{}", 
         ctx.repair_attempts, 
@@ -651,7 +684,7 @@ pub async fn do_repairing(
     };
 
     //     
-    *previous_error = Some(all_err.chars().take(500).collect());
+    error_history.push(all_err.chars().take(800).collect());
 
     // Repair History Guard v1.2     
     let fingerprint: u64 = all_err

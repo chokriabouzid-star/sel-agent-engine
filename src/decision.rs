@@ -389,6 +389,36 @@ pub fn pre_repair_checklist(
         return ChecklistResult::Handled;
     }
 
+    //     // Check 5: Cargo.toml parse/patch failure → restore clean skeleton
+    // Cargo.toml is too short and repetitive for reliable patch_file.
+    let has_cargo_fail = ctx.failed_steps.iter().any(|f| {
+        (f.stderr.contains("Cargo.toml") || f.label.contains("Cargo.toml"))
+            && (f.stderr.contains("search block")
+                || f.stderr.contains("parse manifest")
+                || f.stderr.contains("duplicate key")
+                || f.stderr.contains("failed to parse")
+                || f.stderr.contains("unexpected character"))
+    });
+
+    if has_cargo_fail {
+        let cargo_path = workspace.join("Cargo.toml");
+        if cargo_path.exists() {
+            if let Ok(current) = std::fs::read_to_string(&cargo_path) {
+                let pkg_end = current.find("\n[").unwrap_or(current.len());
+                let pkg_section = current[..pkg_end].trim();
+
+                if pkg_section.contains("[package]") {
+                    let clean_toml = format!("{}\n\n[dependencies]\n", pkg_section);
+                    println!("   🔧 Checklist: Cargo.toml corrupted — restored clean skeleton");
+                    let _ = std::fs::write(&cargo_path, clean_toml.as_bytes());
+
+                    // Let the LLM continue from a clean Cargo.toml
+                    ctx.failed_steps.clear();
+                }
+            }
+        }
+    }
+
     ChecklistResult::ContinueToLlm
 }
 
