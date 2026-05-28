@@ -1,5 +1,6 @@
 
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod bench_bugs {
     use std::fs;
     use std::path::PathBuf;

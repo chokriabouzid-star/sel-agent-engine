@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 // src/bench_swe.rs — SEL Agent Mini SWE-Bench v1.1
 // 30 اختباراً حقيقياً + trajectory record/replay
 
@@ -6,6 +7,16 @@ use colored::Colorize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+
+/// Safely truncate a string at `max_bytes`, respecting Unicode char boundaries.
+/// Avoids panics when slicing strings that contain multi-byte Arabic/emoji chars.
+fn truncate_safe(s: &str, max_bytes: usize) -> &str {
+    let mut end = max_bytes.min(s.len());
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
 
 // ─────────────────────────────────────────────────────────────────
 // هياكل البيانات
@@ -68,6 +79,7 @@ impl SweResult {
 // الدالة الرئيسية للتشغيل
 // ─────────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_bench_swe(
     api_key: &str,
     lang_filter: &str,
@@ -457,10 +469,11 @@ fn print_results(results: &[SweResult], total: usize) {
     if !failed.is_empty() {
         println!("║  ❌ الحالات الفاشلة:{}║", " ".repeat(30));
         for r in &failed {
+            let title_snippet = truncate_safe(&r.title, 32);
             println!("║    {} {}{}║",
                 r.case_id.bright_red(),
-                &r.title[..r.title.len().min(32)],
-                " ".repeat(42usize.saturating_sub(r.case_id.len() + r.title.len().min(32) + 1)));
+                title_snippet,
+                " ".repeat(42usize.saturating_sub(r.case_id.len() + title_snippet.len() + 1)));
         }
         println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
     }

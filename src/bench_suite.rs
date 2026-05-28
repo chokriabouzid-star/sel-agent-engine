@@ -1,4 +1,4 @@
-// src/bench_suite.rs  v8.3.0: Unified Benchmark Facade
+// src/bench_suite.rs  v8.5.0: Unified Benchmark Facade
 //     
 //   T0: bench_cases.rs      (36 )  sel-agent bench --suite all
 //   T1-T4: bench_realworld.rs (14 )  sel-agent bench-real-world
@@ -47,8 +47,8 @@ pub fn trajectories_dir() -> std::path::PathBuf {
 pub fn print_suite_info() {
     let base_count = crate::bench_cases::all_cases().len();
     println!("\n");
-    println!("   SEL Agent v8.3.0  Unified Benchmark Suite                ");
-    println!("");
+    println!("   SEL Agent v8.5.0  Unified Benchmark Suite                ");
+    println!();
     println!("                                                              ");
     println!("  Rust-Native Benchmarks:                                     ");
     println!("   T0:Base        {:>2} cases   sel-agent bench --suite all  ", base_count);

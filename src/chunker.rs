@@ -1,3 +1,5 @@
+#![allow(clippy::empty_docs)]
+#![allow(clippy::manual_strip)]
 // ============================================================
 // src/chunker.rs    SEL Agent v5.8
 // Context Chunking:   413 Payload Too Large
@@ -46,7 +48,7 @@ pub struct FileChunk {
 //     
 
 ///      
-///
+//
 ///  :
 /// - Rust:   `src/main.rs:42:10`  `--> src/main.rs:42`
 /// - Python: `File "src/main.py", line 42`
@@ -104,8 +106,8 @@ fn parse_python_location(line: &str) -> Option<ErrorLocation> {
 
     let file_pos = line.find("File ")?;
     let after_file = &line[file_pos + 5..];
-    let (path, rest) = if after_file.starts_with('"') {
-        let end = after_file[1..].find('"')? + 1;
+    let (path, rest) = if let Some(af_stripped) = after_file.strip_prefix('"') {
+        let end = af_stripped.find('"')? + 1;
         (&after_file[1..end], &after_file[end + 1..])
     } else if after_file.starts_with('\'') {
         let end = after_file[1..].find('\'')? + 1;

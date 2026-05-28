@@ -1,3 +1,4 @@
+#![allow(clippy::empty_docs)]
 // src/memory.rs  v7.2.0: Error Fingerprinting
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -84,7 +85,7 @@ pub fn quick_fix(error: &str) -> Option<QuickFix> {
             _ => return None,
         };
         return Some(QuickFix::InstallPackage {
-            command: format!("pip install {}", pkg),
+            command: format!("venv/bin/pip install {}", pkg),
         });
     }
 
@@ -186,7 +187,7 @@ impl FailureMemory {
         }
 
         if self.entries.len() > 100 {
-            self.entries.sort_by(|a, b| b.count.cmp(&a.count));
+            self.entries.sort_by_key(|b| std::cmp::Reverse(b.count));
             self.entries.truncate(100);
         }
         self.save();

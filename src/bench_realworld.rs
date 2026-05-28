@@ -48,6 +48,7 @@ impl BenchCase {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_bench_realworld(
     _api_key: &str,
     tier: Option<u8>,
@@ -61,7 +62,7 @@ pub async fn run_bench_realworld(
 ) -> Result<()> {
     println!();
     println!("{}", "╔══════════════════════════════════════════════════╗".cyan());
-    println!("{}", "║   SEL Agent v8.4.1 — suite: realworld            ║".cyan());
+    println!("{}", "║   SEL Agent v8.5.0 — suite: realworld            ║".cyan());
     println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
     println!("{}", "║   Feature-Targeted Benchmark                     ║".cyan());
     println!("{}", "╚══════════════════════════════════════════════════╝".cyan());
@@ -890,8 +891,8 @@ fn print_results(
     };
 
     println!("\n");
-    println!("   SEL Agent v8.4.1  Benchmark Results                       ");
-    println!("");
+    println!("   SEL Agent v8.5.0  Benchmark Results                       ");
+    println!();
     println!(
         "  Tier    : {}",
         tier.map_or("ALL".to_string(), |t| format!("Tier {}", t))
@@ -906,9 +907,9 @@ fn print_results(
     if healed > 0 {
         println!("  Healed  : {} auto-rerecorded ", healed);
     }
-    println!("");
+    println!();
     println!("  Feature Breakdown                                          ");
-    println!("");
+    println!();
 
     let mut sorted: Vec<_> = feature_stats.iter().collect();
     sorted.sort_by_key(|(k, _)| *k);
@@ -931,7 +932,7 @@ fn print_results(
         println!("  {:<38} {} {}/{}", feature, bar, p, t);
     }
 
-    println!("");
+    println!();
 
     let verdict = if pct >= 90.0 {
         format!("  {} STABLE  ready for production", "".green())

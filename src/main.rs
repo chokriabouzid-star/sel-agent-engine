@@ -7,7 +7,7 @@ mod failure;
 pub mod llm;
 mod trajectory_index;
 mod workspace_oracle;
-// src/main.rs  SEL Agent v8.4.1
+// src/main.rs  SEL Agent v8.5.0
 mod agent;
 mod chunker;
 mod constraint_engine;
@@ -232,8 +232,8 @@ async fn main() -> Result<()> {
             use crate::llm::LLMProvider;
 
             println!("\n");
-            println!("   SEL Agent v8.4.1  State Machine Engine   ");
-            println!("");
+            println!("   SEL Agent v8.5.0  State Machine Engine   ");
+            println!();
             println!("\n Goal: \"{}\"", goal);
             {
                 let engine = crate::llm::live::LiveProvider::from_env();
@@ -284,8 +284,8 @@ async fn main() -> Result<()> {
                     .filter(|c| c.is_alphanumeric() || c.is_whitespace())
                     .collect::<String>()
                     .replace(" ", "_");
-                let slug = if slug.len() > 30 {
-                    slug[..30].to_string()
+                let slug = if slug.chars().count() > 30 {
+                    slug.chars().take(30).collect::<String>()
                 } else {
                     slug
                 };
@@ -309,9 +309,9 @@ async fn main() -> Result<()> {
 
             let ref_file_expanded = ref_file.as_ref().map(|p| {
                 let s = p.to_string_lossy();
-                if s.starts_with("~/") {
+                if let Some(s_stripped) = s.strip_prefix("~/") {
                     if let Ok(home) = std::env::var("HOME") {
-                        return std::path::PathBuf::from(format!("{}/{}", home, &s[2..]));
+                        return std::path::PathBuf::from(format!("{}/{}", home, s_stripped));
                     }
                 }
                 p.clone()
@@ -364,9 +364,7 @@ async fn main() -> Result<()> {
                         return Err(anyhow::anyhow!("Run failed even after auto-rerecord"));
                     }
                 }
-            } else if let Err(e) = run_res {
-                return Err(e);
-            }
+            } else { run_res?; }
         }
     }
     Ok(())

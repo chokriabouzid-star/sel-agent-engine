@@ -112,7 +112,7 @@ pub fn classify_json_error(reason: &str) -> String {
     } else {
         format!(
             "  []   JSON  {}",
-            &reason[..reason.len().min(50)]
+            reason.chars().take(50).collect::<String>()
         )
     }
 }

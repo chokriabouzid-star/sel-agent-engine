@@ -167,20 +167,31 @@ fn detect_extra_deps(kind: &ProjectKind, sub_kind: &SubKind, goal: &str) -> Vec<
                 }
             }
         }
-        ProjectKind::TypeScript => match sub_kind {
-            SubKind::Express => {
-                deps.push("express".into());
-                deps.push("@types/express".into());
+        ProjectKind::TypeScript => {
+            match sub_kind {
+                SubKind::Express => {
+                    deps.push("express".into());
+                    deps.push("@types/express".into());
+                    deps.push("supertest".into());
+                    deps.push("@types/supertest".into());
+                }
+                SubKind::React => {
+                    deps.push("react".into());
+                    deps.push("react-dom".into());
+                    deps.push("@types/react".into());
+                }
+                _ => {}
+            }
+            // v8.4.2: detect axios in any TS goal
+            if g.contains("axios") {
+                deps.push("axios".into());
+            }
+            // v8.4.2: detect other common TS deps
+            if g.contains("supertest") && !deps.contains(&"supertest".to_string()) {
                 deps.push("supertest".into());
                 deps.push("@types/supertest".into());
             }
-            SubKind::React => {
-                deps.push("react".into());
-                deps.push("react-dom".into());
-                deps.push("@types/react".into());
-            }
-            _ => {}
-        },
+        }
         _ => {}
     }
 

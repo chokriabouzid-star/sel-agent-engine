@@ -48,7 +48,7 @@ impl WorkspaceOracle {
             || path.join("venv").exists()
             || std::fs::read_dir(path).map(|dir| {
                 dir.filter_map(Result::ok)
-                   .any(|e| e.path().extension().map_or(false, |ext| ext == "py"))
+                   .any(|e| e.path().extension().is_some_and(|ext| ext == "py"))
             }).unwrap_or(false)
         {
             ProjectType::Python
@@ -57,7 +57,7 @@ impl WorkspaceOracle {
         }
     }
 
-    ///             
+    /// Checks whether the given file extension is allowed in the detected project type.
     pub fn is_ext_allowed(&self, ext: &str) -> Result<(), String> {
         let p_type = self.current_type();
         let allowed = match p_type {
@@ -116,7 +116,11 @@ impl WorkspaceOracle {
                 } else {
                     let prog = parts[0].clone();
                     let args = parts[1..].to_vec();
-                    (prog, args)
+                    if prog == "go" && (args.is_empty() || args == vec!["test"]) {
+                        ("go".to_string(), vec!["test".to_string(), "./...".to_string(), "-v".to_string()])
+                    } else {
+                        (prog, args)
+                    }
                 }
             }
         }

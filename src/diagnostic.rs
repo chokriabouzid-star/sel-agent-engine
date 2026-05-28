@@ -223,6 +223,52 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
             suggestion: "Correct the type annotation or use a type assertion".into(),
         });
     }
+    if error_text.contains("TS2345") && error_text.contains("never") {
+        let is_axios = error_text.contains("mockResolvedValue") || error_text.contains("mockRejectedValue");
+        let sug = if is_axios {
+            "axios.get overloads cause jest.Mock to produce `never`.              SOLUTION: mock the module-level default, not .get directly.              In api.test.ts use: jest.mock('axios');              then `import axiosMock from 'axios'; const getMock = axiosMock.get as jest.Mock;`              OR use: `jest.mocked(axios).get.mockResolvedValue(...)`              OR avoid casting: `const mockGet = jest.fn(); jest.spyOn(axios,'get').mockImplementation(mockGet);`"
+        } else {
+            "Type never: check generic constraints or add explicit type annotations"
+        };
+        hints.push(Hint {
+            severity: Severity::Error,
+            category: "ts/mock-never",
+            message: "TS2345 cannot assign to never — likely jest.Mock overload on axios".into(),
+            suggestion: sug.into(),
+        });
+    }
+    if error_text.contains("TS2459") || (error_text.contains("declares") && error_text.contains("locally") && error_text.contains("not exported")) {
+        hints.push(Hint {
+            severity: Severity::Error,
+            category: "ts/missing-export",
+            message: "class or function declared but not exported".into(),
+            suggestion: "Add `export` keyword: write `export class ApiClient` not `class ApiClient`".into(),
+        });
+    }
+    if error_text.contains("TS2345") && error_text.contains("never") {
+        let is_axios_mock = error_text.contains("mockResolvedValue")
+            || error_text.contains("mockRejectedValue")
+            || error_text.contains("jest.Mock");
+        let suggestion = if is_axios_mock {
+            "axios.get has overloaded types — casting to jest.Mock produces `never`.              Instead use: `jest.mocked(axios.get).mockResolvedValue(...)`              OR import axios differently:              `import * as axios from 'axios'; jest.mock('axios');`              then `(axios.get as jest.MockedFunction<typeof axios.get>).mockResolvedValue(...)`              OR simplest: mock the whole module with manual mock returning typed values              without casting axios.get directly.".into()
+        } else {
+            "Argument type is not assignable to parameter type never — check generic constraints              or add explicit type annotation".into()
+        };
+        hints.push(Hint {
+            severity: Severity::Error,
+            category: "ts/mock-never",
+            message: "TS2345 argument not assignable to never (likely jest.Mock overload issue)".into(),
+            suggestion,
+        });
+    }
+    if error_text.contains("TS2459") && error_text.contains("not exported") {
+        hints.push(Hint {
+            severity: Severity::Error,
+            category: "ts/missing-export",
+            message: "TS2459 class/function declared but not exported".into(),
+            suggestion: "Add `export` keyword before the class or function declaration:                          `export class ApiClient` not `class ApiClient`".into(),
+        });
+    }
 
     // --- Generic / test runner patterns ---
     if error_text.contains("FAIL") && error_text.contains("panic") {
@@ -234,11 +280,19 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
         });
     }
     if error_text.contains("timeout") || error_text.contains("timed out") {
+        let is_jest_fake_timer = error_text.contains("useFakeTimers")
+            || error_text.contains("jest.setTimeout")
+            || (error_text.contains("Exceeded timeout") && error_text.contains("ms for a test"));
+        let suggestion = if is_jest_fake_timer {
+            "Jest fake timers deadlock: the test awaits a promise that itself awaits setTimeout,              which fake timers froze. Pattern: start the promise FIRST, then call              `await jest.runAllTimersAsync()` to drain ALL pending timers+microtasks.              Do NOT use jest.useFakeTimers() with async retry — use delayMs:0 or mock              the delay: jest.spyOn(global, 'setTimeout').mockImplementation(cb => { cb(); return 0 as any; })".into()
+        } else {
+            "Check for infinite loops, blocking I/O, or deadlocks".into()
+        };
         hints.push(Hint {
             severity: Severity::Fatal,
             category: "test/timeout",
             message: "test timed out".into(),
-            suggestion: "Check for infinite loops, blocking I/O, or deadlocks".into(),
+            suggestion,
         });
     }
 

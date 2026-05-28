@@ -1698,6 +1698,7 @@ pub fn system_checks_v11() -> Vec<SelBenchCase> {
 // SELBench v1.1-rc Runner
 // ─────────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_bench_sel_v11(
     _api_key: &str,
     focus: Option<&str>,

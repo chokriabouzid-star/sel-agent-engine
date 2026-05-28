@@ -398,7 +398,7 @@ async fn report_run(
     let model =
         std::env::var("SEL_MODEL").unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string());
     let body = serde_json::json!({
-        "goal": &goal[..goal.len().min(200)],
+        "goal": goal.chars().take(200).collect::<String>(),
         "success": success,
         "repairs": repairs,
         "duration_secs": duration_secs,

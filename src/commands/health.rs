@@ -9,7 +9,7 @@ use crate::llm::LLMProvider;
 
 pub async fn run_health(api_key: &str) -> Result<()> {
     println!("\n");
-    println!("   SEL Agent v8.3.0  Health Check                   ");
+    println!("   SEL Agent v8.5.0  Health Check                   ");
     println!("\n");
     // Provider info   bench
     {
@@ -60,8 +60,8 @@ pub async fn run_health(api_key: &str) -> Result<()> {
         api_key.to_string()
     };
     let api_key = api_key_str.as_str();
-    let key_preview = if api_key.len() > 8 {
-        format!("{}...", &api_key[..8])
+    let key_preview = if api_key.chars().count() > 8 {
+        format!("{}...", api_key.chars().take(8).collect::<String>())
     } else {
         "???".to_string()
     };

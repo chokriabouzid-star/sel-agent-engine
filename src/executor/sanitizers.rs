@@ -211,8 +211,8 @@ pub fn fix_rust_pattern(line: &str, open: &str, new_open: &str, new_close: &str)
                 result.push_str(msg);
                 result.push_str(new_close);
                 //  ) 
-                rest = if tail.starts_with(')') {
-                    &tail[1..]
+                rest = if let Some(stripped) = tail.strip_prefix(')') {
+                    stripped
                 } else {
                     tail
                 };
@@ -228,8 +228,7 @@ pub fn fix_rust_pattern(line: &str, open: &str, new_open: &str, new_close: &str)
 }
 
 ///  pattern("msg")  pattern("msg".to_string())
-///  lookahead        
-
+// lookahead
 #[cfg(test)]
 mod tests_rust_autofix {
     use super::*;

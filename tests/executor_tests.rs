@@ -33,7 +33,7 @@ fn test_compile_check_blocks_broken_go() {
     );
 
     let output = Command::new("go")
-        .args(&["vet", go_file.to_str().unwrap()])
+        .args(["vet", go_file.to_str().unwrap()])
         .output()
         .expect("go vet failed to run");
 
@@ -55,7 +55,7 @@ fn test_compile_check_blocks_broken_python() {
     write_file(&py_file, "def broken_syntax(:\n    pass\n");
 
     let output = Command::new("python3")
-        .args(&["-m", "py_compile", py_file.to_str().unwrap()])
+        .args(["-m", "py_compile", py_file.to_str().unwrap()])
         .output()
         .expect("py_compile failed to run");
 
@@ -114,12 +114,12 @@ fn test_autofix_after_write_file() {
     );
 
     let _ = Command::new("go")
-        .args(&["mod", "init", "testmod"])
+        .args(["mod", "init", "testmod"])
         .current_dir(&dir)
         .output();
 
     let vet_fail = Command::new("go")
-        .args(&["vet", "."])
+        .args(["vet", "."])
         .current_dir(&dir)
         .output()
         .unwrap();
@@ -129,7 +129,7 @@ fn test_autofix_after_write_file() {
     write_file(&go_file, fixed);
 
     let vet_ok = Command::new("go")
-        .args(&["vet", "."])
+        .args(["vet", "."])
         .current_dir(&dir)
         .output()
         .unwrap();
@@ -143,7 +143,7 @@ fn test_autofix_after_write_file() {
 fn test_go_vet_dot_slash_dot() {
     let dir = temp_dir("go_vet_all");
     let _ = Command::new("go")
-        .args(&["mod", "init", "testmod"])
+        .args(["mod", "init", "testmod"])
         .current_dir(&dir)
         .output();
 
@@ -157,7 +157,7 @@ fn test_go_vet_dot_slash_dot() {
     );
 
     let output = Command::new("go")
-        .args(&["vet", "./..."])
+        .args(["vet", "./..."])
         .current_dir(&dir)
         .output()
         .unwrap();
@@ -175,7 +175,7 @@ fn test_go_vet_dot_slash_dot() {
 fn test_full_flow_compile_fail_then_autofix_then_test_pass() {
     let dir = temp_dir("full_flow");
     let _ = Command::new("go")
-        .args(&["mod", "init", "testmod"])
+        .args(["mod", "init", "testmod"])
         .current_dir(&dir)
         .output();
 
@@ -184,7 +184,7 @@ fn test_full_flow_compile_fail_then_autofix_then_test_pass() {
         "package main\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n    result := Add(1,2)\n    if result != 3 { t.Fatal(\"fail\") }\n}\n");
 
     let output_before = Command::new("go")
-        .args(&["test", "."])
+        .args(["test", "."])
         .current_dir(&dir)
         .output()
         .unwrap();
@@ -197,7 +197,7 @@ fn test_full_flow_compile_fail_then_autofix_then_test_pass() {
     );
 
     let output_after = Command::new("go")
-        .args(&["test", "."])
+        .args(["test", "."])
         .current_dir(&dir)
         .output()
         .unwrap();

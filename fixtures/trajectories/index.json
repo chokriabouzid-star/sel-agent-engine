@@ -7,10 +7,10 @@
         "002.json",
         "003.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-13T23:24:42.958240544+00:00",
-      "constitution_hash": "263b0ff719b27441",
-      "has_repairs": false,
+      "interaction_count": 2,
+      "recorded_at": "2026-05-26T17:59:27.972009161+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -31,8 +31,8 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-20T21:17:34.406904721+00:00",
-      "constitution_hash": "eb245bccd96278c5",
+      "recorded_at": "2026-05-26T18:02:36.363044812+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
@@ -42,7 +42,7 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-25T21:32:54.749719142+00:00",
+      "recorded_at": "2026-05-26T18:00:37.480968656+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -50,12 +50,13 @@
     {
       "task_id": "type_mismatch",
       "files": [
-        "001.json"
+        "001.json",
+        "002.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-20T21:18:25.348885560+00:00",
-      "constitution_hash": "eb245bccd96278c5",
-      "has_repairs": false,
+      "interaction_count": 2,
+      "recorded_at": "2026-05-26T18:04:57.128442297+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -104,8 +105,8 @@
         "002.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-13T23:36:27.381519663+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-26T18:08:17.792981530+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
@@ -117,8 +118,8 @@
         "003.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-13T23:37:45.088766296+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-26T18:08:56.102214486+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
@@ -142,10 +143,10 @@
         "003.json",
         "004.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-13T23:42:48.550693635+00:00",
-      "constitution_hash": "263b0ff719b27441",
-      "has_repairs": false,
+      "interaction_count": 2,
+      "recorded_at": "2026-05-26T18:10:10.056295615+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -154,21 +155,20 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-17T17:31:14.031019816+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-26T18:10:15.309995224+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
     {
       "task_id": "go_fizzbuzz",
       "files": [
-        "001.json",
-        "002.json"
+        "001.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-05-17T17:31:33.261276254+00:00",
-      "constitution_hash": "263b0ff719b27441",
-      "has_repairs": true,
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T22:44:37.549261211+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
@@ -177,8 +177,8 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-17T17:31:45.494796389+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-26T18:10:35.694697529+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
@@ -188,8 +188,8 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-20T21:21:39.039332863+00:00",
-      "constitution_hash": "eb245bccd96278c5",
+      "recorded_at": "2026-05-28T17:57:16.659232303+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
@@ -199,8 +199,8 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-14T22:44:24.260985578+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-26T18:11:40.894816678+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
@@ -211,20 +211,21 @@
         "002.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-13T22:22:43.533820897+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-26T18:12:27.954512740+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
     {
       "task_id": "node_factorial",
       "files": [
-        "001.json"
+        "001.json",
+        "002.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-14T22:45:35.785245027+00:00",
-      "constitution_hash": "263b0ff719b27441",
-      "has_repairs": false,
+      "interaction_count": 2,
+      "recorded_at": "2026-05-26T18:13:06.896917729+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -233,8 +234,8 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-14T22:46:34.724153318+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-26T18:14:08.454972926+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
@@ -244,10 +245,10 @@
         "001.json",
         "002.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-13T22:26:34.627810198+00:00",
-      "constitution_hash": "263b0ff719b27441",
-      "has_repairs": false,
+      "interaction_count": 2,
+      "recorded_at": "2026-05-26T18:15:05.891995892+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -256,32 +257,34 @@
         "001.json",
         "002.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-13T22:27:45.100880078+00:00",
-      "constitution_hash": "263b0ff719b27441",
-      "has_repairs": false,
+      "interaction_count": 2,
+      "recorded_at": "2026-05-26T18:15:53.189577105+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
       "task_id": "ts_factorial",
       "files": [
-        "001.json"
+        "001.json",
+        "002.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-14T22:48:29.419281404+00:00",
-      "constitution_hash": "263b0ff719b27441",
-      "has_repairs": false,
+      "interaction_count": 2,
+      "recorded_at": "2026-05-26T18:17:11.589215510+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
       "task_id": "ts_stack",
       "files": [
-        "001.json"
+        "001.json",
+        "002.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-14T22:50:08.464189035+00:00",
-      "constitution_hash": "263b0ff719b27441",
-      "has_repairs": false,
+      "interaction_count": 2,
+      "recorded_at": "2026-05-26T18:18:28.601990188+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -291,21 +294,22 @@
         "002.json",
         "003.json"
       ],
-      "interaction_count": 3,
-      "recorded_at": "2026-05-17T18:24:15.652340437+00:00",
-      "constitution_hash": "263b0ff719b27441",
-      "has_repairs": true,
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T18:18:53.652116304+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
       "task_id": "rust_fizzbuzz",
       "files": [
-        "001.json"
+        "001.json",
+        "002.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-17T17:40:17.114748327+00:00",
-      "constitution_hash": "263b0ff719b27441",
-      "has_repairs": false,
+      "interaction_count": 2,
+      "recorded_at": "2026-05-26T18:18:59.991024241+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -314,8 +318,8 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-17T17:40:36.968159491+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-26T18:19:03.765310562+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
@@ -325,10 +329,10 @@
         "001.json",
         "002.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-13T22:31:31.485009534+00:00",
-      "constitution_hash": "263b0ff719b27441",
-      "has_repairs": false,
+      "interaction_count": 2,
+      "recorded_at": "2026-05-26T18:19:12.565918375+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -337,8 +341,8 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-17T12:43:20.878505753+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-26T18:19:54.699619493+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
@@ -348,10 +352,10 @@
         "001.json",
         "002.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-05-17T12:49:29.913363686+00:00",
-      "constitution_hash": "263b0ff719b27441",
-      "has_repairs": true,
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T18:20:38.596605308+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
@@ -361,10 +365,10 @@
         "002.json",
         "003.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-13T22:35:21.056332475+00:00",
-      "constitution_hash": "263b0ff719b27441",
-      "has_repairs": false,
+      "interaction_count": 2,
+      "recorded_at": "2026-05-26T18:21:10.248598590+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -375,8 +379,8 @@
         "003.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-13T22:36:04.650187323+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-26T18:22:40.724265030+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
@@ -389,8 +393,8 @@
         "004.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-13T22:57:09.342126940+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-26T18:23:46.387812839+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
@@ -398,23 +402,27 @@
       "task_id": "v7_go_autofix",
       "files": [
         "001.json",
-        "002.json"
+        "002.json",
+        "003.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-05-20T21:27:58.990052248+00:00",
-      "constitution_hash": "eb245bccd96278c5",
+      "interaction_count": 3,
+      "recorded_at": "2026-05-26T18:24:02.828655091+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"
     },
     {
       "task_id": "v7_rust_quotes",
       "files": [
-        "001.json"
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-17T17:42:49.685553038+00:00",
-      "constitution_hash": "263b0ff719b27441",
-      "has_repairs": false,
+      "interaction_count": 4,
+      "recorded_at": "2026-05-26T18:24:16.311197277+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -507,8 +515,8 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-12T22:46:48.921612977+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-26T18:25:26.922871864+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
@@ -518,8 +526,8 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-13T23:28:56.615616030+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-26T18:03:52.824560794+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
@@ -529,20 +537,21 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-20T21:19:08.759400764+00:00",
-      "constitution_hash": "eb245bccd96278c5",
+      "recorded_at": "2026-05-26T18:06:11.665106918+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
     {
       "task_id": "name_typo",
       "files": [
-        "001.json"
+        "001.json",
+        "002.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-20T21:20:46.940981921+00:00",
-      "constitution_hash": "eb245bccd96278c5",
-      "has_repairs": false,
+      "interaction_count": 2,
+      "recorded_at": "2026-05-26T18:07:02.961613985+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -551,8 +560,8 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-13T23:33:05.970571172+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-26T18:07:39.739047214+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
@@ -563,8 +572,8 @@
         "002.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-13T23:40:59.387354659+00:00",
-      "constitution_hash": "263b0ff719b27441",
+      "recorded_at": "2026-05-26T18:09:33.161544366+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
     },
@@ -610,7 +619,7 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-26T10:06:07.555302128+00:00",
+      "recorded_at": "2026-05-27T18:31:07.755666948+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -687,12 +696,14 @@
       "task_id": "run_fix_this_broken_binary_search_",
       "files": [
         "001.json",
-        "002.json"
+        "002.json",
+        "003.json",
+        "004.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-22T21:03:31.525923706+00:00",
+      "interaction_count": 4,
+      "recorded_at": "2026-05-27T18:16:00.481954337+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
-      "has_repairs": false,
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -704,7 +715,7 @@
         "004.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-22T21:05:27.035473301+00:00",
+      "recorded_at": "2026-05-28T14:20:45.440760691+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -721,7 +732,7 @@
         "007.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-22T21:05:46.462758862+00:00",
+      "recorded_at": "2026-05-28T14:21:29.250200953+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -736,7 +747,7 @@
         "005.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-22T21:07:11.443413882+00:00",
+      "recorded_at": "2026-05-27T18:16:37.236385851+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -747,7 +758,7 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-22T21:08:36.048794403+00:00",
+      "recorded_at": "2026-05-27T00:29:12.352711036+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -767,7 +778,7 @@
         "010.json"
       ],
       "interaction_count": 6,
-      "recorded_at": "2026-05-22T21:12:31.438202843+00:00",
+      "recorded_at": "2026-05-26T23:25:58.422048630+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"
@@ -808,10 +819,10 @@
         "005.json",
         "006.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-22T21:16:07.933369218+00:00",
+      "interaction_count": 6,
+      "recorded_at": "2026-05-27T23:21:13.926547238+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
-      "has_repairs": false,
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -835,7 +846,7 @@
         "004.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-22T21:18:59.696124100+00:00",
+      "recorded_at": "2026-05-28T14:28:06.637464008+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -859,7 +870,7 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-25T22:12:30.157290210+00:00",
+      "recorded_at": "2026-05-28T19:53:07.916895652+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -867,10 +878,15 @@
     {
       "task_id": "swe_py_01",
       "files": [
-        "001.json"
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-25T22:11:45.622364495+00:00",
+      "recorded_at": "2026-05-28T19:52:35.534336727+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -879,12 +895,15 @@
       "task_id": "swe_py_03",
       "files": [
         "001.json",
-        "002.json"
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-05-25T22:14:19.692667090+00:00",
+      "interaction_count": 1,
+      "recorded_at": "2026-05-28T19:53:41.266019743+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
-      "has_repairs": true,
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
@@ -892,10 +911,11 @@
       "files": [
         "001.json",
         "002.json",
-        "003.json"
+        "003.json",
+        "004.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-05-25T22:15:10.502326851+00:00",
+      "interaction_count": 4,
+      "recorded_at": "2026-05-28T19:54:18.392358514+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"
@@ -909,10 +929,12 @@
         "004.json",
         "005.json",
         "006.json",
-        "007.json"
+        "007.json",
+        "008.json",
+        "009.json"
       ],
       "interaction_count": 2,
-      "recorded_at": "2026-05-25T22:57:00.659737264+00:00",
+      "recorded_at": "2026-05-28T20:39:24.112239249+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"
@@ -986,7 +1008,7 @@
         "003.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-25T22:15:49.212995715+00:00",
+      "recorded_at": "2026-05-28T19:54:51.990898063+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -998,7 +1020,7 @@
         "002.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-25T22:16:37.855069486+00:00",
+      "recorded_at": "2026-05-28T19:55:25.115318315+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -1009,12 +1031,14 @@
         "001.json",
         "002.json",
         "003.json",
-        "004.json"
+        "004.json",
+        "005.json",
+        "006.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-05-25T22:18:16.064420802+00:00",
+      "interaction_count": 1,
+      "recorded_at": "2026-05-28T19:55:56.022332936+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
-      "has_repairs": true,
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
@@ -1027,8 +1051,8 @@
         "005.json",
         "006.json"
       ],
-      "interaction_count": 5,
-      "recorded_at": "2026-05-25T22:19:58.928932402+00:00",
+      "interaction_count": 2,
+      "recorded_at": "2026-05-28T19:57:00.050712233+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"
@@ -1040,7 +1064,7 @@
         "002.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-25T22:21:33.273196882+00:00",
+      "recorded_at": "2026-05-28T19:57:34.151310253+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -1049,10 +1073,13 @@
       "task_id": "swe_py_10",
       "files": [
         "001.json",
-        "002.json"
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-05-25T22:22:23.647254117+00:00",
+      "interaction_count": 5,
+      "recorded_at": "2026-05-28T19:58:31.380946316+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"
@@ -1067,8 +1094,8 @@
         "005.json",
         "006.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-05-25T22:23:09.511677918+00:00",
+      "interaction_count": 5,
+      "recorded_at": "2026-05-28T20:12:04.617168423+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"
@@ -1078,10 +1105,13 @@
       "files": [
         "001.json",
         "002.json",
-        "003.json"
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
       ],
-      "interaction_count": 3,
-      "recorded_at": "2026-05-25T22:23:47.533220103+00:00",
+      "interaction_count": 5,
+      "recorded_at": "2026-05-28T20:12:43.684832678+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"
@@ -1093,10 +1123,11 @@
         "002.json",
         "003.json",
         "004.json",
-        "005.json"
+        "005.json",
+        "006.json"
       ],
-      "interaction_count": 4,
-      "recorded_at": "2026-05-25T22:24:55.835269102+00:00",
+      "interaction_count": 3,
+      "recorded_at": "2026-05-28T20:13:03.755232789+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"
@@ -1106,12 +1137,15 @@
       "files": [
         "001.json",
         "002.json",
-        "003.json"
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-05-25T22:25:30.182973125+00:00",
+      "interaction_count": 1,
+      "recorded_at": "2026-05-28T20:13:21.458310596+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
-      "has_repairs": true,
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
@@ -1124,8 +1158,8 @@
         "005.json",
         "006.json"
       ],
-      "interaction_count": 3,
-      "recorded_at": "2026-05-25T22:26:27.180900220+00:00",
+      "interaction_count": 5,
+      "recorded_at": "2026-05-28T20:13:48.589836327+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"
@@ -1136,12 +1170,14 @@
         "001.json",
         "002.json",
         "003.json",
-        "004.json"
+        "004.json",
+        "005.json",
+        "006.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-05-25T22:27:08.819856987+00:00",
+      "interaction_count": 1,
+      "recorded_at": "2026-05-28T20:14:06.607033006+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
-      "has_repairs": true,
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
@@ -1149,23 +1185,31 @@
       "files": [
         "001.json",
         "002.json",
-        "003.json"
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-05-25T22:27:29.838531614+00:00",
+      "interaction_count": 1,
+      "recorded_at": "2026-05-28T20:14:22.057196691+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
-      "has_repairs": true,
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
       "task_id": "swe_rs_01",
       "files": [
-        "001.json"
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-25T22:27:48.996478488+00:00",
+      "interaction_count": 6,
+      "recorded_at": "2026-05-28T21:22:00.048435459+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
-      "has_repairs": false,
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -1174,10 +1218,12 @@
         "001.json",
         "002.json",
         "003.json",
-        "004.json"
+        "004.json",
+        "005.json",
+        "006.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-05-25T22:29:09.049315167+00:00",
+      "interaction_count": 6,
+      "recorded_at": "2026-05-28T21:24:34.020224003+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"
@@ -1186,12 +1232,16 @@
       "task_id": "swe_rs_03",
       "files": [
         "001.json",
-        "002.json"
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-25T22:29:28.866510977+00:00",
+      "interaction_count": 6,
+      "recorded_at": "2026-05-28T21:25:17.834696569+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
-      "has_repairs": false,
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -1202,10 +1252,11 @@
         "003.json",
         "004.json",
         "005.json",
-        "006.json"
+        "006.json",
+        "007.json"
       ],
       "interaction_count": 6,
-      "recorded_at": "2026-05-25T22:30:23.830791029+00:00",
+      "recorded_at": "2026-05-28T21:27:32.526175384+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"
@@ -1214,12 +1265,16 @@
       "task_id": "swe_rs_05",
       "files": [
         "001.json",
-        "002.json"
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-25T22:30:53.027181626+00:00",
+      "interaction_count": 6,
+      "recorded_at": "2026-05-28T21:28:44.075519895+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
-      "has_repairs": false,
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -1229,10 +1284,11 @@
         "002.json",
         "003.json",
         "004.json",
-        "005.json"
+        "005.json",
+        "006.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-05-25T22:31:19.276704725+00:00",
+      "interaction_count": 6,
+      "recorded_at": "2026-05-28T21:29:30.979322116+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"
@@ -1242,12 +1298,364 @@
       "files": [
         "001.json",
         "002.json",
-        "003.json"
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-05-25T22:34:02.347544794+00:00",
+      "interaction_count": 6,
+      "recorded_at": "2026-05-28T21:30:53.879884828+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_sb_01",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T18:46:11.379899076+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_sb_02",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-26T18:46:59.082440059+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_sb_08",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-26T18:50:45.089737815+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_sb_03",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json"
+      ],
+      "interaction_count": 3,
+      "recorded_at": "2026-05-26T18:47:42.870532270+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_sb_04",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T18:47:53.861852650+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_sb_05",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json",
+        "007.json"
+      ],
+      "interaction_count": 7,
+      "recorded_at": "2026-05-26T18:48:53.421243091+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_sb_06",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-26T18:49:45.414226660+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_sb_07",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T18:49:57.088075318+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_sb_09",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json"
+      ],
+      "interaction_count": 4,
+      "recorded_at": "2026-05-26T18:51:04.363897291+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_sb_10",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T18:51:28.348164771+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_rc_01",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-26T22:35:14.824780426+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_rc_02",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T22:35:38.839316733+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_rc_04",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T22:36:50.800600358+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_rc_05",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T22:37:03.333409385+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_rc_06",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T22:37:13.098580814+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_rc_07",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T22:37:22.534414771+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_rc_08",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T22:37:37.479120227+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_rc_09",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T22:37:50.496111716+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_rc_10",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 2,
+      "recorded_at": "2026-05-26T22:38:13.992658933+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_rc_11",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T22:38:29.558518151+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_rc_12",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T22:38:47.132366455+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_rc_13",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T22:39:02.706335065+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_rc_14",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T22:41:20.754850558+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_rc_15",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T22:42:39.003070992+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_rc_16",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T22:43:36.596736691+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_rc_17",
+      "files": [
+        "001.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T22:44:31.955453775+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_rc_18",
+      "files": [
+        "001.json",
+        "002.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-26T22:44:45.793199260+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "sel_rc_03",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
+      ],
+      "interaction_count": 4,
+      "recorded_at": "2026-05-26T23:50:54.127334556+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": true,
+      "language": "trajectories"
+    },
+    {
+      "task_id": "run_create_a_typescript_async_retr",
+      "files": [
+        "001.json",
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
+      ],
+      "interaction_count": 1,
+      "recorded_at": "2026-05-28T14:24:37.858564861+00:00",
+      "constitution_hash": "85cbb8f2e26c7f98",
+      "has_repairs": false,
       "language": "trajectories"
     }
   ]

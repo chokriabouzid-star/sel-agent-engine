@@ -70,14 +70,15 @@ impl SafeExecutor {
         } else {
             std::borrow::Cow::Borrowed(content)
         };
-        
         // auto-fix single-quote string literals in Rust files
         let content = if p.extension().map(|x| x == "rs").unwrap_or(false) {
-            std::borrow::Cow::Owned(fix_rust_string_literals(content.as_ref()))
+            let fixed = fix_rust_string_literals(content.as_ref());
+            let fixed = sanitize_rust_lifetime_quotes(&fixed);
+            std::borrow::Cow::Owned(fixed)
         } else {
             content
         };
-        
+
         // sanitize Unicode quotes before writing
         let content_str = sanitize_code(content.as_ref());
         eprintln!("[TRACE] write_file sanitize: input={} output={}", content.as_ref().len(), content_str.len());
@@ -103,25 +104,43 @@ impl SafeExecutor {
         println!("   ✏️  {} ({} bytes)", path, content.len());
         
         // compile check for go files
+        // v8.4.2: Only fail write_file if the error is IN THE FILE BEING WRITTEN.
+        // Errors in OTHER files (e.g. main_test.go when writing main.go) are
+        // reported as warnings so the agent can continue and fix them separately.
         if path.ends_with(".go") {
-            // AutoFix: undefined Go stdlib import
             if let Some(err) = go_compile_check(&self.workspace) {
                 eprintln!("[TRACE] Checking autofix for: {}", &err[..std::cmp::min(80, err.len())]);
+                // Check if the error mentions THIS file specifically
+                let file_name = std::path::Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(path);
+                let err_mentions_this_file = err.contains(file_name);
+
                 if let Some(fixed) = autofix_go_undefined_import(&p, &err) {
                     println!("   ⚡ AutoFix Go import: {}", fixed);
                     if go_compile_check(&self.workspace).is_none() {
                         println!("   ✅ AutoFix succeeded");
                     } else if let Some(err2) = go_compile_check(&self.workspace) {
-                        return Ok(ExecResult::fail(format!(
-                            "COMPILE ERROR in '{}'  NOTE: The actual error might be in a DIFFERENT file. Check the error details below and fix the file mentioned there:\n{}",
-                            path, err2
-                        )));
+                        // Only block if error is in THIS file
+                        if err2.contains(file_name) {
+                            return Ok(ExecResult::fail(format!(
+                                "COMPILE ERROR in '{}':\n{}",
+                                path, err2
+                            )));
+                        } else {
+                            eprintln!("[TRACE] go_compile_check: error in other file, not blocking write of '{}'", path);
+                        }
                     }
-                } else {
+                } else if err_mentions_this_file {
+                    // Error is specifically in this file — block and report
                     return Ok(ExecResult::fail(format!(
-                        "COMPILE ERROR in '{}'  NOTE: The actual error might be in a DIFFERENT file. Check the error details below and fix the file mentioned there:\n{}",
+                        "COMPILE ERROR in '{}':\n{}",
                         path, err
                     )));
+                } else {
+                    // Error is in a DIFFERENT file — warn but don't block
+                    eprintln!("[TRACE] go_compile_check: error in other file (not '{}'), continuing", path);
                 }
             }
         }

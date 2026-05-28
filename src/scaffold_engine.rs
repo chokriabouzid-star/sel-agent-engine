@@ -45,6 +45,9 @@ const PACKAGE_JSON_TS: &str = r#"{
   }
 }"#;
 
+// v8.4.2: axios pinned version for TypeScript HTTP client tasks
+const AXIOS_VERSION: &str = "1.6.7";
+
 const TSCONFIG_JSON: &str = r#"{
   "compilerOptions": {
     "target": "ES2020",

@@ -30,34 +30,62 @@ run_case() {
     local workspace
     workspace=$(mktemp -d /tmp/sel-smoke-XXXXXX)
     local goal="$3"
+    local case_num=$((PASS + FAIL + 1))
 
-    echo -e "\n${BLUE}▶ [$id]${NC} $lang"
-    echo -e "  goal: ${YELLOW}${goal:0:80}...${NC}"
+    echo -e "\n${BOLD}╔══════════════════════════════════════════╗${NC}"
+    printf "${BOLD}║  [%02d/12] %-32s║${NC}\n" "$case_num" " $id"
+    echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
+    echo -e "  ${BLUE}lang:${NC} $lang"
+    echo -e "  ${YELLOW}goal:${NC} ${goal:0:100}..."
+    echo -e ""
 
-    local output
-    local exit_code=0
+    local tmplog
+    tmplog=$(mktemp /tmp/sel-smoke-log-XXXXXX)
+    local case_start
+    case_start=$(date +%s)
 
-    output=$("$SEL" run \
+    # تشغيل الوكيل مع إظهار اللوج مباشرة (كما تفعل البانشات الأخرى)
+    # نستخدم || true لمنع set -e من إيقاف السكربت عند فشل المهمة
+    "$SEL" run \
         --workspace "$workspace" \
         --goal "$goal" \
         --max-repairs 3 \
         $EXTRA_ARGS \
-        2>&1) || exit_code=$?
+        2>&1 | tee "$tmplog" || true
 
-    rm -rf "$workspace"
+    local case_end elapsed
+    case_end=$(date +%s)
+    elapsed=$((case_end - case_start))
 
-    if echo "$output" | grep -q "SEL_SUCCESS"; then
-        echo -e "  ${GREEN}✅ PASSED${NC}"
+    local output
+    output=$(cat "$tmplog")
+    rm -f "$tmplog"
+    rm -rf "$workspace" || true
+
+    # استخراج عدد الإصلاحات من اللوج — || echo "0" يمنع set -e عند عدم وجود تطابق
+    local repairs
+    repairs=$(echo "$output" | grep -oP 'repair_count:\K[0-9]+' | tail -1 || echo "")
+    if [[ -z "$repairs" ]]; then
+        repairs=$(echo "$output" | grep -oP '\b([0-9]+) repair' | grep -oP '[0-9]+' | tail -1 || echo "0")
+    fi
+    repairs="${repairs:-0}"
+
+    echo -e ""
+    if echo "$output" | grep -q "SEL_SUCCESS" 2>/dev/null; then
+        echo -e "${GREEN}${BOLD}  ✅ PASSED${NC}  ${BLUE}(${elapsed}s, repairs: ${repairs})${NC}"
         PASS=$((PASS + 1))
-        RESULTS+=("PASS|$id|$lang")
+        RESULTS+=("PASS|$id|$lang|${elapsed}s|repairs:${repairs}")
     else
         local last_err
-        last_err=$(echo "$output" | grep -E "error|Error|FAILED|❌" | tail -3)
-        echo -e "  ${RED}❌ FAILED${NC}"
-        echo -e "  ${RED}$last_err${NC}"
+        last_err=$(echo "$output" | grep -E "error|Error|FAILED|❌|failed" 2>/dev/null | grep -v "^$" | tail -3 || echo "")
+        echo -e "${RED}${BOLD}  ❌ FAILED${NC}  ${BLUE}(${elapsed}s, repairs: ${repairs})${NC}"
+        if [[ -n "$last_err" ]]; then
+            echo -e "  ${RED}↳ $last_err${NC}"
+        fi
         FAIL=$((FAIL + 1))
-        RESULTS+=("FAIL|$id|$lang|$last_err")
+        RESULTS+=("FAIL|$id|$lang|${elapsed}s|repairs:${repairs}")
     fi
+    echo -e "${BOLD}──────────────────────────────────────────${NC}"
 }
 
 banner() {
@@ -83,7 +111,7 @@ check_binary() {
 
 banner
 check_binary
-echo -e "${BOLD}Running 8 real-world tasks...${NC}"
+echo -e "${BOLD}Running 12 real-world tasks...${NC}"
 
 # ── 1. Python: إصلاح خطأ في خوارزمية البحث الثنائي ──────────
 run_case "smoke_py_binary_search" "python" \
@@ -107,7 +135,8 @@ run_case "smoke_go_worker_pool" "go" \
 that processes each job by squaring it using goroutines. \
 Use go mod init workertest. Write main.go with the implementation and \
 main_test.go that tests: 5 workers processing 10 jobs, \
-single worker, more workers than jobs."
+single worker, more workers than jobs. \
+The test for ProcessJobs must sort both the result and expected slices before comparing, since goroutine results are unordered. Use sort.Slice or sort.Ints on the result before asserting equality."
 
 # ── 4. Go: مدير stack بـ generics ────────────────────────────────
 run_case "smoke_go_generics" "go" \
@@ -128,11 +157,48 @@ including edge cases like empty arrays and size=1 chunks."
 
 # ── 6. TypeScript: async retry function ──────────────────────────
 run_case "smoke_ts_retry" "typescript" \
-"Create a TypeScript function retry<T>(fn: () => Promise<T>, attempts: number, delayMs: number): Promise<T> \
-that retries a failing async function up to N times with delay between attempts. \
-Write retry.ts with the implementation and retry.test.ts that tests: \
-succeeds on first try, succeeds after 2 failures, fails after max attempts. \
-Use jest.useFakeTimers() to avoid real delays in tests. IMPORTANT Jest rule: When using fake timers, always use await jest.advanceTimersByTimeAsync(ms) instead of advanceTimersByTime to ensure microtasks resolve correctly."
+"Create a TypeScript async retry utility. Write ALL files in a SINGLE write_file call each — do NOT split one file across multiple write_file steps. \
+File 1 — retry.ts (write completely in one shot): \
+export async function retry<T>(fn: () => Promise<T>, attempts: number, delayMs: number): Promise<T> { \
+  let lastError: unknown; \
+  for (let i = 0; i < attempts; i++) { \
+    try { return await fn(); } \
+    catch (e) { \
+      lastError = e; \
+      if (i < attempts - 1) \
+        await new Promise(r => setTimeout(r, delayMs)); \
+    } \
+  } \
+  throw lastError; \
+} \
+File 2 — retry.test.ts (write exactly this code): \
+import { retry } from './retry'; \
+beforeEach(() => { jest.useFakeTimers(); }); \
+afterEach(() => { jest.useRealTimers(); }); \
+it('succeeds on first try', async () => { \
+  const fn = jest.fn().mockResolvedValue('ok'); \
+  await expect(retry(fn, 3, 100)).resolves.toBe('ok'); \
+  expect(fn).toHaveBeenCalledTimes(1); \
+}); \
+it('fails twice then succeeds', async () => { \
+  let calls = 0; \
+  const fn = jest.fn(() => { \
+    calls++; \
+    if (calls < 3) return Promise.reject(new Error('fail')); \
+    return Promise.resolve('ok'); \
+  }); \
+  const p = retry(fn, 3, 100); \
+  await jest.runAllTimersAsync(); \
+  await expect(p).resolves.toBe('ok'); \
+  expect(fn).toHaveBeenCalledTimes(3); \
+}); \
+it('always fails', async () => { \
+  const fn = jest.fn().mockRejectedValue(new Error('always')); \
+  const p = retry(fn, 3, 100); \
+  await jest.runAllTimersAsync(); \
+  await expect(p).rejects.toThrow('always'); \
+  expect(fn).toHaveBeenCalledTimes(3); \
+});"
 
 # ── 7. Rust: CSV parser بسيط ─────────────────────────────────────
 run_case "smoke_rust_csv" "rust" \
@@ -155,7 +221,10 @@ n=0,1,5,10,20 and that fib(0)=0, fib(1)=1, fib(10)=55."
 run_case "smoke_ts_fastapi_client" "typescript" \
 "Write a TypeScript client in api.ts for a FastAPI endpoint. \
 It should have a class ApiClient with a method getUser(id: number): Promise<{id: number, name: string}>. \
-Use axios. Write api.test.ts using jest.mock to test successful response and 404 error."
+Use axios. Write api.test.ts to test successful response and 404 error. \
+Use jest.mocked() instead of casting: jest.mocked(axios.get).mockResolvedValue({ data: userData }); \
+NOT: (axios.get as jest.Mock).mockResolvedValue(...) \
+Also use: jest.mock('axios'); import axios from 'axios'; const mockedAxios = jest.mocked(axios, { shallow: true });"
 
 # ── 10. Go: Concurrent Mutex ────────────────────────────────────
 run_case "smoke_go_concurrent" "go" \
@@ -181,23 +250,30 @@ Write #[cfg(test)] tests verifying formatting works correctly for positive and n
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 TOTAL=$((PASS + FAIL))
+SUCCESS_RATE=0
+if [[ $TOTAL -gt 0 ]]; then
+    SUCCESS_RATE=$(( (PASS * 100) / TOTAL ))
+fi
 
-echo -e "\n${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   Smoke Test Results                     ║${NC}"
-echo -e "${BOLD}╠══════════════════════════════════════════╣${NC}"
-printf "${BOLD}║  %-38s ║${NC}\n" "Total:    $TOTAL / 12"
-printf "${BOLD}║  %-38s ║${NC}\n" "Passed:   $PASS"
-printf "${BOLD}║  %-38s ║${NC}\n" "Failed:   $FAIL"
-printf "${BOLD}║  %-38s ║${NC}\n" "Duration: ${DURATION}s"
-echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
+echo -e ""
+echo -e "${BOLD}╔══════════════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}║   SEL Smoke Test — النتائج النهائية             ║${NC}"
+echo -e "${BOLD}╠══════════════════════════════════════════════════╣${NC}"
+printf "${BOLD}║  %-46s ║${NC}\n" "المجموع:    $TOTAL / 12"
+printf "${BOLD}║  %-46s ║${NC}\n" "نجح:        $PASS  |  فشل: $FAIL"
+printf "${BOLD}║  %-46s ║${NC}\n" "النجاح:     ${SUCCESS_RATE}%"
+printf "${BOLD}║  %-46s ║${NC}\n" "المدة:      ${DURATION}s"
+echo -e "${BOLD}╠══════════════════════════════════════════════════╣${NC}"
+echo -e "${BOLD}║  حسب المهمة:                                     ║${NC}"
+echo -e "${BOLD}╚══════════════════════════════════════════════════╝${NC}"
 
-echo -e "\n${BOLD}── Details ──────────────────────────────────────${NC}"
+echo -e ""
 for r in "${RESULTS[@]}"; do
-    IFS='|' read -r status id lang rest <<< "$r"
+    IFS='|' read -r status id lang timing repairs_str <<< "$r"
     if [[ "$status" == "PASS" ]]; then
-        echo -e "  ${GREEN}✅${NC} $id ($lang)"
+        printf "  ${GREEN}✅${NC} %-30s ${BLUE}%-6s${NC} ${BLUE}%s${NC}\n" "$id" "($lang)" "$timing $repairs_str"
     else
-        echo -e "  ${RED}❌${NC} $id ($lang) — $rest"
+        printf "  ${RED}❌${NC} %-30s ${BLUE}%-6s${NC} ${RED}%s${NC}\n" "$id" "($lang)" "$timing $repairs_str"
     fi
 done
 

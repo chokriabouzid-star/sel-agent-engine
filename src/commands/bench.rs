@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 use anyhow::Result;
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -8,6 +9,7 @@ use crate::types;
 
 use crate::commands::health::{ProviderStats, shorten_provider};
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_bench(
     api_key: &str,
     suite: &str,
@@ -296,7 +298,7 @@ pub async fn run_bench(
 
     println!("\n");
     println!("📊 SEL Bench Results                      ");
-    println!("");
+    println!();
     println!("  Suite:          {:<23}", suite);
     println!("  Iterations:     {:<23}", iterations);
     println!(
@@ -339,14 +341,14 @@ pub async fn run_bench(
     println!("  Quality Index:  {:<23}", format!("{:.2}", quality));
     
     if !auto_healed.is_empty() {
-        println!("");
+        println!();
         println!("   🩹 Auto-Healed (rerecorded):            ");
         for h in &auto_healed {
             println!("    - {:<36}", h);
         }
     }
     
-    println!("");
+    println!();
     println!("🔗 Provider Usage:                     ");
 
     let mut sorted: Vec<_> = provider_stats.call_counts.iter().collect();
@@ -364,7 +366,7 @@ pub async fn run_bench(
     // POST to Observatory
     let model =
         std::env::var("SEL_MODEL").unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string());
-    let version = std::env::var("SEL_VERSION").unwrap_or_else(|_| "v8.4.1".to_string());
+    let version = std::env::var("SEL_VERSION").unwrap_or_else(|_| "v8.5.0".to_string());
     let body = serde_json::json!({
         "version": version,
         "suite": suite,
@@ -398,7 +400,7 @@ pub async fn run_stress(
 ) -> Result<()> {
     println!();
     println!("{}", "╔══════════════════════════════════════════════════╗".cyan());
-    println!("{}", "║   SEL Agent v8.4.1 🔥 Stress Test               ║".cyan());
+    println!("{}", "║   SEL Agent v8.5.0 🔥 Stress Test               ║".cyan());
     println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
     println!("║  Cases: {:3}  Mode: {:<20}  ║",
         case_limit,
@@ -468,13 +470,8 @@ pub async fn run_stress(
         pb.finish_and_clear();
 
         let mut case_passed = false;
-        match &result {
-            Ok(_) => {
-                if ag.is_success() {
-                    case_passed = true;
-                }
-            }
-            Err(_) => {}
+        if result.is_ok() && ag.is_success() {
+            case_passed = true;
         }
 
         // rerecord on failure
@@ -687,7 +684,7 @@ pub async fn run_integration_bench(api_key: &str, max_repairs: u8) -> Result<()>
     };
     println!("\n");
     println!("📊 Integration Bench Results               ");
-    println!("");
+    println!();
     println!(
         "  Tests:          {:<23}",
         format!("{} cases x 2 phases", total)
@@ -762,6 +759,7 @@ pub async fn run_compile_bench(max_repairs: u8) -> Result<()> {
         //  
         let check = check_result(case.name, &workspace, ok, repairs, mutation);
 
+        #[allow(clippy::if_same_then_else)]
         let status = if check.passed { "" } else { "" };
         let mut notes = Vec::new();
         if check.created_wrong_files {
@@ -803,12 +801,12 @@ pub async fn run_compile_bench(max_repairs: u8) -> Result<()> {
     let rate = passed as f64 / total as f64 * 100.0;
     println!("\n");
     println!("📊 Compile Bench Results                   ");
-    println!("");
+    println!();
     println!(
         "  Passed:  {}/{}  ({:.0}%)                   ",
         passed, total, rate
     );
-    println!("");
+    println!();
 
     for (name, status, repairs, _, note) in &results {
         println!(
@@ -820,7 +818,7 @@ pub async fn run_compile_bench(max_repairs: u8) -> Result<()> {
         );
     }
 
-    println!("");
+    println!();
 
     if rate >= 100.0 {
         println!("\n    v7.1  ");

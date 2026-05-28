@@ -81,7 +81,7 @@ pub fn select_repair_files(
         .iter()
         .filter_map(|path| read_and_score(path, ctx))
         .collect();
-    scored.sort_by(|a, b| b.score.cmp(&a.score));
+    scored.sort_by_key(|b| std::cmp::Reverse(b.score));
 
     let total_files = scored.len();
     let tokens_before = scored.iter().map(|f| estimate_tokens(&f.content)).sum();

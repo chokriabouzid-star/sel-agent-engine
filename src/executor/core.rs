@@ -99,7 +99,7 @@ impl SafeExecutor {
 
         //  pip install  package name
         if prog.contains("pip3") || prog.contains("pip") {
-            let is_install = parts.iter().any(|p| *p == "install");
+            let is_install = parts.contains(&"install");
             let has_package = parts.len() > 2 && parts.iter().skip(2).any(|p| !p.starts_with('-'));
             if is_install && !has_package {
                 return Ok(ExecResult::fail(
@@ -108,7 +108,9 @@ impl SafeExecutor {
             }
         }
 
-        if !ALLOWED.iter().any(|a| *a == *prog) {
+        // v8.4: Allow workspace-local binaries (./main, ./server, target/debug/*)
+        let is_local_binary = prog.starts_with("./") || prog.starts_with("target/");
+        if !is_local_binary && !ALLOWED.contains(prog) {
             return Ok(ExecResult::fail(format!(
                 "'{}' is not in the allowed programs list",
                 prog

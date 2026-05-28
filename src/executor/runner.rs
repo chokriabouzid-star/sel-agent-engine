@@ -86,15 +86,29 @@ impl SafeExecutor {
             let mut autofix_active = false;
             // v8.0: go mod init is a purely LOCAL operation (no network)  allowed in replay mode
             if !self.workspace.join("go.mod").exists() {
-                println!("   ⚡ AutoFix: go.mod missing  initializing module 'sel_tmp'");
+                // v8.4.2: use workspace dir name, not hardcoded "sel_tmp"
+                let mod_name = self.workspace
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("main")
+                    .to_string();
+                let mod_name = if mod_name.starts_with("sel-smoke")
+                    || mod_name.starts_with("sel_tmp")
+                    || mod_name.starts_with("tmp")
+                {
+                    "main".to_string()
+                } else {
+                    mod_name.replace(|c: char| !c.is_alphanumeric() && c != '_', "_")
+                };
+                println!("   ⚡ AutoFix: go.mod missing → initializing module '{}'", mod_name);
                 autofix_active = true;
                 let init_out = TCmd::new("go")
-                    .args(["mod", "init", "sel_tmp"])
+                    .args(["mod", "init", &mod_name])
                     .current_dir(&self.workspace)
                     .output()
                     .await;
                 match init_out {
-                    Ok(o) if o.status.success() => println!("   ✅ go mod init sel_tmp succeeded"),
+                    Ok(o) if o.status.success() => println!("   ✅ go mod init succeeded"),
                     Ok(o) => eprintln!(
                         "    go mod init failed: {}",
                         String::from_utf8_lossy(&o.stderr)
@@ -131,7 +145,7 @@ impl SafeExecutor {
             let (passed, failed) = parse_go_tests(&combined);
 
             let no_test_files = combined.contains("[no test files]");
-            let success = (exit_ok && passed > 0) || (exit_ok && no_test_files);
+            let success = exit_ok && (passed > 0 || no_test_files);
 
             return Ok(ExecResult {
                 success,
@@ -173,7 +187,8 @@ impl SafeExecutor {
             );
 
             // AutoFix: Missing Node Module
-            if !self.replay_mode && combined.contains("Cannot find module '") {
+            // v8.4.2: Allow in replay mode — npm install is local
+            if combined.contains("Cannot find module '") {
                 if let Some(start) = combined.find("Cannot find module '") {
                     let rest = &combined[start + "Cannot find module '".len()..];
                     if let Some(end) = rest.find('\'') {
@@ -265,10 +280,24 @@ impl SafeExecutor {
                 final_prog = "venv/bin/pytest".to_string();
             }
 
+            let py3 = self.workspace.join("venv/bin/python3");
+            let py = self.workspace.join("venv/bin/python");
+
+            let mut cmd = if final_prog == "venv/bin/pytest" && py3.exists() {
+                let mut c = TCmd::new(&py3);
+                c.arg("-m").arg("pytest");
+                c
+            } else if final_prog == "venv/bin/pytest" && py.exists() {
+                let mut c = TCmd::new(&py);
+                c.arg("-m").arg("pytest");
+                c
+            } else {
+                TCmd::new(&final_prog)
+            };
+
             let out = tokio::time::timeout(
                 std::time::Duration::from_secs(self.timeout_secs),
-                TCmd::new(&final_prog)
-                    .args(&args)
+                cmd.args(&args)
                     .current_dir(&self.workspace)
                     .env("PYTHONPATH", &self.workspace)
                     .env("PYTHONDONTWRITEBYTECODE", "1")

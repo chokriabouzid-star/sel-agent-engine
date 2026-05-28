@@ -78,14 +78,13 @@ fn repair_pipeline(json: &str) -> String {
     let s = strip_block_comments(&s);
     let s = remove_trailing_commas(&s);
     let s = fix_single_quotes(&s);
-    let s = fix_unescaped_newlines_in_strings(&s);
-    s
+    fix_unescaped_newlines_in_strings(&s)
 }
 
 /// Remove UTF-8 BOM if present.
 fn strip_bom(s: &str) -> Cow<'_, str> {
-    if s.starts_with('\u{FEFF}') {
-        Cow::Owned(s[3..].to_string())
+    if let Some(stripped) = s.strip_prefix('\u{FEFF}') {
+        Cow::Owned(stripped.to_string())
     } else {
         Cow::Borrowed(s)
     }

@@ -1260,8 +1260,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "sel-agent"
-version = "8.3.0"
+name = "sel-agent-engine"
+version = "8.5.0"
 dependencies = [
  "anyhow",
  "async-trait",

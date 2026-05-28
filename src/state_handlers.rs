@@ -327,16 +327,30 @@ pub async fn do_executing(
         let is_cargo_test =
             cmd.label().contains("cargo test") || cmd.label().contains("cargo check");
 
-        let skip_allowed = !cmd.is_run_tests()
-            && !cmd.is_write_file()
-            && !cmd.is_patch_file()
-            && !is_cargo_test
-            && !(is_pip && !venv_ok);
+        let skip_allowed = !(cmd.is_run_tests() || cmd.is_write_file() || cmd.is_patch_file() || is_cargo_test || (is_pip && !venv_ok));
 
-        if ctx.successful_hashes.contains(&cmd_hash.to_string()) && skip_allowed {
+        let side_effect_still_exists = match cmd {
+            Cmd::Run { command } => {
+                let lc = command.to_lowercase();
+                if lc.contains("go mod init") {
+                    executor.workspace.join("go.mod").exists()
+                } else if lc.contains("python3 -m venv") || lc.contains("python -m venv") {
+                    executor.workspace.join("venv").exists()
+                } else if lc.contains("npm install") {
+                    executor.workspace.join("node_modules").exists()
+                } else {
+                    true
+                }
+            }
+            _ => true,
+        };
+
+        if ctx.successful_hashes.contains(&cmd_hash.to_string()) && skip_allowed && side_effect_still_exists {
             println!("   ⏭  Skipping: {} (already passed)", cmd.label());
             i += 1;
             continue;
+        } else if ctx.successful_hashes.contains(&cmd_hash.to_string()) && skip_allowed && !side_effect_still_exists {
+            println!("   ↩️  Re-running: {} (artifact missing after rollback)", cmd.label());
         }
 
         if cmd.is_done() {

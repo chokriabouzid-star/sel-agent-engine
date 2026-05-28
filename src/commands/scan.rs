@@ -1,3 +1,4 @@
+#![allow(clippy::print_literal)]
 
 
 pub fn cmd_scan(workspace: &str, json: bool) {
@@ -28,7 +29,7 @@ pub fn cmd_scan(workspace: &str, json: bool) {
             .dependency_file
             .as_ref()
             .map(|p: &std::path::PathBuf| p.display().to_string())
-            .unwrap_or_else(|| "".to_string())
+            .unwrap_or_default()
     );
     println!(
         " Entry    : {}",
@@ -45,7 +46,7 @@ pub fn cmd_scan(workspace: &str, json: bool) {
     );
     println!(
         " Tests    : {} {}",
-        if profile.has_tests { "" } else { "" },
+        "",
         profile.test_framework.as_deref().unwrap_or("")
     );
     println!(

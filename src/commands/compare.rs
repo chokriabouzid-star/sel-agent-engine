@@ -91,7 +91,7 @@ pub async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Res
             );
             pb.enable_steady_tick(Duration::from_millis(80));
 
-            let cfg = crate::llm::ModelConfig::from_alias(&model_alias);
+            let cfg = crate::llm::ModelConfig::from_alias(model_alias);
             let llm = Box::new(crate::llm::live::LiveProvider::from_config(
                 cfg,
                 api_key.clone(),

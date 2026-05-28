@@ -46,6 +46,23 @@ impl Snapshot {
                 .output();
         }
 
+        // Ensure there is at least one commit so `git stash` and `git reset` work correctly.
+        let rev_parse = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(workspace)
+            .output();
+        
+        if rev_parse.is_err() || !rev_parse.unwrap().status.success() {
+            // First time taking a snapshot in this repo, create an initial commit.
+            // Setup dummy user config to prevent commit failure if git is unconfigured.
+            let _ = Command::new("git").args(["config", "user.name", "SEL Agent"]).current_dir(workspace).output();
+            let _ = Command::new("git").args(["config", "user.email", "sel@local.test"]).current_dir(workspace).output();
+            let _ = Command::new("git")
+                .args(["commit", "-m", "Initial commit baseline"])
+                .current_dir(workspace)
+                .output();
+        }
+
         // Perform stash
         let output = Command::new("git")
             .args([

@@ -179,6 +179,18 @@ pub fn build_prompt(attempt: u8, error: &str, ctx: &RepairCtx) -> String {
 }
 
 /// Detect whether the repair session is stuck in a loop.
+/// Safe UTF-8 prefix: never panics on multi-byte characters.
+fn safe_prefix(s: &str, max_bytes: usize) -> &str {
+    if max_bytes >= s.len() {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 fn detect_error_loop(ctx: &RepairCtx, attempt: u8) -> bool {
     // v8.4: Exact consecutive duplicates
     if ctx.prev_errors.windows(2).any(|w| w[0] == w[1]) {
@@ -187,8 +199,8 @@ fn detect_error_loop(ctx: &RepairCtx, attempt: u8) -> bool {
     // v8.4: Same error class — first 120 chars match
     if ctx.prev_errors.len() >= 2 {
         let n = ctx.prev_errors.len();
-        let a = &ctx.prev_errors[n - 1][..ctx.prev_errors[n - 1].len().min(120)];
-        let b = &ctx.prev_errors[n - 2][..ctx.prev_errors[n - 2].len().min(120)];
+        let a = safe_prefix(&ctx.prev_errors[n - 1], 120);
+        let b = safe_prefix(&ctx.prev_errors[n - 2], 120);
         if a == b {
             return true;
         }
@@ -196,10 +208,10 @@ fn detect_error_loop(ctx: &RepairCtx, attempt: u8) -> bool {
     // v8.4: Cycling — same error class seen earlier (not just last pair)
     if ctx.prev_errors.len() >= 3 {
         let last = &ctx.prev_errors[ctx.prev_errors.len() - 1];
-        let prefix_len = last.len().min(120);
+        let last_prefix = safe_prefix(last, 120);
         let cycling = ctx.prev_errors[..ctx.prev_errors.len() - 1]
             .iter()
-            .any(|e| e[..e.len().min(120)] == last[..prefix_len]);
+            .any(|e| safe_prefix(e, 120) == last_prefix);
         if cycling {
             return true;
         }

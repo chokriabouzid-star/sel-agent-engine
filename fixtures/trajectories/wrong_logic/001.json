@@ -12,18 +12,18 @@
     "model": "default"
   },
   "resp": {
-    "content": "```json\n{\n  \"version\": \"1.0\",\n  \"commands\": [\n    {\n      \"type\": \"patch_file\",\n      \"path\": \"double.py\",\n      \"search\": \"return x * 3\",\n      \"replace\": \"return x * 2\"\n    },\n    {\n      \"type\": \"run_tests\",\n      \"target\": \"venv/bin/pytest -v --tb=short\"\n    },\n    {\n      \"type\": \"done\",\n      \"message\": \"Bug in double.py fixed to return x * 2. Tests executed to confirm correctness.\"\n    }\n  ]\n}\n```",
-    "tokens_in": 1042,
-    "tokens_out": 128,
+    "content": "{\n  \"version\": \"1.0\",\n   \"commands\": [\n       {\n           \"type\": \"patch_file\",\n           \"path\": \"double.py\",\n           \"search\": \"return x * 3\",\n           \"replace\": \"return x * 2\"\n       },\n       {\n           \"type\": \"run_tests\",\n           \"target\": \"venv/bin/pytest\"\n       },\n       {\n           \"type\": \"done\",\n           \"message\": \"Fixed the bug in double.py and ran tests\"\n       }\n   ]\n}",
+    "tokens_in": 1081,
+    "tokens_out": 109,
     "finish_reason": "stop",
-    "provider_model": "gpt-4o",
-    "provider_used": "GitHub",
+    "provider_model": "llama-3.3-70b-versatile",
+    "provider_used": "Groq",
     "task_kind": "default"
   },
-  "latency_ms": 14043,
+  "latency_ms": 4604,
   "constitution_hash": "85cbb8f2e26c7f98",
-  "recorded_at": "2026-05-25T21:32:54.744871775+00:00",
-  "provider_used": "GitHub",
+  "recorded_at": "2026-05-26T18:00:37.475041453+00:00",
+  "provider_used": "Groq",
   "task_kind": "default",
-  "tokens_used": 1170
+  "tokens_used": 1190
 }

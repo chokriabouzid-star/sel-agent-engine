@@ -1,8 +1,9 @@
+#![allow(clippy::empty_docs)]
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "sel-agent", version = "8.4.1")]
+#[command(name = "sel-agent", version = "8.5.0")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,

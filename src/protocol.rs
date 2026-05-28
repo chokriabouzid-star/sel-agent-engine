@@ -98,7 +98,7 @@ impl Cmd {
     /// Short description for logging
     pub fn label(&self) -> String {
         match self {
-            Cmd::Run { command } => format!("run: {}", &command[..command.len().min(60)]),
+            Cmd::Run { command } => format!("run: {}", command.chars().take(60).collect::<String>()),
             Cmd::WriteFile { path, .. } => format!("write_file: {}", path),
             Cmd::AppendFile { path, .. } => format!("append_file: {}", path),
             Cmd::DeleteFile { path } => format!("delete_file: {}", path),
@@ -110,7 +110,7 @@ impl Cmd {
                 if message.is_empty() {
                     "done".to_string()
                 } else {
-                    format!("done: {}", &message[..message.len().min(60)])
+                    format!("done: {}", message.chars().take(60).collect::<String>())
                 }
             }
         }

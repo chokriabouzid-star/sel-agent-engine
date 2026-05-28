@@ -1,3 +1,4 @@
+#![allow(clippy::empty_docs)]
 //! SEL Agent v6.3 - Constraint Engine
 //!
 //! :
@@ -67,7 +68,7 @@ impl ProjectState {
     pub fn scan(workspace: &Path) -> Self {
         let mut files = HashSet::new();
         let has_jest_config;
-        let has_tsconfig;
+
         let has_package_json;
         let jest_in_pkg_json;
 
@@ -80,15 +81,13 @@ impl ProjectState {
             has_jest_config = true;
         } else {
             has_jest_config = false;
-        }
-
-        //  tsconfig.json
-        if workspace.join("tsconfig.json").exists() {
+        }        //  tsconfig.json
+        let has_tsconfig = if workspace.join("tsconfig.json").exists() {
             files.insert("tsconfig.json".to_string());
-            has_tsconfig = true;
+            true
         } else {
-            has_tsconfig = false;
-        }
+            false
+        };
 
         //  package.json  jest field
         let pkg_path = workspace.join("package.json");

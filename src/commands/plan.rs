@@ -1,3 +1,5 @@
+#![allow(clippy::manual_strip)]
+#![allow(clippy::if_same_then_else)]
 use anyhow::Result;
 
 use crate::{agent, types};
@@ -39,7 +41,7 @@ pub async fn run_plan(
 
     println!("\n");
     println!("   SEL Agent  Markdown Plan Runner        ");
-    println!("");
+    println!();
     println!(
         "  Plan:       {:<27}",
         plan_file.file_name().unwrap_or_default().to_string_lossy()
@@ -110,7 +112,7 @@ pub async fn run_plan(
 
     println!("\n");
     println!("   Plan Results                            ");
-    println!("");
+    println!();
     println!("  Tasks:      {:<27}", tasks.len());
     println!(
         "  Passed:     {:<27}",
