@@ -70,17 +70,14 @@ impl SafeExecutor {
         } else {
             std::borrow::Cow::Borrowed(content)
         };
-        // auto-fix single-quote string literals in Rust files
-        let content = if p.extension().map(|x| x == "rs").unwrap_or(false) {
-            let fixed = fix_rust_string_literals(content.as_ref());
-            let fixed = sanitize_rust_lifetime_quotes(&fixed);
-            std::borrow::Cow::Owned(fixed)
-        } else {
-            content
-        };
-
         // sanitize Unicode quotes before writing
         let content_str = sanitize_code(content.as_ref());
+        let content_str = if p.extension().map(|x| x == "rs").unwrap_or(false) {
+            let fixed = sanitize_rust_lifetime_quotes(&content_str);
+            fix_rust_string_literals(&fixed)
+        } else {
+            content_str
+        };
         eprintln!("[TRACE] write_file sanitize: input={} output={}", content.as_ref().len(), content_str.len());
         std::fs::write(&p, content_str.as_bytes())?;
         
@@ -109,7 +106,7 @@ impl SafeExecutor {
         // reported as warnings so the agent can continue and fix them separately.
         if path.ends_with(".go") {
             if let Some(err) = go_compile_check(&self.workspace) {
-                eprintln!("[TRACE] Checking autofix for: {}", &err[..std::cmp::min(80, err.len())]);
+                eprintln!("[TRACE] Checking autofix for: {}", err.chars().take(80).collect::<String>());
                 // Check if the error mentions THIS file specifically
                 let file_name = std::path::Path::new(path)
                     .file_name()
@@ -265,6 +262,12 @@ impl SafeExecutor {
                 }
                 let new_content = content.replacen(search, replace, 1);
                 let new_content = sanitize_code(&new_content);
+                let new_content = if p.extension().map(|x| x == "rs").unwrap_or(false) {
+                    let fixed = sanitize_rust_lifetime_quotes(&new_content);
+                    fix_rust_string_literals(&fixed)
+                } else {
+                    new_content
+                };
                 std::fs::write(&p, new_content.as_bytes())?;
                 self.patch_attempts.borrow_mut().insert(p.clone(), 0);
                 return Ok(ExecResult::ok(format!(
@@ -329,7 +332,7 @@ impl SafeExecutor {
         
         // auto-fix single-quote string literals in Rust files
         let new_content = if p.extension().map(|x| x == "rs").unwrap_or(false) {
-            fix_rust_string_literals(&new_content)
+            { let fixed = sanitize_rust_lifetime_quotes(&new_content); fix_rust_string_literals(&fixed) }
         } else {
             new_content
         };

@@ -344,7 +344,7 @@ async fn scaffold_typescript(workspace: &Path, extra_deps: &[String]) -> Scaffol
                     "    TypeScript Scaffold FATAL: npm install failed with status {}",
                     o.status
                 );
-                eprintln!("    Details: {}", &err[..err.len().min(200)]);
+                eprintln!("    Details: {}", err.chars().take(200).collect::<String>());
                 return ScaffoldResult {
                     kind: ProjectKind::TypeScript,
                     ready: false,
@@ -421,7 +421,7 @@ async fn scaffold_python(workspace: &Path, extra_deps: &[String]) -> ScaffoldRes
                         "    Python Scaffold FATAL: pip install failed with status {}",
                         o.status
                     );
-                    eprintln!("    Details: {}", &err[..err.len().min(200)]);
+                    eprintln!("    Details: {}", err.chars().take(200).collect::<String>());
                     return ScaffoldResult {
                         kind: ProjectKind::Python,
                         ready: false,

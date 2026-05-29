@@ -38,7 +38,12 @@ impl WorkspaceOracle {
     fn detect_project_type(path: &Path) -> ProjectType {
         if path.join("Cargo.toml").exists() {
             ProjectType::Rust
-        } else if path.join("go.mod").exists() {
+        } else if path.join("go.mod").exists()
+            || std::fs::read_dir(path).map(|dir| {
+                dir.filter_map(Result::ok)
+                   .any(|e| e.path().extension().is_some_and(|ext| ext == "go"))
+            }).unwrap_or(false)
+        {
             ProjectType::Go
         } else if path.join("package.json").exists() {
             ProjectType::Node
@@ -112,7 +117,29 @@ impl WorkspaceOracle {
                 // v7.3.6: Smart split for compound commands in unknown projects
                 let parts: Vec<String> = target.split_whitespace().map(|s| s.to_string()).collect();
                 if parts.is_empty() {
-                    (target.to_string(), vec![])
+                    match Self::detect_project_type(&self.workspace) {
+                        ProjectType::Go => (
+                            "go".to_string(),
+                            vec!["test".to_string(), "./...".to_string(), "-v".to_string()],
+                        ),
+                        ProjectType::Rust => (
+                            "cargo".to_string(),
+                            vec!["test".to_string(), "--".to_string(), "--nocapture".to_string()],
+                        ),
+                        ProjectType::Node => (
+                            "npm".to_string(),
+                            vec!["test".to_string(), "--".to_string(), "--runInBand".to_string(), "--forceExit".to_string()],
+                        ),
+                        ProjectType::Python => {
+                            let pytest = if self.workspace.join("venv/bin/pytest").exists() {
+                                "venv/bin/pytest"
+                            } else {
+                                "pytest"
+                            };
+                            (pytest.to_string(), vec!["-v".to_string(), "--tb=short".to_string()])
+                        }
+                        ProjectType::Unknown => (target.to_string(), vec![]),
+                    }
                 } else {
                     let prog = parts[0].clone();
                     let args = parts[1..].to_vec();

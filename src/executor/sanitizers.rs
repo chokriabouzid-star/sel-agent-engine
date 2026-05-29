@@ -3,21 +3,35 @@ pub fn fix_rust_string_literals(src: &str) -> String {
     let mut result = String::with_capacity(src.len());
     let bytes = src.as_bytes();
     let mut i = 0;
+
     while i < bytes.len() {
         if bytes[i] == b'\'' {
             let start = i + 1;
             let mut end = start;
+            let mut blocked = false;
+
             while end < bytes.len() && bytes[end] != b'\'' && bytes[end] != b'\n' {
+                if matches!(
+                    bytes[end],
+                    b' ' | b'\t'
+                        | b'(' | b')'
+                        | b'[' | b']'
+                        | b'{' | b'}'
+                        | b'<' | b'>'
+                        | b',' | b';' | b':'
+                        | b'&'
+                ) {
+                    blocked = true;
+                    break;
+                }
                 end += 1;
             }
-            if end < bytes.len() && bytes[end] == b'\'' && end > start {
+
+            if !blocked && end < bytes.len() && bytes[end] == b'\'' && end > start {
                 let word = &src[start..end];
                 let word_len = word.chars().count();
 
                 let is_escape = word.contains('\\');
-                let is_lifetime = word
-                    .chars()
-                    .all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit());
                 let is_char_digit = word_len == 1
                     && word
                         .chars()
@@ -27,7 +41,7 @@ pub fn fix_rust_string_literals(src: &str) -> String {
                 let is_char_single = word_len == 1;
 
                 let should_convert =
-                    word_len > 1 && !is_escape && !is_lifetime && !is_char_digit && !is_char_single;
+                    word_len > 1 && !is_escape && !is_char_digit && !is_char_single;
 
                 if should_convert {
                     result.push('"');
@@ -38,10 +52,12 @@ pub fn fix_rust_string_literals(src: &str) -> String {
                 }
             }
         }
+
         let ch = src[i..].chars().next().unwrap();
         result.push(ch);
         i += ch.len_utf8();
     }
+
     result
 }
 
@@ -232,6 +248,21 @@ pub fn fix_rust_pattern(line: &str, open: &str, new_open: &str, new_close: &str)
 #[cfg(test)]
 mod tests_rust_autofix {
     use super::*;
+
+
+    #[test]
+    fn test_fix_rust_string_literals_preserves_lifetimes() {
+        let input = "pub fn f<'a>(x: &'a str) -> &'a str { x }";
+        let got = fix_rust_string_literals(input);
+        assert_eq!(got, input);
+    }
+
+    #[test]
+    fn test_fix_rust_string_literals_converts_single_quoted_strings() {
+        let input = "fn main() { let s = 'hello'; }";
+        let got = fix_rust_string_literals(input);
+        assert!(got.contains("\"hello\""));
+    }
 
     #[test]
     pub fn test_fix_err_str_to_string() {
