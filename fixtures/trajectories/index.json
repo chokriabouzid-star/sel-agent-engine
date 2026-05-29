@@ -1094,10 +1094,10 @@
         "005.json",
         "006.json"
       ],
-      "interaction_count": 6,
-      "recorded_at": "2026-05-28T23:18:15.750569373+00:00",
+      "interaction_count": 1,
+      "recorded_at": "2026-05-29T09:36:42.706738533+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
-      "has_repairs": true,
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
