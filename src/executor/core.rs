@@ -1,8 +1,8 @@
-use std::collections::HashMap;
 use crate::protocol::Cmd;
 use crate::types::ExecResult;
 use crate::workspace_oracle::WorkspaceOracle;
 use anyhow::{anyhow, Result};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::process::Command as TCmd;
@@ -81,7 +81,11 @@ impl SafeExecutor {
             Cmd::WriteFile { path, content } => self.write_file(path, content),
             Cmd::AppendFile { path, content } => self.append_file(path, content),
             Cmd::DeleteFile { path } => self.delete_file(path),
-            Cmd::PatchFile { path, search, replace } => self.patch_file(path, search, replace),
+            Cmd::PatchFile {
+                path,
+                search,
+                replace,
+            } => self.patch_file(path, search, replace),
             Cmd::ReadFile { path } => self.read_file(path),
             Cmd::Mkdir { path } => self.mkdir(path),
             Cmd::RunTests { target } => self.run_tests(target).await,
@@ -89,7 +93,7 @@ impl SafeExecutor {
         }
     }
 
-    //  Shell 
+    //  Shell
 
     async fn shell(&self, command: &str) -> Result<ExecResult> {
         self.safety_check(command)?;
@@ -103,7 +107,7 @@ impl SafeExecutor {
             let has_package = parts.len() > 2 && parts.iter().skip(2).any(|p| !p.starts_with('-'));
             if is_install && !has_package {
                 return Ok(ExecResult::fail(
-                    "pip install needs package name: e.g. venv/bin/pip3 install pytest".to_string()
+                    "pip install needs package name: e.g. venv/bin/pip3 install pytest".to_string(),
                 ));
             }
         }

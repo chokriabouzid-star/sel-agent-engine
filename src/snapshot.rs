@@ -1,17 +1,64 @@
-// src/snapshot.rs  v7.5: Workspace Snapshots
-// Uses Git-based snapshot strategy (git stash) as requested for atomic rollbacks
+// src/snapshot.rs
+// Workspace snapshots that preserve the CURRENT worktree for repair attempts.
+// The stash acts as a backup copy only; the worktree stays intact after take().
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct Snapshot {
     workspace: PathBuf,
     active: bool,
-    has_stashed: bool,
+    stash_tag: Option<String>,
 }
 
 impl Snapshot {
-    /// Take a snapshot of the workspace using git stash
+    fn resolve_stash_ref(workspace: &Path, tag: &str) -> Option<String> {
+        let out = Command::new("git")
+            .args(["stash", "list"])
+            .current_dir(workspace)
+            .output()
+            .ok()?;
+
+        let text = String::from_utf8_lossy(&out.stdout);
+        text.lines()
+            .find(|line| line.contains(tag))
+            .and_then(|line| line.split(':').next())
+            .map(|s| s.trim().to_string())
+    }
+
+    fn restore_python_infra(&self, had_venv: bool) {
+        if had_venv && !self.workspace.join("venv").exists() {
+            let cache_venv = crate::scaffold_engine::get_cache_dir().join("python/venv");
+            if cache_venv.exists() {
+                let _ = std::os::unix::fs::symlink(&cache_venv, self.workspace.join("venv"));
+            } else {
+                let _ = Command::new("python3")
+                    .args(["-m", "venv", "venv"])
+                    .current_dir(&self.workspace)
+                    .output();
+
+                let _ = Command::new("venv/bin/pip")
+                    .args(["install", "pytest", "-q"])
+                    .current_dir(&self.workspace)
+                    .output();
+            }
+        }
+
+        // Ensure pytest exists if venv exists
+        let pytest_bin = self.workspace.join("venv/bin/pytest");
+        let pip_bin = self.workspace.join("venv/bin/pip");
+        if self.workspace.join("venv").exists() && !pytest_bin.exists() && pip_bin.exists() {
+            let _ = Command::new(&pip_bin)
+                .args(["install", "pytest", "-q"])
+                .current_dir(&self.workspace)
+                .output();
+        }
+    }
+
+    /// Take a snapshot of the current workspace while KEEPING the current
+    /// worktree intact. We use git stash as a backup, then re-apply it
+    /// immediately so repair code can still see the created files.
     pub fn take(workspace: &Path) -> Self {
         // Ensure it's a git repo
         if !workspace.join(".git").exists() {
@@ -21,15 +68,7 @@ impl Snapshot {
                 .output();
         }
 
-        // Add all files so git tracks them (otherwise untracked files aren't stashed without -u)
-        let _ = Command::new("git")
-            .arg("add")
-            .arg(".")
-            .current_dir(workspace)
-            .output();
-
-        // v7.6.1: Protect infrastructure dirs from git stash --include-untracked
-        // venv/ and node_modules/ are INFRA, not application data  must survive snapshot cycles
+        // Protect infrastructure dirs from stash/cleanup side effects
         let gitignore = workspace.join(".gitignore");
         let existing = std::fs::read_to_string(&gitignore).unwrap_or_default();
         if !existing.contains("venv/") {
@@ -39,39 +78,47 @@ impl Snapshot {
             }
             content.push_str("venv/\nnode_modules/\n__pycache__/\ntarget/\n");
             let _ = std::fs::write(&gitignore, content);
-            // Re-add so .gitignore is tracked
-            let _ = Command::new("git")
-                .args(["add", ".gitignore"])
-                .current_dir(workspace)
-                .output();
         }
 
-        // Ensure there is at least one commit so `git stash` and `git reset` work correctly.
-        let rev_parse = Command::new("git")
+        // Ensure there is at least one commit so stash/reset work correctly
+        let has_head = Command::new("git")
             .args(["rev-parse", "HEAD"])
             .current_dir(workspace)
-            .output();
-        
-        if rev_parse.is_err() || !rev_parse.unwrap().status.success() {
-            // First time taking a snapshot in this repo, create an initial commit.
-            // Setup dummy user config to prevent commit failure if git is unconfigured.
-            let _ = Command::new("git").args(["config", "user.name", "SEL Agent"]).current_dir(workspace).output();
-            let _ = Command::new("git").args(["config", "user.email", "sel@local.test"]).current_dir(workspace).output();
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        if !has_head {
             let _ = Command::new("git")
-                .args(["commit", "-m", "Initial commit baseline"])
+                .args(["config", "user.name", "SEL Agent"])
+                .current_dir(workspace)
+                .output();
+            let _ = Command::new("git")
+                .args(["config", "user.email", "sel@local.test"])
+                .current_dir(workspace)
+                .output();
+
+            let _ = Command::new("git")
+                .args(["add", "."])
+                .current_dir(workspace)
+                .output();
+
+            let _ = Command::new("git")
+                .args(["commit", "--allow-empty", "-m", "Initial commit baseline"])
                 .current_dir(workspace)
                 .output();
         }
 
-        // Perform stash
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+
+        let tag = format!("sel_agent_snapshot_{}_{}", std::process::id(), now_ms);
+
         let output = Command::new("git")
-            .args([
-                "stash",
-                "push",
-                "--include-untracked",
-                "-m",
-                "sel_agent_snapshot",
-            ])
+            .args(["stash", "push", "--include-untracked", "-m"])
+            .arg(&tag)
             .current_dir(workspace)
             .output();
 
@@ -82,18 +129,51 @@ impl Snapshot {
             false
         };
 
-        if has_stashed {
-            eprintln!("[TRACE] Snapshot: git stash created successfully");
-        }
+        let stash_tag = if has_stashed {
+            if let Some(stash_ref) = Self::resolve_stash_ref(workspace, &tag) {
+                let apply_out = Command::new("git")
+                    .args(["stash", "apply"])
+                    .arg(&stash_ref)
+                    .current_dir(workspace)
+                    .output();
+
+                match apply_out {
+                    Ok(o) if o.status.success() => {
+                        eprintln!(
+                            "[TRACE] Snapshot: {} saved and re-applied to worktree",
+                            stash_ref
+                        );
+                    }
+                    Ok(o) => {
+                        eprintln!(
+                            "[TRACE] Snapshot: failed to re-apply {}: {}",
+                            stash_ref,
+                            String::from_utf8_lossy(&o.stderr)
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("[TRACE] Snapshot: failed to re-apply {}: {}", stash_ref, e);
+                    }
+                }
+            } else {
+                eprintln!(
+                    "[TRACE] Snapshot: stash created but could not resolve ref for tag {}",
+                    tag
+                );
+            }
+            Some(tag)
+        } else {
+            None
+        };
 
         Self {
             workspace: workspace.to_path_buf(),
             active: true,
-            has_stashed,
+            stash_tag,
         }
     }
 
-    /// Rollback workspace to pre-change state
+    /// Rollback workspace to the pre-attempt state stored in this snapshot.
     pub fn rollback(&mut self) {
         if !self.active {
             return;
@@ -101,7 +181,6 @@ impl Snapshot {
 
         let had_venv = self.workspace.join("venv").exists();
 
-        // Discard any current changes made during the failed step
         let _ = Command::new("git")
             .args(["reset", "--hard"])
             .current_dir(&self.workspace)
@@ -112,104 +191,91 @@ impl Snapshot {
             .current_dir(&self.workspace)
             .output();
 
-        if self.has_stashed {
-            // Restore the stash
-            let _ = Command::new("git")
-                .args(["stash", "pop"])
-                .current_dir(&self.workspace)
-                .output();
-            println!("    Snapshot: rolled back via git stash pop");
+        if let Some(tag) = self.stash_tag.as_deref() {
+            if let Some(stash_ref) = Self::resolve_stash_ref(&self.workspace, tag) {
+                let _ = Command::new("git")
+                    .args(["stash", "apply"])
+                    .arg(&stash_ref)
+                    .current_dir(&self.workspace)
+                    .output();
+
+                let _ = Command::new("git")
+                    .args(["stash", "drop"])
+                    .arg(&stash_ref)
+                    .current_dir(&self.workspace)
+                    .output();
+
+                println!("    Snapshot: rolled back via {}", stash_ref);
+            } else {
+                println!("    Snapshot: reset workspace (stash ref not found)");
+            }
         } else {
             println!("    Snapshot: reset workspace (no stash needed)");
         }
 
-        if had_venv && !self.workspace.join("venv").exists() {
-            let cache_venv = crate::scaffold_engine::get_cache_dir().join("python/venv");
-            if cache_venv.exists() {
-                let _ = std::os::unix::fs::symlink(&cache_venv, self.workspace.join("venv"));
-            } else {
-                let _ = Command::new("python3")
-                    .args(["-m", "venv", "venv"])
-                    .current_dir(&self.workspace)
-                    .output();
-                let _ = Command::new("venv/bin/pip")
-                    .args(["install", "pytest", "-q"])
-                    .current_dir(&self.workspace)
-                    .output();
-            }
-        }
-        // v8.1: Ensure pytest is installed even if venv was pre-existing but lacked it
-        let pytest_bin = self.workspace.join("venv/bin/pytest");
-        let pip_bin = self.workspace.join("venv/bin/pip");
-        if self.workspace.join("venv").exists() && !pytest_bin.exists() && pip_bin.exists() {
-            let _ = Command::new(&pip_bin)
-                .args(["install", "pytest", "-q"])
-                .current_dir(&self.workspace)
-                .output();
-        }
+        self.restore_python_infra(had_venv);
         self.active = false;
     }
 
-    /// Commit  accept the changes, discard backup
+    /// Accept the current changes and discard the backup stash.
     pub fn commit(&mut self) {
         if !self.active {
             return;
         }
 
-        if self.has_stashed {
-            // Drop the stash since we're keeping the new changes
-            let _ = Command::new("git")
-                .args(["stash", "drop"])
-                .current_dir(&self.workspace)
-                .output();
-            eprintln!("[TRACE] Snapshot: git stash dropped (changes accepted)");
+        if let Some(tag) = self.stash_tag.as_deref() {
+            if let Some(stash_ref) = Self::resolve_stash_ref(&self.workspace, tag) {
+                let _ = Command::new("git")
+                    .args(["stash", "drop"])
+                    .arg(&stash_ref)
+                    .current_dir(&self.workspace)
+                    .output();
+
+                eprintln!("[TRACE] Snapshot: {} dropped (changes accepted)", stash_ref);
+            }
         }
+
         self.active = false;
     }
 }
 
 impl Drop for Snapshot {
     fn drop(&mut self) {
-        if self.active && self.has_stashed {
-            let had_venv = self.workspace.join("venv").exists();
-            // Abnormal exit, try to rollback
-            let _ = Command::new("git")
-                .args(["reset", "--hard"])
-                .current_dir(&self.workspace)
-                .output();
-            let _ = Command::new("git")
-                .args(["clean", "-fd"])
-                .current_dir(&self.workspace)
-                .output();
-            let _ = Command::new("git")
-                .args(["stash", "pop"])
-                .current_dir(&self.workspace)
-                .output();
+        if !self.active {
+            return;
+        }
 
-            if had_venv && !self.workspace.join("venv").exists() {
-                let cache_venv = crate::scaffold_engine::get_cache_dir().join("python/venv");
-                if cache_venv.exists() {
-                    let _ = std::os::unix::fs::symlink(&cache_venv, self.workspace.join("venv"));
-                } else {
-                    let _ = Command::new("python3")
-                        .args(["-m", "venv", "venv"])
-                        .current_dir(&self.workspace)
-                        .output();
-                    let _ = Command::new("venv/bin/pip")
-                        .args(["install", "pytest", "-q"])
-                        .current_dir(&self.workspace)
-                        .output();
-                }
-            }
-            // v8.1: Ensure pytest is installed even if venv was pre-existing but lacked it
-            let pytest_bin = self.workspace.join("venv/bin/pytest");
-            let pip_bin = self.workspace.join("venv/bin/pip");
-            if self.workspace.join("venv").exists() && !pytest_bin.exists() && pip_bin.exists() {
-                let _ = Command::new(&pip_bin)
-                    .args(["install", "pytest", "-q"])
+        let had_venv = self.workspace.join("venv").exists();
+
+        let _ = Command::new("git")
+            .args(["reset", "--hard"])
+            .current_dir(&self.workspace)
+            .output();
+
+        let _ = Command::new("git")
+            .args(["clean", "-fd"])
+            .current_dir(&self.workspace)
+            .output();
+
+        if let Some(tag) = self.stash_tag.as_deref() {
+            if let Some(stash_ref) = Self::resolve_stash_ref(&self.workspace, tag) {
+                let _ = Command::new("git")
+                    .args(["stash", "apply"])
+                    .arg(&stash_ref)
                     .current_dir(&self.workspace)
                     .output();
+
+                let _ = Command::new("git")
+                    .args(["stash", "drop"])
+                    .arg(&stash_ref)
+                    .current_dir(&self.workspace)
+                    .output();
+
+                eprintln!("[TRACE] Snapshot: {} restored in Drop", stash_ref);
             }
         }
+
+        self.restore_python_infra(had_venv);
+        self.active = false;
     }
 }
