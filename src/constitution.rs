@@ -145,7 +145,7 @@ fn rule_6_no_dangerous_shell_commands(command: &str) -> Result<(), Violation> {
     let dangerous = [
         "rm -rf /",
         "rm -rf /*",
-        ":(){:|:&};:",   // fork bomb
+        ":(){:|:&};:", // fork bomb
         "dd if=/dev/zero",
         "mkfs",
         "fdisk",

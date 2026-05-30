@@ -6,9 +6,9 @@ use crate::types::{AgentState, ContextConfig, ExecutionContext, FailedStep, Fail
 use anyhow::Result;
 use std::path::Path;
 
-// 
+//
 // PLANNING
-// 
+//
 
 pub async fn do_planning(
     ctx: &mut ExecutionContext,
@@ -21,7 +21,10 @@ pub async fn do_planning(
         return Ok((Vec::new(), AgentState::Failed(reason.to_string())));
     }
 
-    let elapsed = ctx.start_time.map(|s| s.elapsed().as_secs_f32()).unwrap_or(0.0);
+    let elapsed = ctx
+        .start_time
+        .map(|s| s.elapsed().as_secs_f32())
+        .unwrap_or(0.0);
     eprintln!("\n[{:.1}s] 🧠 Planning...", elapsed);
     let ecm = crate::environment::EnvironmentCapabilities::probe();
     let prompt = build_planning_prompt(goal, workspace, config, &ecm);
@@ -80,13 +83,18 @@ pub async fn do_planning(
                         if let crate::protocol::Cmd::WriteFile { path, .. } = cmd {
                             if last_write.get(path) != Some(&i) {
                                 keep[i] = false;
-                                println!("   ⚠️  Dedup: skipping earlier write_file for '{}'", path);
+                                println!(
+                                    "   ⚠️  Dedup: skipping earlier write_file for '{}'",
+                                    path
+                                );
                             }
                         }
                     }
                     let had_dups = keep.iter().any(|k| !k);
                     if had_dups {
-                        commands = commands.into_iter().zip(keep)
+                        commands = commands
+                            .into_iter()
+                            .zip(keep)
                             .filter(|(_, k)| *k)
                             .map(|(c, _)| c)
                             .collect();
@@ -135,7 +143,8 @@ fn build_planning_prompt(
         ""
     };
 
-    let thinking_prompt = format!("\n\n## Required Analysis\n\
+    let thinking_prompt = format!(
+        "\n\n## Required Analysis\n\
 Before writing the JSON plan, think step-by-step inside <think>...</think> tags:\n\
 <think>\n\
 - Is this a bugfix task (files already exist) or a new feature task?\n\
@@ -149,7 +158,9 @@ CRITICAL PROTOCOL REMINDER:\n\
 - Every plan MUST contain run_tests BEFORE done (non-negotiable)\n\
 - pip install: use venv/bin/pip install <pkg>\n\
 - Cargo.toml: use write_file with complete content when adding dependencies\n\
-{}", repair_instruction);
+{}",
+        repair_instruction
+    );
 
     crate::constitution::CONSTITUTION.to_string()
         + &format!(
@@ -302,9 +313,9 @@ fn replan_with_feedback<'a>(
     })
 }
 
-// 
+//
 // EXECUTING
-// 
+//
 
 pub async fn do_executing(
     ctx: &mut ExecutionContext,
@@ -317,8 +328,17 @@ pub async fn do_executing(
 
     while i < total {
         let cmd = &plan[i];
-        let elapsed = ctx.start_time.map(|s| s.elapsed().as_secs_f32()).unwrap_or(0.0);
-        eprintln!("[{:.1}s] ⚡ Executing  step {}/{} ({})", elapsed, i + 1, total, cmd.label());
+        let elapsed = ctx
+            .start_time
+            .map(|s| s.elapsed().as_secs_f32())
+            .unwrap_or(0.0);
+        eprintln!(
+            "[{:.1}s] ⚡ Executing  step {}/{} ({})",
+            elapsed,
+            i + 1,
+            total,
+            cmd.label()
+        );
 
         let cmd_hash = cmd.hash();
         let is_pip = cmd.label().contains("pip");
@@ -327,7 +347,11 @@ pub async fn do_executing(
         let is_cargo_test =
             cmd.label().contains("cargo test") || cmd.label().contains("cargo check");
 
-        let skip_allowed = !(cmd.is_run_tests() || cmd.is_write_file() || cmd.is_patch_file() || is_cargo_test || (is_pip && !venv_ok));
+        let skip_allowed = !(cmd.is_run_tests()
+            || cmd.is_write_file()
+            || cmd.is_patch_file()
+            || is_cargo_test
+            || (is_pip && !venv_ok));
 
         let side_effect_still_exists = match cmd {
             Cmd::Run { command } => {
@@ -345,12 +369,21 @@ pub async fn do_executing(
             _ => true,
         };
 
-        if ctx.successful_hashes.contains(&cmd_hash.to_string()) && skip_allowed && side_effect_still_exists {
+        if ctx.successful_hashes.contains(&cmd_hash.to_string())
+            && skip_allowed
+            && side_effect_still_exists
+        {
             println!("   ⏭  Skipping: {} (already passed)", cmd.label());
             i += 1;
             continue;
-        } else if ctx.successful_hashes.contains(&cmd_hash.to_string()) && skip_allowed && !side_effect_still_exists {
-            println!("   ↩️  Re-running: {} (artifact missing after rollback)", cmd.label());
+        } else if ctx.successful_hashes.contains(&cmd_hash.to_string())
+            && skip_allowed
+            && !side_effect_still_exists
+        {
+            println!(
+                "   ↩️  Re-running: {} (artifact missing after rollback)",
+                cmd.label()
+            );
         }
 
         if cmd.is_done() {
@@ -497,18 +530,27 @@ async fn run_mutation_check(
         match executor.mutation_check(src).await {
             crate::executor::MutationResult::Weak(orig_line, mutd_line) => {
                 let mutation_key = format!("{}|{}|{}", src, orig_line, mutd_line);
-                let count = ctx.mutation_survival_counts.entry(mutation_key).or_insert(0);
+                let count = ctx
+                    .mutation_survival_counts
+                    .entry(mutation_key)
+                    .or_insert(0);
                 *count += 1;
 
                 if *count >= 3 {
-                    println!("     🧬 Equivalent Mutant detected (survived {} times)  skipping", *count);
+                    println!(
+                        "     🧬 Equivalent Mutant detected (survived {} times)  skipping",
+                        *count
+                    );
                     ctx.mutations_total += 1;
                     ctx.mutations_killed += 1; // Mark as killed/passed so it doesn't fail the bench
                     continue;
                 }
 
                 ctx.mutations_total += 1;
-                println!("   🧬 Survived mutation (Attempt {}): [{}]  [{}]", count, orig_line, mutd_line);
+                println!(
+                    "   🧬 Survived mutation (Attempt {}): [{}]  [{}]",
+                    count, orig_line, mutd_line
+                );
                 ctx.last_mutation_context = Some(crate::types::MutationContext {
                     surviving: format!(
                         "File: {}\nOriginal: {}\nMutation: {}",
@@ -538,9 +580,9 @@ async fn run_mutation_check(
     None
 }
 
-// 
+//
 // REPAIRING
-// 
+//
 
 pub async fn do_repairing(
     ctx: &mut ExecutionContext,
@@ -583,9 +625,12 @@ pub async fn do_repairing(
     }
 
     ctx.repair_attempts += 1;
-    
+
     let mut dynamic_max_repairs = ctx.max_repairs;
-    if goal.to_lowercase().contains("typescript") || goal.to_lowercase().contains("node.js") || goal.to_lowercase().contains("jest") {
+    if goal.to_lowercase().contains("typescript")
+        || goal.to_lowercase().contains("node.js")
+        || goal.to_lowercase().contains("jest")
+    {
         dynamic_max_repairs = dynamic_max_repairs.max(5);
     }
 
@@ -601,21 +646,21 @@ pub async fn do_repairing(
         } else {
             diag_report.as_prompt_fragment()
         };
-        
-        let msg = format!("Max repair attempts ({}) reached.\nDiagnostic: {}", repair_limit, diagnostic);
+
+        let msg = format!(
+            "Max repair attempts ({}) reached.\nDiagnostic: {}",
+            repair_limit, diagnostic
+        );
         if ctx.bench_mode || std::env::var("SEL_BENCH_MODE").is_ok() {
-            return Ok((
-                Vec::new(),
-                AgentState::Failed(msg),
-            ));
+            return Ok((Vec::new(), AgentState::Failed(msg)));
         }
-        return Ok((
-            Vec::new(),
-            AgentState::WaitingForUserInput(msg),
-        ));
+        return Ok((Vec::new(), AgentState::WaitingForUserInput(msg)));
     }
 
-    let elapsed = ctx.start_time.map(|s| s.elapsed().as_secs_f32()).unwrap_or(0.0);
+    let elapsed = ctx
+        .start_time
+        .map(|s| s.elapsed().as_secs_f32())
+        .unwrap_or(0.0);
     eprintln!(
         "\n[{:.1}s]  Repairing (Attempt {}/{})...",
         elapsed, ctx.repair_attempts, repair_limit
@@ -650,26 +695,36 @@ pub async fn do_repairing(
                     if !content.contains("import") {
                         let search = "package main\n".to_string();
                         if content.contains(&search) {
-                            return Ok((vec![
-                                Cmd::PatchFile {
-                                    path: "main.go".to_string(),
-                                    search: search.clone(),
-                                    replace: format!("package main\n\nimport \"{}\"\n", symbol),
-                                },
-                                Cmd::RunTests { target: "go test".to_string() }
-                            ], AgentState::Executing));
+                            return Ok((
+                                vec![
+                                    Cmd::PatchFile {
+                                        path: "main.go".to_string(),
+                                        search: search.clone(),
+                                        replace: format!("package main\n\nimport \"{}\"\n", symbol),
+                                    },
+                                    Cmd::RunTests {
+                                        target: "go test".to_string(),
+                                    },
+                                ],
+                                AgentState::Executing,
+                            ));
                         }
                     } else if content.contains("import (") {
                         let search = "import (".to_string();
                         if content.contains(&search) {
-                            return Ok((vec![
-                                Cmd::PatchFile {
-                                    path: "main.go".to_string(),
-                                    search: search.clone(),
-                                    replace: format!("import (\n\t\"{}\"", symbol),
-                                },
-                                Cmd::RunTests { target: "go test".to_string() }
-                            ], AgentState::Executing));
+                            return Ok((
+                                vec![
+                                    Cmd::PatchFile {
+                                        path: "main.go".to_string(),
+                                        search: search.clone(),
+                                        replace: format!("import (\n\t\"{}\"", symbol),
+                                    },
+                                    Cmd::RunTests {
+                                        target: "go test".to_string(),
+                                    },
+                                ],
+                                AgentState::Executing,
+                            ));
                         }
                     }
                 }
@@ -678,13 +733,13 @@ pub async fn do_repairing(
         }
     }
 
-    //  Structured Repair Memory v8.0 (Escalating Strategy) 
+    //  Structured Repair Memory v8.0 (Escalating Strategy)
     let display_limit = repair_limit;
     let repair_ctx = crate::repair_strategy::RepairCtx::build(workspace, goal, error_history);
     let attempt_note = format!(
-        "ATTEMPT {}/{}:\n{}", 
-        ctx.repair_attempts, 
-        display_limit, 
+        "ATTEMPT {}/{}:\n{}",
+        ctx.repair_attempts,
+        display_limit,
         crate::repair_strategy::build_prompt(ctx.repair_attempts, &all_err, &repair_ctx)
     );
 
@@ -697,10 +752,10 @@ pub async fn do_repairing(
         ""
     };
 
-    //     
+    //
     error_history.push(all_err.chars().take(800).collect());
 
-    // Repair History Guard v1.2     
+    // Repair History Guard v1.2
     let fingerprint: u64 = all_err
         .bytes()
         .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
@@ -723,11 +778,11 @@ pub async fn do_repairing(
     } else {
         format!("\n\n{}", diag_report.as_prompt_fragment())
     };
-    
+
     let combined_hints = format!("{}{}", memory_hint, diagnostic_hint);
 
     let files_context = crate::decision::build_workspace_context(workspace);
-    
+
     // v8.1: File Content in every Repair Prompt for culprit files
     let mut culprit_contents = String::new();
     let mut seen_culprits = std::collections::HashSet::new();
@@ -754,10 +809,7 @@ pub async fn do_repairing(
         } else {
             "Add tests to kill it."
         };
-        format!(
-            "\n\n MUTATION SURVIVED:\n{}\n{}",
-            mctx.surviving, loop_msg
-        )
+        format!("\n\n MUTATION SURVIVED:\n{}\n{}", mctx.surviving, loop_msg)
     } else {
         String::new()
     };

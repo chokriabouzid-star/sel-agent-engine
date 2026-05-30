@@ -48,26 +48,24 @@ pub fn check_result(
         notes: Vec::new(),
     };
 
-    //  :      
+    //  :
     match name {
-        n if n.starts_with("go_")
-            && (path_exists(ws, "*.py") || path_exists(ws, "test_*.py")) => {
-                result.created_wrong_files = true;
-                result.passed = false;
-                result.notes.push("created .py files in Go project".into());
-            }
-        n if n.starts_with("python_")
-            && path_exists(ws, "*.go") => {
-                result.created_wrong_files = true;
-                result.passed = false;
-                result
-                    .notes
-                    .push("created .go files in Python project".into());
-            }
+        n if n.starts_with("go_") && (path_exists(ws, "*.py") || path_exists(ws, "test_*.py")) => {
+            result.created_wrong_files = true;
+            result.passed = false;
+            result.notes.push("created .py files in Go project".into());
+        }
+        n if n.starts_with("python_") && path_exists(ws, "*.go") => {
+            result.created_wrong_files = true;
+            result.passed = false;
+            result
+                .notes
+                .push("created .go files in Python project".into());
+        }
         _ => {}
     }
 
-    //         
+    //
     match name {
         "go_undefined_import" => {
             if repairs > 1 {
@@ -122,7 +120,7 @@ pub fn check_result(
                     // Multiply    a * b
                     let has_correct_multiply = content.contains("a * b");
 
-                    //     
+                    //
                     let still_has_subtract = content.lines().any(|l| l.contains("a - b"));
 
                     if still_has_subtract {
@@ -134,7 +132,7 @@ pub fn check_result(
                         result.notes.push("Multiply not fixed to a * b".into());
                     }
                     if !has_correct_add && !still_has_subtract {
-                        //  
+                        //
                         result.notes.push("Add implementation unclear".into());
                     }
                 }
@@ -143,10 +141,10 @@ pub fn check_result(
                     result.notes.push("main.go not found".into());
                 }
             }
-            // mutation 
+            // mutation
             if mutation < 0.0 {
                 result.notes.push("mutation not measured".into());
-                //      
+                //
             } else if mutation < 1.0 {
                 result.mutation_ok = false;
                 result.passed = false;
@@ -198,7 +196,7 @@ pub fn check_result(
                     result.notes.push("not importing from models".into());
                 }
             }
-            // models.py    
+            // models.py
             if let Ok(content) = std::fs::read_to_string(ws.join("models.py")) {
                 if !content.contains("class User:") {
                     result.passed = false;
@@ -214,7 +212,7 @@ pub fn check_result(
                 result.passed = false;
                 result.notes.push(format!("too many repairs: {}", repairs));
             }
-            //   Fibonacci 
+            //   Fibonacci
             if let Ok(content) = std::fs::read_to_string(ws.join("main.go")) {
                 let open_braces = content.matches('{').count();
                 let close_braces = content.matches('}').count();
@@ -246,7 +244,7 @@ pub fn check_result(
         _ => {}
     }
 
-    //     
+    //
     if result.notes.is_empty() && result.passed {
         result.notes.push("ok".into());
     }
@@ -315,9 +313,9 @@ pub fn all_cases() -> Vec<CompileCase> {
     ]
 }
 
-// 
+//
 // Setup functions
-// 
+//
 
 fn setup_go_undefined_import(ws: &Path) {
     let _ = std::fs::write(

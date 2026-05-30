@@ -6,48 +6,48 @@
 // ============================================================
 //
 //  :
-//   1.  file:line    
-//   2.    > MAX_FILE_LINES    CHUNK_RADIUS 
+//   1.  file:line
+//   2.    > MAX_FILE_LINES    CHUNK_RADIUS
 //   3.        LLM
-//   4.  context_hint   prompt       
+//   4.  context_hint   prompt
 // ============================================================
 
 use std::fs;
 use std::path::Path;
 
-//   
+//
 pub const MAX_FILE_LINES: usize = 400; //     chunking
-pub const CHUNK_RADIUS: usize = 60; // 60   
-pub const CHARS_PER_TOKEN: usize = 4; // : 1 token  4 
-pub const MAX_TOKENS_PER_FILE: usize = 3_000; // ~12K     
+pub const CHUNK_RADIUS: usize = 60; // 60
+pub const CHARS_PER_TOKEN: usize = 4; // : 1 token  4
+pub const MAX_TOKENS_PER_FILE: usize = 3_000; // ~12K
 
-//   
+//
 
-///      
+///
 #[derive(Debug, Clone)]
 pub struct ErrorLocation {
-    ///     
+    ///
     pub file: String,
     ///   (1-indexed)
     pub line: usize,
 }
 
-///   chunk   
+///   chunk
 #[derive(Debug)]
 pub struct FileChunk {
-    ///     
+    ///
     pub content: String,
     ///      chunk
     pub start_line: usize,
     ///      chunk
     pub end_line: usize,
-    ///    
+    ///
     pub total_lines: usize,
 }
 
-//     
+//
 
-///      
+///
 //
 ///  :
 /// - Rust:   `src/main.rs:42:10`  `--> src/main.rs:42`
@@ -181,10 +181,10 @@ fn is_duplicate(locations: &[ErrorLocation], new: &ErrorLocation) -> bool {
         .any(|l| l.file == new.file && (l.line as i64 - new.line as i64).abs() < 10)
 }
 
-//   Chunk    
+//   Chunk
 
-///  chunk      
-///          
+///  chunk
+///
 pub fn read_file_chunk(path: &Path, center_line: usize, radius: usize) -> Option<FileChunk> {
     let content = fs::read_to_string(path).ok()?;
     let all_lines: Vec<&str> = content.lines().collect();
@@ -217,8 +217,7 @@ pub fn get_file_content_smart(
     path: &Path,
     error_locations: &[ErrorLocation],
 ) -> Result<SmartContent, String> {
-    let content =
-        fs::read_to_string(path).map_err(|e| format!("   {:?}: {}", path, e))?;
+    let content = fs::read_to_string(path).map_err(|e| format!("   {:?}: {}", path, e))?;
 
     let line_count = content.lines().count();
     let token_estimate = content.len() / CHARS_PER_TOKEN;
@@ -240,7 +239,7 @@ pub fn get_file_content_smart(
     }
 }
 
-//  SmartContent 
+//  SmartContent
 
 pub enum SmartContent {
     FullFile(String),
@@ -275,7 +274,7 @@ impl SmartContent {
     }
 }
 
-//    tokens 
+//    tokens
 
 pub fn estimate_tokens(text: &str) -> usize {
     text.len() / CHARS_PER_TOKEN
@@ -288,7 +287,7 @@ pub fn estimate_context_tokens(files: &[(String, String)]) -> usize {
         .sum()
 }
 
-//    
+//
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,5 +1,5 @@
-use std::sync::{Mutex, OnceLock};
 use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 static SESSION_STATS: OnceLock<Mutex<HashMap<String, ProviderUsage>>> = OnceLock::new();
 
@@ -35,7 +35,9 @@ impl CostTracker {
 pub fn record_session_usage(provider: &str, t_in: u32, t_out: u32) {
     let stats_mutex = SESSION_STATS.get_or_init(|| Mutex::new(HashMap::new()));
     if let Ok(mut stats) = stats_mutex.lock() {
-        let usage = stats.entry(provider.to_string()).or_insert_with(ProviderUsage::default);
+        let usage = stats
+            .entry(provider.to_string())
+            .or_insert_with(ProviderUsage::default);
         usage.calls += 1;
         usage.tokens_in += t_in as u64;
         usage.tokens_out += t_out as u64;
@@ -45,7 +47,9 @@ pub fn record_session_usage(provider: &str, t_in: u32, t_out: u32) {
 pub fn print_session_summary() {
     let stats_mutex = SESSION_STATS.get_or_init(|| Mutex::new(HashMap::new()));
     let stats = stats_mutex.lock().unwrap();
-    if stats.is_empty() { return; }
+    if stats.is_empty() {
+        return;
+    }
 
     println!("\n Session Summary:");
     println!("   ");
@@ -62,13 +66,22 @@ pub fn print_session_summary() {
     for (p, u) in sorted_stats {
         let tokens = u.tokens_in + u.tokens_out;
         let cost = estimate_usd(p, u.tokens_in, u.tokens_out);
-        println!("    {:<12}  {:>5}  {:>8}  ${:<8.3} ", truncate(p, 12), u.calls, tokens, cost);
+        println!(
+            "    {:<12}  {:>5}  {:>8}  ${:<8.3} ",
+            truncate(p, 12),
+            u.calls,
+            tokens,
+            cost
+        );
         total_calls += u.calls;
         total_tokens += tokens;
         total_cost += cost;
     }
     println!("   ");
-    println!("    {:<12}  {:>5}  {:>8}  ${:<8.3} ", "Total", total_calls, total_tokens, total_cost);
+    println!(
+        "    {:<12}  {:>5}  {:>8}  ${:<8.3} ",
+        "Total", total_calls, total_tokens, total_cost
+    );
     println!("   ");
 }
 
@@ -81,7 +94,11 @@ fn truncate(s: &str, max_chars: usize) -> String {
 
 fn estimate_usd(provider: &str, in_tokens: u64, out_tokens: u64) -> f64 {
     let p = provider.to_lowercase();
-    if p.contains("cerebras") || p.contains("groq") || p.contains("sambanova") || p.contains("gemini") {
+    if p.contains("cerebras")
+        || p.contains("groq")
+        || p.contains("sambanova")
+        || p.contains("gemini")
+    {
         return 0.0;
     }
     let in_k = in_tokens as f64 / 1000.0;

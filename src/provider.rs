@@ -10,10 +10,10 @@
 //! 4. Gemini     broad capability, verbose output
 //! 5. OpenAI     fallback of last resort
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
 // ---------------------------------------------------------------------------
@@ -32,11 +32,11 @@ pub enum ProviderId {
 impl ProviderId {
     pub fn name(&self) -> &'static str {
         match self {
-            ProviderId::Cerebras  => "Cerebras",
-            ProviderId::Groq      => "Groq",
+            ProviderId::Cerebras => "Cerebras",
+            ProviderId::Groq => "Groq",
             ProviderId::SambaNova => "SambaNova",
-            ProviderId::Gemini    => "Gemini",
-            ProviderId::OpenAI    => "OpenAI",
+            ProviderId::Gemini => "Gemini",
+            ProviderId::OpenAI => "OpenAI",
         }
     }
 
@@ -239,11 +239,11 @@ impl SmartProviderOrchestra {
     /// Create a new orchestra with default quotas.
     pub fn new() -> Self {
         let mut quotas = HashMap::new();
-        quotas.insert(ProviderId::Cerebras,  ProviderQuota::new(1000));
-        quotas.insert(ProviderId::Groq,      ProviderQuota::new(500));
+        quotas.insert(ProviderId::Cerebras, ProviderQuota::new(1000));
+        quotas.insert(ProviderId::Groq, ProviderQuota::new(500));
         quotas.insert(ProviderId::SambaNova, ProviderQuota::new(300));
-        quotas.insert(ProviderId::Gemini,    ProviderQuota::new(200));
-        quotas.insert(ProviderId::OpenAI,    ProviderQuota::new(100));
+        quotas.insert(ProviderId::Gemini, ProviderQuota::new(200));
+        quotas.insert(ProviderId::OpenAI, ProviderQuota::new(100));
 
         Self {
             quotas: Arc::new(Mutex::new(quotas)),
@@ -331,7 +331,10 @@ mod tests {
 
     #[test]
     fn test_task_kind_classify_scaffolding() {
-        assert_eq!(TaskKind::classify("scaffold a Go project"), TaskKind::Scaffolding);
+        assert_eq!(
+            TaskKind::classify("scaffold a Go project"),
+            TaskKind::Scaffolding
+        );
     }
 
     #[test]
@@ -341,7 +344,10 @@ mod tests {
 
     #[test]
     fn test_task_kind_classify_testing() {
-        assert_eq!(TaskKind::classify("write tests for parser"), TaskKind::Testing);
+        assert_eq!(
+            TaskKind::classify("write tests for parser"),
+            TaskKind::Testing
+        );
     }
 
     #[test]

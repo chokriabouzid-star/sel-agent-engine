@@ -110,14 +110,23 @@ pub async fn run_bench_sel(
     };
 
     println!();
-    println!("{}", "╔══════════════════════════════════════════════════╗".cyan());
-    println!("{}", "║   SELBench v1.0 — SEL Agent Internal Benchmark   ║".cyan());
-    println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
     println!(
-        "║  Cases: {:3}  Mode: {:<22}       ║",
-        total, mode
+        "{}",
+        "╔══════════════════════════════════════════════════╗".cyan()
     );
-    println!("{}", "╚══════════════════════════════════════════════════╝".cyan());
+    println!(
+        "{}",
+        "║   SELBench v1.0 — SEL Agent Internal Benchmark   ║".cyan()
+    );
+    println!(
+        "{}",
+        "╠══════════════════════════════════════════════════╣".cyan()
+    );
+    println!("║  Cases: {:3}  Mode: {:<22}       ║", total, mode);
+    println!(
+        "{}",
+        "╚══════════════════════════════════════════════════╝".cyan()
+    );
     println!();
 
     let mut results: Vec<SelBenchResult> = Vec::new();
@@ -166,8 +175,16 @@ pub async fn run_bench_sel(
             .join(format!("sel_{}", case.id.to_lowercase().replace('-', "_")));
 
         // تشغيل الوكيل
-        let agent_result =
-            run_agent(&ws, case.goal, max_repairs, record, replay, rerecord, &traj_dir).await;
+        let agent_result = run_agent(
+            &ws,
+            case.goal,
+            max_repairs,
+            record,
+            replay,
+            rerecord,
+            &traj_dir,
+        )
+        .await;
 
         let elapsed = start.elapsed().as_secs_f64();
         let (passed, repairs) = match &agent_result {
@@ -432,9 +449,18 @@ fn print_results(results: &[SelBenchResult], total: usize) {
     ];
 
     println!();
-    println!("{}", "╔══════════════════════════════════════════════════╗".cyan());
-    println!("{}", "║   SELBench v1.0 — Results                        ║".cyan());
-    println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
+    println!(
+        "{}",
+        "╔══════════════════════════════════════════════════╗".cyan()
+    );
+    println!(
+        "{}",
+        "║   SELBench v1.0 — Results                        ║".cyan()
+    );
+    println!(
+        "{}",
+        "╠══════════════════════════════════════════════════╣".cyan()
+    );
     println!(
         "║  Total:  {:2}/{:2} ({:.1}%){}║",
         passed,
@@ -442,7 +468,10 @@ fn print_results(results: &[SelBenchResult], total: usize) {
         pct,
         " ".repeat(26 - format!("{:.1}%", pct).len())
     );
-    println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
+    println!(
+        "{}",
+        "╠══════════════════════════════════════════════════╣".cyan()
+    );
     println!("║  By Category:{}║", " ".repeat(36));
 
     for cat in &categories {
@@ -463,7 +492,10 @@ fn print_results(results: &[SelBenchResult], total: usize) {
         );
     }
 
-    println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
+    println!(
+        "{}",
+        "╠══════════════════════════════════════════════════╣".cyan()
+    );
 
     // الحالات الفاشلة
     let failed: Vec<_> = results.iter().filter(|r| !r.passed).collect();
@@ -478,7 +510,10 @@ fn print_results(results: &[SelBenchResult], total: usize) {
                 " ".repeat(44usize.saturating_sub(r.id.len() + title_short.len() + 1))
             );
         }
-        println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
+        println!(
+            "{}",
+            "╠══════════════════════════════════════════════════╣".cyan()
+        );
     }
 
     // الحكم النهائي
@@ -496,7 +531,10 @@ fn print_results(results: &[SelBenchResult], total: usize) {
         verdict,
         " ".repeat(49usize.saturating_sub(strip_ansi(&verdict).len()))
     );
-    println!("{}", "╚══════════════════════════════════════════════════╝".cyan());
+    println!(
+        "{}",
+        "╚══════════════════════════════════════════════════╝".cyan()
+    );
 }
 
 fn strip_ansi(s: &str) -> String {
@@ -540,7 +578,6 @@ pub fn all_cases() -> Vec<SelBenchCase> {
             extra_deps: &[],
             expectation: BenchExpectation::Pass,
         },
-
         // ═══ SB-02: Logic — Mutable Default Argument ════════════
         SelBenchCase {
             id: "SB-02",
@@ -571,7 +608,6 @@ pub fn all_cases() -> Vec<SelBenchCase> {
             extra_deps: &[],
             expectation: BenchExpectation::Pass,
         },
-
         // ═══ SB-03: Dependency — Missing Python Package ══════════
         SelBenchCase {
             id: "SB-03",
@@ -599,7 +635,6 @@ pub fn all_cases() -> Vec<SelBenchCase> {
             extra_deps: &["requests"],
             expectation: BenchExpectation::PassWithNote("pip install requests"),
         },
-
         // ═══ SB-04: QuickFix — Missing Go Import ═════════════════
         SelBenchCase {
             id: "SB-04",
@@ -633,7 +668,6 @@ pub fn all_cases() -> Vec<SelBenchCase> {
             extra_deps: &[],
             expectation: BenchExpectation::PassWithNote("import fmt"),
         },
-
         // ═══ SB-05: Dependency — Rust Missing Crate ══════════════
         SelBenchCase {
             id: "SB-05",
@@ -671,7 +705,6 @@ pub fn all_cases() -> Vec<SelBenchCase> {
             extra_deps: &[],
             expectation: BenchExpectation::PassWithNote("add serde_json to Cargo.toml"),
         },
-
         // ═══ SB-06: Multifile — Wrong Function Name ══════════════
         SelBenchCase {
             id: "SB-06",
@@ -706,7 +739,6 @@ pub fn all_cases() -> Vec<SelBenchCase> {
             extra_deps: &[],
             expectation: BenchExpectation::Pass,
         },
-
         // ═══ SB-07: Multifile — Wrong Rust Signature ═════════════
         SelBenchCase {
             id: "SB-07",
@@ -747,7 +779,6 @@ pub fn all_cases() -> Vec<SelBenchCase> {
             extra_deps: &[],
             expectation: BenchExpectation::Pass,
         },
-
         // ═══ SB-08: Pre-Repair — NameError Auto Import ═══════════
         SelBenchCase {
             id: "SB-08",
@@ -774,7 +805,6 @@ pub fn all_cases() -> Vec<SelBenchCase> {
             extra_deps: &[],
             expectation: BenchExpectation::PassWithNote("import datetime"),
         },
-
         // ═══ SB-09: Sanitizer — Rust Unicode Quote ═══════════════
         SelBenchCase {
             id: "SB-09",
@@ -812,7 +842,6 @@ pub fn all_cases() -> Vec<SelBenchCase> {
             extra_deps: &[],
             expectation: BenchExpectation::PassWithNote("unicode quote sanitizer"),
         },
-
         // ═══ SB-10: Mutation — is_even Resistance ════════════════
         SelBenchCase {
             id: "SB-10",
@@ -851,7 +880,6 @@ pub fn all_cases() -> Vec<SelBenchCase> {
 // ─────────────────────────────────────────────────────────────────
 // SELBench v1.1-rc — Wave 1 (RC-01..RC-06)
 // ─────────────────────────────────────────────────────────────────
-
 
 pub fn all_cases_v11_rc() -> Vec<SelBenchCase> {
     vec![
@@ -1096,8 +1124,6 @@ func TestExecute(t *testing.T) {
         },
     ]
 }
-
-
 
 pub fn all_cases_v11_rc_wave2() -> Vec<SelBenchCase> {
     vec![
@@ -1353,8 +1379,6 @@ fn test_all_odd() {
         },
     ]
 }
-
-
 
 pub fn all_cases_v11_rc_wave3() -> Vec<SelBenchCase> {
     vec![
@@ -1670,7 +1694,6 @@ def test_isolation():
     ]
 }
 
-
 pub fn all_cases_v11() -> Vec<SelBenchCase> {
     let mut all = all_cases_v11_rc();
     all.extend(all_cases_v11_rc_wave2());
@@ -1730,22 +1753,47 @@ pub async fn run_bench_sel_v11(
         })
         .collect();
 
-    let core_count = cases.iter().filter(|c| c.kind == SelBenchKind::Core).count();
-    let sys_count   = cases.iter().filter(|c| c.kind == SelBenchKind::System).count();
+    let core_count = cases
+        .iter()
+        .filter(|c| c.kind == SelBenchKind::Core)
+        .count();
+    let sys_count = cases
+        .iter()
+        .filter(|c| c.kind == SelBenchKind::System)
+        .count();
     let total = cases.len();
 
-    let mode = if replay && rerecord { "REPLAY+RERECORD" }
-               else if replay { "REPLAY" }
-               else if record { "RECORD" }
-               else { "LIVE" };
+    let mode = if replay && rerecord {
+        "REPLAY+RERECORD"
+    } else if replay {
+        "REPLAY"
+    } else if record {
+        "RECORD"
+    } else {
+        "LIVE"
+    };
 
     println!();
-    println!("{}", "╔══════════════════════════════════════════════════╗".cyan());
-    println!("{}", "║   SELBench v1.1-rc — Extended Benchmark          ║".cyan());
-    println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
-    println!("║  Core: {:2}  System: {:2}  Mode: {:<16}  ║",
-        core_count, sys_count, mode);
-    println!("{}", "╚══════════════════════════════════════════════════╝".cyan());
+    println!(
+        "{}",
+        "╔══════════════════════════════════════════════════╗".cyan()
+    );
+    println!(
+        "{}",
+        "║   SELBench v1.1-rc — Extended Benchmark          ║".cyan()
+    );
+    println!(
+        "{}",
+        "╠══════════════════════════════════════════════════╣".cyan()
+    );
+    println!(
+        "║  Core: {:2}  System: {:2}  Mode: {:<16}  ║",
+        core_count, sys_count, mode
+    );
+    println!(
+        "{}",
+        "╚══════════════════════════════════════════════════╝".cyan()
+    );
     println!();
 
     let mut results: Vec<SelBenchResult> = Vec::new();
@@ -1754,12 +1802,20 @@ pub async fn run_bench_sel_v11(
         let ws = build_workspace(case, i)?;
         let start = std::time::Instant::now();
 
-        let kind_tag = if case.kind == SelBenchKind::System { "[SYS]".yellow() }
-                       else { "[COR]".green() };
+        let kind_tag = if case.kind == SelBenchKind::System {
+            "[SYS]".yellow()
+        } else {
+            "[COR]".green()
+        };
 
-        print!("  {} [{:02}/{:02}] {} {} ",
-            kind_tag, i + 1, total,
-            case.id.bright_cyan(), case.title);
+        print!(
+            "  {} [{:02}/{:02}] {} {} ",
+            kind_tag,
+            i + 1,
+            total,
+            case.id.bright_cyan(),
+            case.title
+        );
         std::io::Write::flush(&mut std::io::stdout()).ok();
 
         if let Err(e) = write_files(&ws, case) {
@@ -1769,9 +1825,13 @@ pub async fn run_bench_sel_v11(
                 language: case.language.to_string(),
                 category: case.category.to_string(),
                 title: case.title.to_string(),
-                passed: false, repairs: 0, time_secs: 0.0,
-                protocol_auto_injections: 0, patch_fallbacks: 0,
-                replan_count: 0, loop_detections: 0,
+                passed: false,
+                repairs: 0,
+                time_secs: 0.0,
+                protocol_auto_injections: 0,
+                patch_fallbacks: 0,
+                replan_count: 0,
+                loop_detections: 0,
             });
             let _ = std::fs::remove_dir_all(&ws);
             continue;
@@ -1781,13 +1841,20 @@ pub async fn run_bench_sel_v11(
 
         let traj_dir = std::env::current_dir()
             .unwrap_or_default()
-            .join("fixtures").join("trajectories")
+            .join("fixtures")
+            .join("trajectories")
             .join(format!("sel_{}", case.id.to_lowercase().replace('-', "_")));
 
         let agent_result = run_agent(
-            &ws, case.goal, max_repairs,
-            record, replay, rerecord, &traj_dir,
-        ).await;
+            &ws,
+            case.goal,
+            max_repairs,
+            record,
+            replay,
+            rerecord,
+            &traj_dir,
+        )
+        .await;
 
         let elapsed = start.elapsed().as_secs_f64();
         let (passed, repairs) = match &agent_result {
@@ -1798,8 +1865,11 @@ pub async fn run_bench_sel_v11(
         if passed {
             println!(" → ✅ ({:.1}s, {} repairs)", elapsed, repairs);
         } else {
-            let reason = agent_result.as_ref().err()
-                .map(|e| e.to_string()).unwrap_or_default();
+            let reason = agent_result
+                .as_ref()
+                .err()
+                .map(|e| e.to_string())
+                .unwrap_or_default();
             let short = &reason[..reason.len().min(50)];
             println!(" → ❌ ({:.1}s) {}", elapsed, short.dimmed());
         }
@@ -1809,9 +1879,13 @@ pub async fn run_bench_sel_v11(
             language: case.language.to_string(),
             category: case.category.to_string(),
             title: case.title.to_string(),
-            passed, repairs, time_secs: elapsed,
-            protocol_auto_injections: 0, patch_fallbacks: 0,
-            replan_count: 0, loop_detections: 0,
+            passed,
+            repairs,
+            time_secs: elapsed,
+            protocol_auto_injections: 0,
+            patch_fallbacks: 0,
+            replan_count: 0,
+            loop_detections: 0,
         });
 
         let _ = std::fs::remove_dir_all(&ws);
@@ -1826,10 +1900,12 @@ pub async fn run_bench_sel_v11(
 }
 
 fn print_results_v11(results: &[SelBenchResult], core_total: usize, sys_total: usize) {
-    let core_passed = results.iter()
+    let core_passed = results
+        .iter()
         .filter(|r| r.category != "replay" && r.category != "rerecord" && r.passed)
         .count();
-    let sys_passed  = results.iter()
+    let sys_passed = results
+        .iter()
         .filter(|r| (r.category == "replay" || r.category == "rerecord") && r.passed)
         .count();
 
@@ -1839,59 +1915,106 @@ fn print_results_v11(results: &[SelBenchResult], core_total: usize, sys_total: u
     let langs = ["python", "go", "rust", "typescript"];
 
     println!();
-    println!("{}", "╔══════════════════════════════════════════════════╗".cyan());
-    println!("{}", "║   SELBench v1.1-rc — Results                     ║".cyan());
-    println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
-    println!("║  Core:   {:2}/{:2}{}║",
-        core_passed, core_total,
-        " ".repeat(38 - format!("{:2}/{:2}", core_passed, core_total).len()));
-    println!("║  System: {:2}/{:2}{}║",
-        sys_passed, sys_total,
-        " ".repeat(38 - format!("{:2}/{:2}", sys_passed, sys_total).len()));
-    println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
+    println!(
+        "{}",
+        "╔══════════════════════════════════════════════════╗".cyan()
+    );
+    println!(
+        "{}",
+        "║   SELBench v1.1-rc — Results                     ║".cyan()
+    );
+    println!(
+        "{}",
+        "╠══════════════════════════════════════════════════╣".cyan()
+    );
+    println!(
+        "║  Core:   {:2}/{:2}{}║",
+        core_passed,
+        core_total,
+        " ".repeat(38 - format!("{:2}/{:2}", core_passed, core_total).len())
+    );
+    println!(
+        "║  System: {:2}/{:2}{}║",
+        sys_passed,
+        sys_total,
+        " ".repeat(38 - format!("{:2}/{:2}", sys_passed, sys_total).len())
+    );
+    println!(
+        "{}",
+        "╠══════════════════════════════════════════════════╣".cyan()
+    );
     println!("║  By Language:{}║", " ".repeat(36));
 
     for lang in &langs {
-        let lr: Vec<_> = results.iter()
-            .filter(|r| r.language == *lang)
-            .collect();
-        if lr.is_empty() { continue; }
+        let lr: Vec<_> = results.iter().filter(|r| r.language == *lang).collect();
+        if lr.is_empty() {
+            continue;
+        }
         let lp = lr.iter().filter(|r| r.passed).count();
         let lt = lr.len();
         let icon = if lp == lt { "✅" } else { "⚠️ " };
-        println!("║    {} {:<14} {:2}/{:2}{}║",
-            icon, format!("{}:", lang), lp, lt,
-            " ".repeat(26 - format!("{:2}/{:2}", lp, lt).len()));
+        println!(
+            "║    {} {:<14} {:2}/{:2}{}║",
+            icon,
+            format!("{}:", lang),
+            lp,
+            lt,
+            " ".repeat(26 - format!("{:2}/{:2}", lp, lt).len())
+        );
     }
 
-    println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
+    println!(
+        "{}",
+        "╠══════════════════════════════════════════════════╣".cyan()
+    );
 
     let repair_icon = if avg_repairs <= 0.5 { "✅" } else { "⚠️ " };
-    println!("║  {} avg repairs/case: {:.2}{}║",
-        repair_icon, avg_repairs,
-        " ".repeat(27 - format!("{:.2}", avg_repairs).len()));
+    println!(
+        "║  {} avg repairs/case: {:.2}{}║",
+        repair_icon,
+        avg_repairs,
+        " ".repeat(27 - format!("{:.2}", avg_repairs).len())
+    );
 
     let failed: Vec<_> = results.iter().filter(|r| !r.passed).collect();
     if !failed.is_empty() {
-        println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
+        println!(
+            "{}",
+            "╠══════════════════════════════════════════════════╣".cyan()
+        );
         println!("║  ❌ Failed:{}║", " ".repeat(39));
         for r in &failed {
             let t = &r.title[..r.title.len().min(34)];
-            println!("║    {} {}{}║",
-                r.id.bright_red(), t,
-                " ".repeat(44usize.saturating_sub(r.id.len() + t.len() + 1)));
+            println!(
+                "║    {} {}{}║",
+                r.id.bright_red(),
+                t,
+                " ".repeat(44usize.saturating_sub(r.id.len() + t.len() + 1))
+            );
         }
     }
 
-    println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
+    println!(
+        "{}",
+        "╠══════════════════════════════════════════════════╣".cyan()
+    );
     let total = core_passed + sys_passed;
     let total_all = core_total + sys_total;
     let pct = total as f64 / total_all.max(1) as f64 * 100.0;
-    let verdict = if pct >= 90.0 { "✅ Ready for v1.1 full".green().to_string() }
-                  else if pct >= 75.0 { "⚠️  Needs attention".yellow().to_string() }
-                  else { "❌ Critical issues".red().to_string() };
-    println!("║  {}{}║",
+    let verdict = if pct >= 90.0 {
+        "✅ Ready for v1.1 full".green().to_string()
+    } else if pct >= 75.0 {
+        "⚠️  Needs attention".yellow().to_string()
+    } else {
+        "❌ Critical issues".red().to_string()
+    };
+    println!(
+        "║  {}{}║",
         verdict,
-        " ".repeat(49usize.saturating_sub(strip_ansi(&verdict).len())));
-    println!("{}", "╚══════════════════════════════════════════════════╝".cyan());
+        " ".repeat(49usize.saturating_sub(strip_ansi(&verdict).len()))
+    );
+    println!(
+        "{}",
+        "╚══════════════════════════════════════════════════╝".cyan()
+    );
 }

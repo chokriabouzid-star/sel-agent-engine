@@ -68,11 +68,11 @@ fn compute_efficiency(elapsed: u64, max_time: u64) -> f64 {
     if max_time == 0 {
         return 1.0;
     }
-    //      20%    
+    //      20%
     let ratio = elapsed as f64 / max_time as f64;
     if ratio >= 0.80 {
-        //    0.80   
-        let penalty = (ratio - 0.80) * 2.0; // penalty 
+        //    0.80
+        let penalty = (ratio - 0.80) * 2.0; // penalty
         (1.0 - penalty).clamp(0.70, 1.0)
     } else {
         //    bonus
@@ -83,7 +83,7 @@ fn compute_efficiency(elapsed: u64, max_time: u64) -> f64 {
 // DTO  Deterministic Total Ordering (5 )
 pub fn rank_models(mut scores: Vec<ModelScore>) -> Vec<ModelScore> {
     scores.sort_by(|a, b| {
-        // UNSTABLE  
+        // UNSTABLE
         match (a.unstable, b.unstable) {
             (true, false) => return Ordering::Greater,
             (false, true) => return Ordering::Less,
@@ -105,7 +105,7 @@ pub fn rank_models(mut scores: Vec<ModelScore>) -> Vec<ModelScore> {
                     .partial_cmp(&a.efficiency)
                     .unwrap_or(Ordering::Equal)
             })
-            //  4:  
+            //  4:
             .then_with(|| a.model.cmp(&b.model))
             //  5: run_id
             .then_with(|| a.run_id.cmp(&b.run_id))
@@ -113,7 +113,7 @@ pub fn rank_models(mut scores: Vec<ModelScore>) -> Vec<ModelScore> {
     scores
 }
 
-//   
+//
 pub fn print_comparison_table(scores: &[ModelScore]) {
     println!("\n{}", "".repeat(80));
     println!("  Model Comparison  v6.1 Reliability-Aware Scoring");
@@ -125,11 +125,7 @@ pub fn print_comparison_table(scores: &[ModelScore]) {
     println!("{}", "".repeat(80));
 
     for (i, s) in scores.iter().enumerate() {
-        let winner = if i == 0 && !s.unstable {
-            " Winner"
-        } else {
-            ""
-        };
+        let winner = if i == 0 && !s.unstable { " Winner" } else { "" };
         let status = if s.unstable { " UNSTABLE" } else { winner };
         println!(
             "  {:<28} {:>7.2} {:>8.2} {:>9.2} {:>9.3}  {}",

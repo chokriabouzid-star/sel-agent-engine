@@ -5,7 +5,7 @@
 pub fn sanitize_llm_json(raw: &str) -> String {
     let s = fix_rust_doc_comments(raw);
     let s = fix_trailing_commas(&s);
-    
+
     fix_truncated_json(&s)
 }
 
@@ -35,8 +35,12 @@ fn fix_truncated_json(s: &str) -> String {
             '"' => open_strings = !open_strings,
             '{' if !open_strings => stack.push('}'),
             '[' if !open_strings => stack.push(']'),
-            '}' if !open_strings => { stack.pop(); },
-            ']' if !open_strings => { stack.pop(); },
+            '}' if !open_strings => {
+                stack.pop();
+            }
+            ']' if !open_strings => {
+                stack.pop();
+            }
             _ => {}
         }
     }
@@ -76,7 +80,6 @@ mod tests {
         let input = r#"{"content": "/// Add two\n/// numbers\nfn add(a: i32)"}"#;
         let fixed = fix_rust_doc_comments(input);
         assert!(!fixed.contains("///"));
-        
     }
 
     #[test]

@@ -1,5 +1,5 @@
 // src/failure.rs  v1.0: Failure Classification
-//      
+//
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FailureKind {

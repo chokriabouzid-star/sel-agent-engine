@@ -44,16 +44,18 @@ impl LLMProvider for ReplayProvider {
         let record: TrajectoryRecord = serde_json::from_str(&json)?;
 
         let current_hash = crate::constitution::constitution_hash();
-        if !record.constitution_hash.is_empty() && record.constitution_hash != current_hash
-            && count == 1 {
-                eprintln!(
-                    "  REPLAY STALE: constitution changed since recording.\n   \
+        if !record.constitution_hash.is_empty()
+            && record.constitution_hash != current_hash
+            && count == 1
+        {
+            eprintln!(
+                "  REPLAY STALE: constitution changed since recording.\n   \
                      Recorded: {} | Current: {}\n   \
                      Run with --record to refresh fixtures.",
-                    &record.constitution_hash.chars().take(8).collect::<String>(),
-                    &current_hash.chars().take(8).collect::<String>()
-                );
-            }
+                &record.constitution_hash.chars().take(8).collect::<String>(),
+                &current_hash.chars().take(8).collect::<String>()
+            );
+        }
 
         // Simulate network delay
         let delay_ms = std::cmp::min(record.latency_ms, 500); // Max 500ms for fast replay

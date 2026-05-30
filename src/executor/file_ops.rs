@@ -1,32 +1,44 @@
-use crate::executor::core::SafeExecutor;
 use crate::executor::autofix::*;
 use crate::executor::compile::*;
+use crate::executor::core::SafeExecutor;
 use crate::executor::sanitizers::*;
 use crate::types::ExecResult;
 use anyhow::Result;
 
 impl SafeExecutor {
-    //  File Operations 
+    //  File Operations
 
     pub fn is_spec_file(&self, path: &str) -> bool {
         let filename = std::path::Path::new(path)
             .file_name()
             .and_then(|f| f.to_str())
             .unwrap_or("");
-        
+
         filename.starts_with("test_")           // test_main.py
             || filename.ends_with("_test.go")   // main_test.go
             || filename.ends_with("_test.rs")   // main_test.rs
             || filename.contains(".test.")      // app.test.ts
             || filename.contains(".spec.")      // app.spec.ts
-            || filename.ends_with("_spec.rb")   // main_spec.rb
+            || filename.ends_with("_spec.rb") // main_spec.rb
     }
 
     pub fn write_file(&self, path: &str, content: &str) -> Result<ExecResult> {
         {
-            let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
-            let is_config = matches!(path, "Cargo.toml" | "go.mod" | "go.sum" | "package.json"
-                | "tsconfig.json" | "Makefile" | ".gitignore" | "README.md");
+            let ext = std::path::Path::new(path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            let is_config = matches!(
+                path,
+                "Cargo.toml"
+                    | "go.mod"
+                    | "go.sum"
+                    | "package.json"
+                    | "tsconfig.json"
+                    | "Makefile"
+                    | ".gitignore"
+                    | "README.md"
+            );
 
             if !is_config && !ext.is_empty() {
                 if let Err(e) = self.oracle.is_ext_allowed(ext) {
@@ -35,17 +47,20 @@ impl SafeExecutor {
             }
         }
         let p = self.safe_path(path)?;
-        
+
         // Protection: Cargo.toml is writable (dependency updates), but lockfiles/go.mod stay protected
         let protected = ["Cargo.lock", "go.mod", "go.sum"];
         let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if protected.contains(&name) && p.exists() {
             return Ok(ExecResult::fail(format!(
-                "write_file: '{}' is protected and cannot be overwritten", path
+                "write_file: '{}' is protected and cannot be overwritten",
+                path
             )));
         }
-        if let Some(parent) = p.parent() { std::fs::create_dir_all(parent)?; }
-        
+        if let Some(parent) = p.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
         // Protection: warn if overwriting with much smaller content
         if p.exists() {
             let existing_len = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
@@ -55,14 +70,16 @@ impl SafeExecutor {
                     path, existing_len, new_len);
             }
         }
-        
+
         // Rust brace balance check
         let content = if path.ends_with(".rs") {
-            let open  = content.chars().filter(|&c| c == '{').count();
+            let open = content.chars().filter(|&c| c == '{').count();
             let close = content.chars().filter(|&c| c == '}').count();
             if open > close {
                 let mut fixed = content.to_string();
-                for _ in 0..(open - close) { fixed.push_str("\n}"); }
+                for _ in 0..(open - close) {
+                    fixed.push_str("\n}");
+                }
                 std::borrow::Cow::Owned(fixed)
             } else {
                 std::borrow::Cow::Borrowed(content)
@@ -78,9 +95,13 @@ impl SafeExecutor {
         } else {
             content_str
         };
-        eprintln!("[TRACE] write_file sanitize: input={} output={}", content.as_ref().len(), content_str.len());
+        eprintln!(
+            "[TRACE] write_file sanitize: input={} output={}",
+            content.as_ref().len(),
+            content_str.len()
+        );
         std::fs::write(&p, content_str.as_bytes())?;
-        
+
         // Auto-fix: if jest.config.js is written -> remove "jest" field from package.json
         if path.ends_with("jest.config.js") {
             let pkg = self.workspace.join("package.json");
@@ -99,14 +120,17 @@ impl SafeExecutor {
             }
         }
         println!("   ✏️  {} ({} bytes)", path, content.len());
-        
+
         // compile check for go files
         // v8.4.2: Only fail write_file if the error is IN THE FILE BEING WRITTEN.
         // Errors in OTHER files (e.g. main_test.go when writing main.go) are
         // reported as warnings so the agent can continue and fix them separately.
         if path.ends_with(".go") {
             if let Some(err) = go_compile_check(&self.workspace) {
-                eprintln!("[TRACE] Checking autofix for: {}", err.chars().take(80).collect::<String>());
+                eprintln!(
+                    "[TRACE] Checking autofix for: {}",
+                    err.chars().take(80).collect::<String>()
+                );
                 // Check if the error mentions THIS file specifically
                 let file_name = std::path::Path::new(path)
                     .file_name()
@@ -137,7 +161,10 @@ impl SafeExecutor {
                     )));
                 } else {
                     // Error is in a DIFFERENT file — warn but don't block
-                    eprintln!("[TRACE] go_compile_check: error in other file (not '{}'), continuing", path);
+                    eprintln!(
+                        "[TRACE] go_compile_check: error in other file (not '{}'), continuing",
+                        path
+                    );
                 }
             }
         }
@@ -147,10 +174,15 @@ impl SafeExecutor {
     pub fn append_file(&self, path: &str, content: &str) -> Result<ExecResult> {
         let p = self.safe_path(path)?;
         if !p.exists() {
-            return Ok(ExecResult::fail(format!("'{}' not found  use write_file first", path)));
+            return Ok(ExecResult::fail(format!(
+                "'{}' not found  use write_file first",
+                path
+            )));
         }
         let mut orig = std::fs::read_to_string(&p)?;
-        if !orig.ends_with('\n') { orig.push('\n'); }
+        if !orig.ends_with('\n') {
+            orig.push('\n');
+        }
         orig.push('\n');
         orig.push_str(content);
         std::fs::write(&p, &orig)?;
@@ -165,17 +197,22 @@ impl SafeExecutor {
         let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if protected.contains(&name) {
             return Ok(ExecResult::fail(format!(
-                "delete_file: '{}' is protected and cannot be deleted", path
+                "delete_file: '{}' is protected and cannot be deleted",
+                path
             )));
         }
         // Protection: do not delete directories
         if p.is_dir() {
             return Ok(ExecResult::fail(format!(
-                "delete_file: '{}' is a directory  only files allowed", path
+                "delete_file: '{}' is a directory  only files allowed",
+                path
             )));
         }
         if !p.exists() {
-            return Ok(ExecResult::ok(format!("delete_file: '{}' already absent", path)));
+            return Ok(ExecResult::ok(format!(
+                "delete_file: '{}' already absent",
+                path
+            )));
         }
         std::fs::remove_file(&p)?;
         println!("   🗑  Deleted: {}", path);
@@ -188,38 +225,56 @@ impl SafeExecutor {
         if patched.contains("}ype") || patched.contains("{ype") {
             return Err("Suspicious patch: corrupted type keyword detected".to_string());
         }
-        
+
         if patched.contains("#\\[") || patched.contains("#\\]") {
             return Err("Invalid Rust escape: backslash in attribute syntax detected".to_string());
         }
-        
+
         // 2. Line count sanity check
         let orig_lines = original.lines().count();
         let new_lines = patched.lines().count();
         let diff = (new_lines as i32 - orig_lines as i32).abs();
-        
+
         let max_allowed = (orig_lines * 2).max(50) as i32;
         if diff > max_allowed {
-            return Err(format!("Patch changed too many lines: {}  {} lines", orig_lines, new_lines));
+            return Err(format!(
+                "Patch changed too many lines: {}  {} lines",
+                orig_lines, new_lines
+            ));
         }
-        
+
         // 3. Rust-specific checks
         if path.ends_with(".rs") {
             let open_braces = patched.matches('{').count();
             let close_braces = patched.matches('}').count();
             if open_braces != close_braces {
-                return Err(format!("Unmatched braces: {} open, {} close", open_braces, close_braces));
+                return Err(format!(
+                    "Unmatched braces: {} open, {} close",
+                    open_braces, close_braces
+                ));
             }
         }
-        
+
         Ok(())
     }
 
     pub fn patch_file(&self, path: &str, search: &str, replace: &str) -> Result<ExecResult> {
         {
-            let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
-            let is_config = matches!(path, "Cargo.toml" | "go.mod" | "go.sum" | "package.json"
-                | "tsconfig.json" | "Makefile" | ".gitignore" | "README.md");
+            let ext = std::path::Path::new(path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            let is_config = matches!(
+                path,
+                "Cargo.toml"
+                    | "go.mod"
+                    | "go.sum"
+                    | "package.json"
+                    | "tsconfig.json"
+                    | "Makefile"
+                    | ".gitignore"
+                    | "README.md"
+            );
 
             if !is_config && !ext.is_empty() {
                 if let Err(e) = self.oracle.is_ext_allowed(ext) {
@@ -228,7 +283,7 @@ impl SafeExecutor {
             }
         }
         let p = self.safe_path(path)?;
-        
+
         // Pre-flight check
         if !p.exists() {
             return Ok(ExecResult::fail(format!(
@@ -241,18 +296,21 @@ impl SafeExecutor {
         {
             let mut attempts = self.patch_attempts.borrow_mut();
             let count = *attempts.entry(p.clone()).or_insert(0);
-            
+
             if count >= 2 {
-                println!("   ⚠️  patch_file failed {} times on '{}'  switching to write_file fallback", count, path);
+                println!(
+                    "   ⚠️  patch_file failed {} times on '{}'  switching to write_file fallback",
+                    count, path
+                );
                 drop(attempts); // release borrow
-                
+
                 let content = std::fs::read_to_string(&p)?;
                 let content = sanitize_code(&content);
                 let search_buf = sanitize_code(search);
                 let search = search_buf.as_str();
                 let replace_buf = sanitize_code(replace);
                 let replace = replace_buf.as_str();
-                
+
                 if !content.contains(search) {
                     self.patch_attempts.borrow_mut().insert(p.clone(), 0);
                     return Ok(ExecResult::fail(format!(
@@ -276,73 +334,95 @@ impl SafeExecutor {
                 )));
             }
         }
-        
+
         if search.trim().is_empty() {
-            return Ok(ExecResult::fail("patch_file: search block is empty".to_string()));
+            return Ok(ExecResult::fail(
+                "patch_file: search block is empty".to_string(),
+            ));
         }
         let raw_content = std::fs::read_to_string(&p)?;
         let content = sanitize_code(&raw_content); // v8.4: sanitize file content
-        // v8.4: sanitize search/replace too — LLM may send unicode quotes
+                                                   // v8.4: sanitize search/replace too — LLM may send unicode quotes
         let search_sanitized = sanitize_code(search);
         let search = search_sanitized.as_str();
         let replace_sanitized = sanitize_code(replace);
         let replace = replace_sanitized.as_str();
         let count = content.matches(search).count();
-        
+
         // If not found directly, try normalizing whitespace
         let (effective_search, effective_replace, normalized) = if count == 0 {
             let norm_content = content.split_whitespace().collect::<Vec<_>>().join(" ");
-            let norm_search  = search.split_whitespace().collect::<Vec<_>>().join(" ");
+            let norm_search = search.split_whitespace().collect::<Vec<_>>().join(" ");
             let norm_replace = replace.split_whitespace().collect::<Vec<_>>().join(" ");
             (norm_content, norm_replace, Some(norm_search))
         } else {
             (content.clone(), replace.to_string(), None)
         };
-        
+
         let (search_key, content_key) = if let Some(ref ns) = normalized {
             (ns.as_str(), effective_search.as_str())
         } else {
             (search, content.as_str())
         };
-        
+
         let count = content_key.matches(search_key).count();
         if count == 0 {
-            *self.patch_attempts.borrow_mut().entry(p.clone()).or_insert(0) += 1;
+            *self
+                .patch_attempts
+                .borrow_mut()
+                .entry(p.clone())
+                .or_insert(0) += 1;
             return Ok(ExecResult::fail(format!(
                 "patch_file: search block not found in '{}' (tried exact + whitespace-normalized)  copy the exact text from the file", path
             )));
         }
         if count > 1 {
             return Ok(ExecResult::fail(format!(
-                "patch_file: search block found {} times in '{}'  must be unique, use more context", count, path
+                "patch_file: search block found {} times in '{}'  must be unique, use more context",
+                count, path
             )));
         }
-        
+
         let new_content = if normalized.is_some() {
             content_key.replacen(search_key, &effective_replace, 1)
         } else {
             content.replacen(search, replace, 1)
         };
-        
+
         // Validate before writing
         if let Err(e) = self.validate_patch(path, &content, &new_content) {
-            *self.patch_attempts.borrow_mut().entry(p.clone()).or_insert(0) += 1;
-            return Ok(ExecResult::fail(format!("patch_file validation failed: {}", e)));
+            *self
+                .patch_attempts
+                .borrow_mut()
+                .entry(p.clone())
+                .or_insert(0) += 1;
+            return Ok(ExecResult::fail(format!(
+                "patch_file validation failed: {}",
+                e
+            )));
         }
-        
+
         // auto-fix single-quote string literals in Rust files
         let new_content = if p.extension().map(|x| x == "rs").unwrap_or(false) {
-            { let fixed = sanitize_rust_lifetime_quotes(&new_content); fix_rust_string_literals(&fixed) }
+            {
+                let fixed = sanitize_rust_lifetime_quotes(&new_content);
+                fix_rust_string_literals(&fixed)
+            }
         } else {
             new_content
         };
-        
+
         std::fs::write(&p, &new_content)?;
 
         // reset counter on success
         self.patch_attempts.borrow_mut().insert(p.clone(), 0);
-        
-        println!("   🔧 patch_file: {} ({} bytes  {} bytes)", path, content.len(), new_content.len());
+
+        println!(
+            "   🔧 patch_file: {} ({} bytes  {} bytes)",
+            path,
+            content.len(),
+            new_content.len()
+        );
         Ok(ExecResult::ok(format!("Patched: {}", path)))
     }
 
@@ -353,7 +433,14 @@ impl SafeExecutor {
         }
         let content = std::fs::read_to_string(&p)?;
         println!("   ✏️  {} ({} bytes)", path, content.len());
-        Ok(ExecResult { success: true, exit_code: 0, stdout: content, stderr: String::new(), duration_ms: 0, autofix_triggered: false })
+        Ok(ExecResult {
+            success: true,
+            exit_code: 0,
+            stdout: content,
+            stderr: String::new(),
+            duration_ms: 0,
+            autofix_triggered: false,
+        })
     }
 
     pub fn mkdir(&self, path: &str) -> Result<ExecResult> {

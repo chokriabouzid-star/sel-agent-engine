@@ -1,11 +1,10 @@
-
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 mod bench_bugs {
+    use crate::executor::sanitizers::sanitize_code;
+    use crate::executor::SafeExecutor;
     use std::fs;
     use std::path::PathBuf;
-    use crate::executor::SafeExecutor;
-    use crate::executor::sanitizers::sanitize_code;
 
     pub fn make_ws(name: &str) -> PathBuf {
         let ws = std::env::temp_dir().join(format!("sel_bench_{}", name));
@@ -84,7 +83,6 @@ mod bench_bugs {
     }
 }
 
-// 
+//
 // AutoFix v7.6.1: Rust &str  String
-// 
-
+//

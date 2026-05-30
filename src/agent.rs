@@ -6,8 +6,8 @@ use crate::{
     types::{AgentState, ContextConfig, ExecutionContext},
 };
 use anyhow::Result;
-use std::path::PathBuf;
 use std::io::IsTerminal;
+use std::path::PathBuf;
 
 pub struct Agent {
     state: AgentState,
@@ -21,7 +21,7 @@ pub struct Agent {
     context_config: ContextConfig,
     failure_memory: crate::memory::FailureMemory, // v5.8
     initial_snapshot: Option<crate::snapshot::Snapshot>, // v7.5.1
-    pub bench_mode: bool, // v7.9.8: skip EXPLAIN MODE in all bench runs
+    pub bench_mode: bool,                         // v7.9.8: skip EXPLAIN MODE in all bench runs
 }
 
 impl Agent {
@@ -132,12 +132,12 @@ impl Agent {
         }
     }
 
-    // 
+    //
     // All planning, execution, and repair logic delegated to
     // state_handlers.rs (v7.6 refactor)
-    // 
+    //
 
-    // 
+    //
 
     pub async fn run(&mut self) -> Result<()> {
         self.ctx.start_time = Some(std::time::Instant::now());
@@ -150,7 +150,7 @@ impl Agent {
         }
 
         self.send_event("start", None, None, None, None);
-        // v5.8.1:   cache    run     
+        // v5.8.1:   cache    run
         let ws = self.executor.workspace.clone();
         let cache_path = ws.join(".sel_hashes");
         if cache_path.exists() {
@@ -182,10 +182,19 @@ impl Agent {
         // the scaffold_files written by the bench runner.
         // v8.1: Preflight Workspace Scan before taking the initial snapshot
         let mut has_tests = false;
-        for entry in walkdir::WalkDir::new(&ws).into_iter().filter_map(|e| e.ok()) {
+        for entry in walkdir::WalkDir::new(&ws)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
             if entry.file_type().is_file() {
                 let name = entry.file_name().to_string_lossy();
-                if name.starts_with("test_") || name.ends_with("_test.go") || name.ends_with(".test.ts") || name.ends_with(".spec.ts") || name.ends_with("test.py") || name.ends_with("test.rs") {
+                if name.starts_with("test_")
+                    || name.ends_with("_test.go")
+                    || name.ends_with(".test.ts")
+                    || name.ends_with(".spec.ts")
+                    || name.ends_with("test.py")
+                    || name.ends_with("test.rs")
+                {
                     has_tests = true;
                     break;
                 }
@@ -205,11 +214,17 @@ impl Agent {
                 // Do not enforce preflight checks
             } else {
                 let is_creation_task = [
-                    "create a", "create the",
-                    "implement a", "implement the",
-                    "write a", "write the",
-                    "build a", "build the",
-                ].iter().any(|s| self.goal.to_lowercase().contains(s));
+                    "create a",
+                    "create the",
+                    "implement a",
+                    "implement the",
+                    "write a",
+                    "write the",
+                    "build a",
+                    "build the",
+                ]
+                .iter()
+                .any(|s| self.goal.to_lowercase().contains(s));
 
                 if !is_creation_task {
                     eprintln!("\u{26a0}\u{fe0f}  No test files found in workspace  agent cannot verify fixes");
@@ -221,11 +236,15 @@ impl Agent {
         }
 
         {
-            let _ = std::process::Command::new("git").arg("add").arg(".")
-                .current_dir(&ws).output();
+            let _ = std::process::Command::new("git")
+                .arg("add")
+                .arg(".")
+                .current_dir(&ws)
+                .output();
             let _ = std::process::Command::new("git")
                 .args(["commit", "-m", "scaffold_baseline", "--allow-empty"])
-                .current_dir(&ws).output();
+                .current_dir(&ws)
+                .output();
         }
         self.initial_snapshot = Some(crate::snapshot::Snapshot::take(&ws));
 
@@ -294,8 +313,14 @@ impl Agent {
                 }
                 AgentState::WaitingForUserInput(msg) => {
                     // v8.0: In bench mode, skip EXPLAIN MODE immediately using env var or struct field
-                    if self.bench_mode || std::env::var("SEL_BENCH_MODE").is_ok() || !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
-                        println!("     [Bench] Repairs exhausted  marking failed (skip EXPLAIN MODE)");
+                    if self.bench_mode
+                        || std::env::var("SEL_BENCH_MODE").is_ok()
+                        || !std::io::stdin().is_terminal()
+                        || !std::io::stdout().is_terminal()
+                    {
+                        println!(
+                            "     [Bench] Repairs exhausted  marking failed (skip EXPLAIN MODE)"
+                        );
                         self.state = AgentState::Failed("max_repairs_bench".into());
                         continue;
                     }
@@ -322,9 +347,9 @@ impl Agent {
                         // Append user hint to error_history so the LLM sees it as feedback
                         let hint = format!("\nUSER HINT: {}\n", input);
                         {
-                    self.error_history.push(hint);
+                            self.error_history.push(hint);
                         }
-                        
+
                         // Give the agent one more repair attempt
                         self.ctx.repair_attempts = self.ctx.max_repairs;
                         self.ctx.max_repairs += 1;
@@ -335,25 +360,26 @@ impl Agent {
 
                 AgentState::Done => {
                     let repairs = self.ctx.repair_attempts.saturating_sub(1);
-                    
-                      let elapsed = self
+
+                    let elapsed = self
                         .ctx
                         .start_time
                         .map(|s| s.elapsed().as_secs())
                         .unwrap_or(0);
                     let ms = self.mutation_score();
                     let _ = report_run(&self.goal, true, repairs as i64, elapsed, ms).await;
-                    
+
                     let stats = self.call_stats();
                     let cost = crate::cost::CostTracker::new();
                     cost.add_usage(stats.tokens_in, stats.tokens_out, stats.successful_calls);
                     let model = if stats.last_model.is_empty() {
-                        std::env::var("SEL_MODEL").unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string())
+                        std::env::var("SEL_MODEL")
+                            .unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string())
                     } else {
                         stats.last_model.clone()
                     };
                     cost.print_summary(&model);
-                    
+
                     return Ok(());
                 }
                 AgentState::Failed(reason) => {
@@ -370,17 +396,18 @@ impl Agent {
                         .unwrap_or(0);
                     let ms = self.mutation_score();
                     let _ = report_run(&self.goal, false, repairs, elapsed, ms).await;
-                    
+
                     let stats = self.call_stats();
                     let cost = crate::cost::CostTracker::new();
                     cost.add_usage(stats.tokens_in, stats.tokens_out, stats.successful_calls);
                     let model = if stats.last_model.is_empty() {
-                        std::env::var("SEL_MODEL").unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string())
+                        std::env::var("SEL_MODEL")
+                            .unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string())
                     } else {
                         stats.last_model.clone()
                     };
                     cost.print_summary(&model);
-                    
+
                     return Err(anyhow::anyhow!("SEL_FAILED"));
                 }
             }

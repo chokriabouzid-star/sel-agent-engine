@@ -61,11 +61,26 @@ pub async fn run_bench_realworld(
     focus: &[String],
 ) -> Result<()> {
     println!();
-    println!("{}", "╔══════════════════════════════════════════════════╗".cyan());
-    println!("{}", "║   SEL Agent v8.5.0 — suite: realworld            ║".cyan());
-    println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
-    println!("{}", "║   Feature-Targeted Benchmark                     ║".cyan());
-    println!("{}", "╚══════════════════════════════════════════════════╝".cyan());
+    println!(
+        "{}",
+        "╔══════════════════════════════════════════════════╗".cyan()
+    );
+    println!(
+        "{}",
+        "║   SEL Agent v8.5.0 — suite: realworld            ║".cyan()
+    );
+    println!(
+        "{}",
+        "╠══════════════════════════════════════════════════╣".cyan()
+    );
+    println!(
+        "{}",
+        "║   Feature-Targeted Benchmark                     ║".cyan()
+    );
+    println!(
+        "{}",
+        "╚══════════════════════════════════════════════════╝".cyan()
+    );
     println!();
 
     let all_cases = build_cases();
@@ -101,9 +116,22 @@ pub async fn run_bench_realworld(
     print_test_plan(&cases);
 
     // Print active flags
-    if replay  { println!("   Mode:          REPLAY{}",  if rerecord { " + auto-rerecord on fail" } else { "" }); }
-    if record  { println!("   Mode:           RECORD"); }
-    if skip_recorded { println!("   skip-recorded: enabled"); }
+    if replay {
+        println!(
+            "   Mode:          REPLAY{}",
+            if rerecord {
+                " + auto-rerecord on fail"
+            } else {
+                ""
+            }
+        );
+    }
+    if record {
+        println!("   Mode:           RECORD");
+    }
+    if skip_recorded {
+        println!("   skip-recorded: enabled");
+    }
     println!("   Cooldown:      {}s between cases\n", delay);
 
     let total = cases.len();
@@ -218,22 +246,23 @@ pub async fn run_bench_realworld(
 
         // 4. rerecord: if replay failed, re-run with LiveProvider + RecorderProvider
         if replay && !case_ok && rerecord {
-            println!(
-                "     [{}] replay failed  auto-rerecording...",
-                case.name
-            );
+            println!("     [{}] replay failed  auto-rerecording...", case.name);
 
             // Re-scaffold workspace (was cleaned by run)
             let _ = std::fs::remove_dir_all(&workspace);
             std::fs::create_dir_all(&workspace)?;
             if let Some((filename, content)) = case.reference_tests {
                 let test_path = workspace.join(filename);
-                if let Some(parent) = test_path.parent() { let _ = std::fs::create_dir_all(parent); }
+                if let Some(parent) = test_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
                 std::fs::write(&test_path, content)?;
             }
             for (path, content) in &case.scaffold_files {
                 let full_path = workspace.join(path);
-                if let Some(parent) = full_path.parent() { let _ = std::fs::create_dir_all(parent); }
+                if let Some(parent) = full_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
                 std::fs::write(&full_path, content)?;
             }
 
@@ -282,7 +311,10 @@ pub async fn run_bench_realworld(
             );
         } else {
             let err_str = match run_res {
-                Err(e) => format!(" ERR: {}", e.to_string().chars().take(60).collect::<String>()),
+                Err(e) => format!(
+                    " ERR: {}",
+                    e.to_string().chars().take(60).collect::<String>()
+                ),
                 Ok(_) => String::new(),
             };
             println!(
@@ -300,11 +332,10 @@ pub async fn run_bench_realworld(
 
         let _ = std::fs::remove_dir_all(&workspace);
 
-        if i < total - 1
-            && delay > 0 {
-                println!("      {}s cooldown...", delay);
-                tokio::time::sleep(Duration::from_secs(delay)).await;
-            }
+        if i < total - 1 && delay > 0 {
+            println!("      {}s cooldown...", delay);
+            tokio::time::sleep(Duration::from_secs(delay)).await;
+        }
     }
 
     print_results(
@@ -320,16 +351,16 @@ pub async fn run_bench_realworld(
     Ok(())
 }
 
-// 
+//
 // Cases     v7.5
-// 
+//
 
 fn build_cases() -> Vec<BenchCase> {
     vec![
-        // 
+        //
         // TIER 1: Compile-First Pipeline
-        // :   compile check   
-        // 
+        // :   compile check
+        //
         BenchCase::new(
             "Compile-Check Python",
             "Create a Python module 'calculator.py' with functions: add(a,b), subtract(a,b), multiply(a,b), divide(a,b). divide must raise ValueError if b is zero.\n\nTests: python -m pytest test_calculator.py -v",
@@ -446,10 +477,10 @@ describe('utils', () => {
 "#,
         ),
 
-        // 
+        //
         // TIER 2: quick_fix (   LLM)
         // : AutoFix Go imports + ModuleNotFoundError handling
-        // 
+        //
         BenchCase::new(
             "QuickFix Go imports",
             "Create a Go program in main.go with package main. Implement func Greet(name string) string that returns 'HELLO, NAME!' in uppercase using strings.ToUpper and fmt.Sprintf. The file must compile and pass the existing tests.",
@@ -540,10 +571,10 @@ func TestIsPalindrome(t *testing.T) {
         )
         .with_scaffold("go.mod", "module textutils\n\ngo 1.21\n"),
 
-        // 
+        //
         // TIER 3: Language Guard + Bug Fix
         // :       workspace
-        // 
+        //
         BenchCase::new(
             "BugFix Rust: wrong operator",
             "Fix the bug in src/lib.rs. The add function currently returns a - b instead of a + b. Fix only this bug and run cargo test to verify all tests pass.",
@@ -671,10 +702,10 @@ def test_minimum():
 "#,
         ),
 
-        // 
+        //
         // TIER 4: Real-World Patterns
-        // :    
-        // 
+        // :
+        //
         BenchCase::new(
             "Real: Python CLI wordcount",
             "Build a Python module 'wordcount.py' with two functions: count_words(text: str) -> dict that counts word frequencies (case-insensitive), and top_words(counts: dict, n: int) -> list of (word, count) tuples sorted by frequency descending.\n\nTests: python -m pytest test_wordcount.py -v",
@@ -824,9 +855,9 @@ describe('isStrongPassword', () => {
     ]
 }
 
-// 
-//  
-// 
+//
+//
+//
 
 fn print_test_plan(cases: &[BenchCase]) {
     println!(" Test Plan ({} cases):\n", cases.len());
@@ -866,9 +897,9 @@ fn print_test_plan(cases: &[BenchCase]) {
     println!();
 }
 
-// 
-//  
-// 
+//
+//
+//
 
 fn print_results(
     passed: usize,
@@ -942,10 +973,7 @@ fn print_results(
             "".yellow()
         )
     } else {
-        format!(
-            "  {} UNSTABLE  fix issues before any new feature",
-            "".red()
-        )
+        format!("  {} UNSTABLE  fix issues before any new feature", "".red())
     };
 
     println!("  {}  ", verdict);

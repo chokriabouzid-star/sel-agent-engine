@@ -1,4 +1,3 @@
-
 pub fn fix_rust_string_literals(src: &str) -> String {
     let mut result = String::with_capacity(src.len());
     let bytes = src.as_bytes();
@@ -14,11 +13,17 @@ pub fn fix_rust_string_literals(src: &str) -> String {
                 if matches!(
                     bytes[end],
                     b' ' | b'\t'
-                        | b'(' | b')'
-                        | b'[' | b']'
-                        | b'{' | b'}'
-                        | b'<' | b'>'
-                        | b',' | b';' | b':'
+                        | b'('
+                        | b')'
+                        | b'['
+                        | b']'
+                        | b'{'
+                        | b'}'
+                        | b'<'
+                        | b'>'
+                        | b','
+                        | b';'
+                        | b':'
                         | b'&'
                 ) {
                     blocked = true;
@@ -75,7 +80,6 @@ pub fn sanitize_rust_lifetime_quotes(content: &str) -> String {
         // Fix missing & before 'static
         .replace("-> 'static str", "-> &'static str")
 }
-
 
 /// v8.0  Fix Llama writing `-go 1.21` instead of `go 1.21` in go.mod files
 pub fn sanitize_go_mod_content(content: &str) -> String {
@@ -184,7 +188,7 @@ pub fn fix_rust_string_types(content: &str) -> String {
         .map(|line| {
             let line = fix_rust_pattern(line, "Err(\"", "Err(\"", "\".to_string())");
             let line = fix_rust_pattern(&line, ".ok_or(\"", ".ok_or(\"", "\".to_string())");
-            
+
             fix_rust_pattern(
                 &line,
                 ".ok_or_else(|| \"",
@@ -201,7 +205,7 @@ pub fn fix_rust_string_types(content: &str) -> String {
 }
 
 ///   open + "msg" + )   open + "msg" + new_close
-///      .to_string()   msg 
+///      .to_string()   msg
 pub fn fix_rust_pattern(line: &str, open: &str, new_open: &str, new_close: &str) -> String {
     if !line.contains(open) {
         return line.to_string();
@@ -216,17 +220,17 @@ pub fn fix_rust_pattern(line: &str, open: &str, new_open: &str, new_close: &str)
             let msg = &after[..q];
             let tail = &after[q + 1..]; //   "
             if tail.starts_with(".to_string()") {
-                //      
+                //
                 result.push_str(new_open);
                 result.push_str(msg);
                 result.push('"');
                 rest = tail; //   .to_string()...
             } else {
-                // :  .to_string()  ) 
+                // :  .to_string()  )
                 result.push_str(new_open);
                 result.push_str(msg);
                 result.push_str(new_close);
-                //  ) 
+                //  )
                 rest = if let Some(stripped) = tail.strip_prefix(')') {
                     stripped
                 } else {
@@ -234,7 +238,7 @@ pub fn fix_rust_pattern(line: &str, open: &str, new_open: &str, new_close: &str)
                 };
             }
         } else {
-            //       
+            //
             result.push_str(open);
             rest = after;
         }
@@ -248,7 +252,6 @@ pub fn fix_rust_pattern(line: &str, open: &str, new_open: &str, new_close: &str)
 #[cfg(test)]
 mod tests_rust_autofix {
     use super::*;
-
 
     #[test]
     fn test_fix_rust_string_literals_preserves_lifetimes() {
@@ -295,4 +298,3 @@ pub fn pop(&mut self) -> Result<f64, String> {
         assert!(result.contains(r#"ok_or_else(|| "No data".to_string())"#));
     }
 }
-

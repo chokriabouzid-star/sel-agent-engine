@@ -16,9 +16,12 @@ impl Provider {
     fn cerebras() -> Self {
         Provider {
             name: "Cerebras".into(),
-            model: std::env::var("CEREBRAS_MODEL").unwrap_or_else(|_| "qwen-3-235b-a22b-instruct-2507".into()),
+            model: std::env::var("CEREBRAS_MODEL")
+                .unwrap_or_else(|_| "qwen-3-235b-a22b-instruct-2507".into()),
             endpoint: "https://api.cerebras.ai/v1/chat/completions".into(),
-            key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env("CEREBRAS_API_KEY"))),
+            key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env(
+                "CEREBRAS_API_KEY",
+            ))),
         }
     }
 
@@ -27,7 +30,9 @@ impl Provider {
             name: "GitHub".into(),
             model: std::env::var("GITHUB_MODEL").unwrap_or_else(|_| "gpt-4o".into()),
             endpoint: "https://models.inference.ai.azure.com/chat/completions".into(),
-            key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env("GITHUB_TOKEN"))),
+            key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env(
+                "GITHUB_TOKEN",
+            ))),
         }
     }
 
@@ -35,8 +40,11 @@ impl Provider {
         Provider {
             name: "Gemini".into(),
             model: std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.0-flash".into()),
-            endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions".into(),
-            key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env("GEMINI_API_KEY"))),
+            endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+                .into(),
+            key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env(
+                "GEMINI_API_KEY",
+            ))),
         }
     }
 
@@ -45,7 +53,9 @@ impl Provider {
             name: "Groq".into(),
             model: std::env::var("GROQ_MODEL").unwrap_or_else(|_| "llama-3.3-70b-versatile".into()),
             endpoint: "https://api.groq.com/openai/v1/chat/completions".into(),
-            key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env("GROQ_API_KEY"))),
+            key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env(
+                "GROQ_API_KEY",
+            ))),
         }
     }
 
@@ -56,7 +66,8 @@ impl Provider {
         }
         Provider {
             name: "OpenRouter".into(),
-            model: std::env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "qwen/qwen3-coder:free".into()),
+            model: std::env::var("OPENROUTER_MODEL")
+                .unwrap_or_else(|_| "qwen/qwen3-coder:free".into()),
             endpoint: "https://openrouter.ai/api/v1/chat/completions".into(),
             key_pool: Arc::new(Mutex::new(pool)),
         }
@@ -106,7 +117,10 @@ impl LiveProvider {
     }
 
     pub fn primary_name(&self) -> String {
-        self.providers.first().map(|p| p.name.clone()).unwrap_or_default()
+        self.providers
+            .first()
+            .map(|p| p.name.clone())
+            .unwrap_or_default()
     }
     pub fn new() -> Self {
         let mut providers = Vec::new();
@@ -149,7 +163,7 @@ impl LiveProvider {
                     exhausted_providers.join(", ")
                 );
                 // We do NOT panic here. We let the provider list be empty.
-                // The `complete()` method will return an Err instead, allowing 
+                // The `complete()` method will return an Err instead, allowing
                 // the bench loop to skip already-recorded cases without crashing.
             } else {
                 eprintln!(
@@ -227,21 +241,21 @@ enum ErrorKind {
 
 fn classify_error(err: &str) -> ErrorKind {
     let lower = err.to_lowercase();
-    
+
     // Parse HTTP status if present (e.g. "HTTP 400 Bad Request: ...")
     let mut status = 0;
     if let Some(idx) = err.find("HTTP ") {
-        let rest = &err[idx+5..];
+        let rest = &err[idx + 5..];
         if rest.len() >= 3 {
             if let Ok(s) = rest[..3].parse::<u16>() {
                 status = s;
             }
         }
     }
-    
+
     // Check for expired/invalid keys first
-    let is_key_error_msg = lower.contains("api_key_invalid") 
-        || lower.contains("api key expired") 
+    let is_key_error_msg = lower.contains("api_key_invalid")
+        || lower.contains("api key expired")
         || lower.contains("api key not valid")
         || lower.contains("api key e")
         || lower.contains("invalid_api_key")
@@ -257,13 +271,13 @@ fn classify_error(err: &str) -> ErrorKind {
         || lower.contains("quota")
         || lower.contains("daily limit")
         || lower.contains("per day")
-        || lower.contains("404") 
+        || lower.contains("404")
         || lower.contains("not_found")
         || (status == 403 && lower.contains("quota"))
     {
         return ErrorKind::DailyLimit;
     }
-    
+
     if status == 429
         || lower.contains("per minute")
         || lower.contains("generaterequestsperminuteperproject")
@@ -302,22 +316,32 @@ impl LLMProvider for LiveProvider {
                     let has_keys = provider.key_pool.lock().unwrap().has_available();
                     if !tracker.is_available(&provider.name) || !has_keys {
                         if !has_keys && attempt == 1 {
-                            println!("   ⏭  Skipping {}  all keys expired/exhausted", provider.name);
+                            println!(
+                                "   ⏭  Skipping {}  all keys expired/exhausted",
+                                provider.name
+                            );
                         }
-                        self.active_index.store((idx + 1) % self.providers.len(), std::sync::atomic::Ordering::SeqCst);
+                        self.active_index.store(
+                            (idx + 1) % self.providers.len(),
+                            std::sync::atomic::Ordering::SeqCst,
+                        );
                         break;
                     }
                 }
-                
+
                 let is_primary = idx == 0;
                 let prefix = if is_primary { "📡" } else { "🔀" };
                 if attempt == 1 {
                     println!("{} Calling {} ({})", prefix, provider.name, provider.model);
                 } else {
-                    let err_short: String = last_error.as_ref()
+                    let err_short: String = last_error
+                        .as_ref()
                         .map(|e: &anyhow::Error| e.to_string().chars().take(80).collect::<String>())
                         .unwrap_or_default();
-                    println!("   🔄 Attempt {}/3 [{}] - retrying {}...", attempt, err_short, provider.name);
+                    println!(
+                        "   🔄 Attempt {}/3 [{}] - retrying {}...",
+                        attempt, err_short, provider.name
+                    );
                 }
 
                 match self.try_call(provider, &req).await {
@@ -334,7 +358,7 @@ impl LLMProvider for LiveProvider {
                     Err(e) => {
                         let err_msg = e.to_string();
                         let err_kind = classify_error(&err_msg);
-                        
+
                         match err_kind {
                             ErrorKind::KeyExpired => {
                                 let mut pool = provider.key_pool.lock().unwrap();
@@ -345,7 +369,10 @@ impl LLMProvider for LiveProvider {
                                 } else {
                                     self.tracker.lock().unwrap().mark_daily(&provider.name);
                                     last_error = Some(e);
-                                    self.active_index.store((idx + 1) % self.providers.len(), std::sync::atomic::Ordering::SeqCst);
+                                    self.active_index.store(
+                                        (idx + 1) % self.providers.len(),
+                                        std::sync::atomic::Ordering::SeqCst,
+                                    );
                                     break;
                                 }
                             }
@@ -358,19 +385,25 @@ impl LLMProvider for LiveProvider {
                                 } else {
                                     self.tracker.lock().unwrap().mark_daily(&provider.name);
                                     last_error = Some(e);
-                                    self.active_index.store((idx + 1) % self.providers.len(), std::sync::atomic::Ordering::SeqCst);
+                                    self.active_index.store(
+                                        (idx + 1) % self.providers.len(),
+                                        std::sync::atomic::Ordering::SeqCst,
+                                    );
                                     break;
                                 }
                             }
                             ErrorKind::RpmLimit => {
                                 rpm_waits += 1;
-                                // v8.0:     RPM       
+                                // v8.0:     RPM
                                 //  3    provider   (  )
                                 if rpm_waits >= 3 {
                                     println!("   ⚠️  RPM limit persists  skipping {} temporarily (key preserved)", provider.name);
                                     self.tracker.lock().unwrap().mark_rpm(&provider.name, 60);
                                     last_error = Some(e);
-                                    self.active_index.store((idx + 1) % self.providers.len(), std::sync::atomic::Ordering::SeqCst);
+                                    self.active_index.store(
+                                        (idx + 1) % self.providers.len(),
+                                        std::sync::atomic::Ordering::SeqCst,
+                                    );
                                     break; //   provider   mark_exhausted
                                 }
                                 self.tracker.lock().unwrap().mark_rpm(&provider.name, 30);
@@ -382,11 +415,17 @@ impl LLMProvider for LiveProvider {
                                 last_error = Some(e);
                                 if attempt < 3 {
                                     attempt += 1;
-                                    tokio::time::sleep(tokio::time::Duration::from_secs(2_u64.pow(attempt as u32))).await;
+                                    tokio::time::sleep(tokio::time::Duration::from_secs(
+                                        2_u64.pow(attempt as u32),
+                                    ))
+                                    .await;
                                     continue;
                                 } else {
                                     println!("   ❌ {} failed after 3 attempts", provider.name);
-                                    self.active_index.store((idx + 1) % self.providers.len(), std::sync::atomic::Ordering::SeqCst);
+                                    self.active_index.store(
+                                        (idx + 1) % self.providers.len(),
+                                        std::sync::atomic::Ordering::SeqCst,
+                                    );
                                     break;
                                 }
                             }
@@ -432,7 +471,7 @@ impl LiveProvider {
             response_format: None,
         };
 
-        // JSON mode  Planning 
+        // JSON mode  Planning
         if req.model.contains("plan") || req.system.contains("SCHEMA") {
             body.response_format = Some(serde_json::json!({ "type": "json_object" }));
         }
@@ -471,7 +510,10 @@ impl LiveProvider {
 
         let data: Response = resp.json().await?;
 
-        let choice = data.choices.into_iter().next()
+        let choice = data
+            .choices
+            .into_iter()
+            .next()
             .ok_or_else(|| anyhow!("Empty response"))?;
 
         Ok(LLMResponse {
@@ -495,7 +537,10 @@ impl LiveProvider {
         }
 
         if self.providers.len() > 1 {
-            let fallbacks: Vec<&str> = self.providers[1..].iter().map(|p| p.name.as_str()).collect();
+            let fallbacks: Vec<&str> = self.providers[1..]
+                .iter()
+                .map(|p| p.name.as_str())
+                .collect();
             println!("   🔄 Fallback:  {}", fallbacks.join(" → "));
         }
 

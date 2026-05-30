@@ -11,11 +11,13 @@ impl KeyPool {
 
         // 1. Base key: e.g. GROQ_API_KEY
         if let Ok(key) = std::env::var(prefix) {
-            if !key.trim().is_empty() { keys.push(key); }
+            if !key.trim().is_empty() {
+                keys.push(key);
+            }
         }
 
         for i in 1..=10 {
-            // 2. Standard format:  GROQ_API_KEY_1, GROQ_API_KEY_2, 
+            // 2. Standard format:  GROQ_API_KEY_1, GROQ_API_KEY_2,
             let var_underscore = format!("{}_{}", prefix, i);
             if let Ok(key) = std::env::var(&var_underscore) {
                 if !key.trim().is_empty() && !keys.contains(&key) {
@@ -42,7 +44,6 @@ impl KeyPool {
             }
         }
 
-        
         let mut exhausted = std::collections::HashSet::new();
         // v7.9.9 P2: Load from disk cache
         let cache = crate::provider_state::ProviderStateCache::load();
@@ -51,12 +52,18 @@ impl KeyPool {
                 exhausted.insert(i);
                 eprintln!(
                     "   🔑 Key #{} for {} pre-skipped (exhausted in previous session)",
-                    i + 1, prefix
+                    i + 1,
+                    prefix
                 );
             }
         }
-        
-        Self { keys, current: 0, exhausted, prefix: prefix.to_string() }
+
+        Self {
+            keys,
+            current: 0,
+            exhausted,
+            prefix: prefix.to_string(),
+        }
     }
 
     /// Returns the next available key
@@ -75,32 +82,38 @@ impl KeyPool {
     }
 
     pub fn mark_expired(&mut self) {
-        if self.keys.is_empty() { return; }
+        if self.keys.is_empty() {
+            return;
+        }
         eprintln!(
             " ❌ Key #{} for {} PERMANENTLY EXPIRED  removed from rotation",
-            self.current + 1, self.prefix
+            self.current + 1,
+            self.prefix
         );
         self.exhausted.insert(self.current);
-        
+
         let mut cache = crate::provider_state::ProviderStateCache::load();
         cache.mark_permanently_expired(&self.prefix, self.current);
-        
+
         self.current = (self.current + 1) % self.keys.len();
     }
 
     /// Mark the current key as daily exhausted
     pub fn mark_exhausted(&mut self) {
-        if self.keys.is_empty() { return; }
+        if self.keys.is_empty() {
+            return;
+        }
         eprintln!(
             " 🔄 Key #{} for {} exhausted  rotating to next key",
-            self.current + 1, self.prefix
+            self.current + 1,
+            self.prefix
         );
         self.exhausted.insert(self.current);
-        
+
         // v7.9.9 P2: Save to disk cache
         let mut cache = crate::provider_state::ProviderStateCache::load();
         cache.mark_exhausted(&self.prefix, self.current);
-        
+
         self.current = (self.current + 1) % self.keys.len();
     }
 

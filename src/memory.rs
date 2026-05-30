@@ -20,7 +20,7 @@ pub struct FailureMemory {
     pub entries: Vec<MemoryEntry>,
 }
 
-///       
+///
 pub fn normalize_error(error: &str) -> String {
     let first_line = error.lines().next().unwrap_or(error);
     let s = first_line.to_lowercase();
@@ -48,14 +48,14 @@ pub fn normalize_error(error: &str) -> String {
     out.trim().to_string()
 }
 
-///  FNV  
+///  FNV
 pub fn hash_normalized(s: &str) -> u64 {
     s.bytes().fold(0xcbf29ce484222325u64, |acc, b| {
         acc.wrapping_mul(0x100000001b3).wrapping_add(b as u64)
     })
 }
 
-//  QuickFix 
+//  QuickFix
 
 #[derive(Debug, Clone)]
 pub enum QuickFix {
@@ -131,7 +131,7 @@ fn extract_go_undefined(error: &str) -> Option<String> {
     None
 }
 
-//  FailureMemory 
+//  FailureMemory
 
 fn memory_path() -> PathBuf {
     if let Ok(home) = std::env::var("HOME") {
@@ -166,7 +166,7 @@ impl FailureMemory {
         }
     }
 
-    ///  repair    normalized_hash 
+    ///  repair    normalized_hash
     pub fn record_success(&mut self, failure_kind: &str, error_sig: &str, fix_summary: &str) {
         let normalized = normalize_error(error_sig);
         let hash = hash_normalized(&normalized);

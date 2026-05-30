@@ -17,28 +17,28 @@ mod evaluator;
 mod executor;
 mod goal_parser;
 
+pub mod bench_sel;
+pub mod bench_swe;
+pub mod cache;
 mod constitution;
+pub mod cost;
 mod decision;
+pub mod diagnostic;
 mod manifest;
 mod memory;
 mod protocol;
+pub mod provider_state;
 mod repair_strategy;
 mod scaffold_engine;
 mod snapshot;
 mod state_handlers;
 mod types;
-pub mod cache;
-pub mod bench_swe;
-pub mod bench_sel;
-pub mod cost;
-pub mod diagnostic;
-pub mod provider_state;
 
 pub mod commands;
 
 use anyhow::Result;
 use clap::Parser;
-use commands::{Commands, Cli};
+use commands::{Cli, Commands};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -66,15 +66,8 @@ async fn main() -> Result<()> {
             rerecord,
         } => {
             let failed = if quick {
-                commands::run_quick_bench(
-                    &api_key,
-                    &suite,
-                    max_repairs,
-                    iterations,
-                    &focus,
-                    delay,
-                )
-                .await?
+                commands::run_quick_bench(&api_key, &suite, max_repairs, iterations, &focus, delay)
+                    .await?
             } else {
                 commands::run_bench(
                     &api_key,
@@ -94,8 +87,24 @@ async fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
-        Commands::Stress { max_repairs, cases, delay, record, replay, rerecord } => {
-            commands::run_stress(&api_key, max_repairs, cases, delay, record, replay, rerecord).await?;
+        Commands::Stress {
+            max_repairs,
+            cases,
+            delay,
+            record,
+            replay,
+            rerecord,
+        } => {
+            commands::run_stress(
+                &api_key,
+                max_repairs,
+                cases,
+                delay,
+                record,
+                replay,
+                rerecord,
+            )
+            .await?;
         }
         Commands::Scan { workspace, json } => {
             commands::cmd_scan(&workspace, json);
@@ -115,7 +124,13 @@ async fn main() -> Result<()> {
             commands::run_plan(&api_key, &workspace, &plan, max_repairs).await?;
         }
         Commands::BenchSwe {
-            lang, focus, max_repairs, delay, record, replay, rerecord,
+            lang,
+            focus,
+            max_repairs,
+            delay,
+            record,
+            replay,
+            rerecord,
         } => {
             let key = api_key;
             commands::bench::run_bench_swe_cmd(
@@ -127,7 +142,8 @@ async fn main() -> Result<()> {
                 record,
                 replay,
                 rerecord,
-            ).await?;
+            )
+            .await?;
         }
         Commands::BenchRealWorld {
             tier,
@@ -153,8 +169,13 @@ async fn main() -> Result<()> {
             .await?;
         }
         Commands::BenchSelV11 {
-            focus, max_repairs, delay, include_system,
-            record, replay, rerecord,
+            focus,
+            max_repairs,
+            delay,
+            include_system,
+            record,
+            replay,
+            rerecord,
         } => {
             crate::bench_sel::run_bench_sel_v11(
                 &api_key,
@@ -165,7 +186,8 @@ async fn main() -> Result<()> {
                 record,
                 replay,
                 rerecord,
-            ).await?;
+            )
+            .await?;
         }
         Commands::BenchSel {
             focus,
@@ -183,7 +205,8 @@ async fn main() -> Result<()> {
                 record,
                 replay,
                 rerecord,
-            ).await?;
+            )
+            .await?;
         }
         Commands::ResetProviders => {
             let path = std::env::current_exe()
@@ -200,12 +223,12 @@ async fn main() -> Result<()> {
             }
             println!("\n Current key counts:");
             let providers = [
-                ("GROQ_API_KEY",       "Groq"),
-                ("CEREBRAS_API_KEY",   "Cerebras"),
-                ("GEMINI_API_KEY",     "Gemini"),
+                ("GROQ_API_KEY", "Groq"),
+                ("CEREBRAS_API_KEY", "Cerebras"),
+                ("GEMINI_API_KEY", "Gemini"),
                 ("OPENROUTER_API_KEY", "OpenRouter"),
-                ("GITHUB_TOKEN",       "GitHub"),
-                ("SEL_API_KEY",        "SEL"),
+                ("GITHUB_TOKEN", "GitHub"),
+                ("SEL_API_KEY", "SEL"),
             ];
             for (env_key, label) in &providers {
                 let pool = crate::llm::key_pool::KeyPool::from_env(env_key);
@@ -298,11 +321,18 @@ async fn main() -> Result<()> {
 
             let live = crate::llm::live::LiveProvider::from_env();
             let provider: Box<dyn crate::llm::LLMProvider> = if replay {
-                let dir = traj_dir.clone().ok_or_else(|| anyhow::anyhow!("Trajectory dir missing"))?;
+                let dir = traj_dir
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("Trajectory dir missing"))?;
                 Box::new(crate::llm::replay::ReplayProvider::new(&dir))
             } else if record {
-                let dir = traj_dir.clone().ok_or_else(|| anyhow::anyhow!("Trajectory dir missing"))?;
-                Box::new(crate::llm::record::RecorderProvider::new(Box::new(live), &dir))
+                let dir = traj_dir
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("Trajectory dir missing"))?;
+                Box::new(crate::llm::record::RecorderProvider::new(
+                    Box::new(live),
+                    &dir,
+                ))
             } else {
                 Box::new(live)
             };
@@ -345,7 +375,10 @@ async fn main() -> Result<()> {
                 println!("     Run failed in replay mode! Auto-rerecording trajectory...");
                 if let Some(ref dir) = traj_dir {
                     let live2 = crate::llm::live::LiveProvider::from_env();
-                    let recorder = Box::new(crate::llm::record::RecorderProvider::new(Box::new(live2), dir));
+                    let recorder = Box::new(crate::llm::record::RecorderProvider::new(
+                        Box::new(live2),
+                        dir,
+                    ));
                     let mut heal_ag = agent::Agent::new_with_model(
                         String::new(),
                         String::new(),
@@ -364,7 +397,9 @@ async fn main() -> Result<()> {
                         return Err(anyhow::anyhow!("Run failed even after auto-rerecord"));
                     }
                 }
-            } else { run_res?; }
+            } else {
+                run_res?;
+            }
         }
     }
     Ok(())

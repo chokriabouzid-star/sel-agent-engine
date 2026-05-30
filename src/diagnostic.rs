@@ -21,10 +21,10 @@ pub enum Severity {
 impl fmt::Display for Severity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
-            Severity::Info    => "INFO",
+            Severity::Info => "INFO",
             Severity::Warning => "WARN",
-            Severity::Error   => "ERROR",
-            Severity::Fatal   => "FATAL",
+            Severity::Error => "ERROR",
+            Severity::Fatal => "FATAL",
         };
         write!(f, "{}", s)
     }
@@ -140,7 +140,8 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
             severity: Severity::Error,
             category: "rust/type",
             message: "mismatched types".into(),
-            suggestion: "Verify return type, function signature, or add explicit type conversion".into(),
+            suggestion: "Verify return type, function signature, or add explicit type conversion"
+                .into(),
         });
     }
     if error_text.contains("unused import") || error_text.contains("unused variable") {
@@ -224,7 +225,8 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
         });
     }
     if error_text.contains("TS2345") && error_text.contains("never") {
-        let is_axios = error_text.contains("mockResolvedValue") || error_text.contains("mockRejectedValue");
+        let is_axios =
+            error_text.contains("mockResolvedValue") || error_text.contains("mockRejectedValue");
         let sug = if is_axios {
             "axios.get overloads cause jest.Mock to produce `never`.              SOLUTION: mock the module-level default, not .get directly.              In api.test.ts use: jest.mock('axios');              then `import axiosMock from 'axios'; const getMock = axiosMock.get as jest.Mock;`              OR use: `jest.mocked(axios).get.mockResolvedValue(...)`              OR avoid casting: `const mockGet = jest.fn(); jest.spyOn(axios,'get').mockImplementation(mockGet);`"
         } else {
@@ -237,12 +239,17 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
             suggestion: sug.into(),
         });
     }
-    if error_text.contains("TS2459") || (error_text.contains("declares") && error_text.contains("locally") && error_text.contains("not exported")) {
+    if error_text.contains("TS2459")
+        || (error_text.contains("declares")
+            && error_text.contains("locally")
+            && error_text.contains("not exported"))
+    {
         hints.push(Hint {
             severity: Severity::Error,
             category: "ts/missing-export",
             message: "class or function declared but not exported".into(),
-            suggestion: "Add `export` keyword: write `export class ApiClient` not `class ApiClient`".into(),
+            suggestion:
+                "Add `export` keyword: write `export class ApiClient` not `class ApiClient`".into(),
         });
     }
     if error_text.contains("TS2345") && error_text.contains("never") {
@@ -257,7 +264,8 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
         hints.push(Hint {
             severity: Severity::Error,
             category: "ts/mock-never",
-            message: "TS2345 argument not assignable to never (likely jest.Mock overload issue)".into(),
+            message: "TS2345 argument not assignable to never (likely jest.Mock overload issue)"
+                .into(),
             suggestion,
         });
     }

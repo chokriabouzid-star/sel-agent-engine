@@ -115,8 +115,9 @@ impl RepairCtx {
                 if idx + 1 < tokens.len() {
                     let raw = tokens[idx + 1];
                     // Strip common punctuation wrappers
-                    let cleaned = raw
-                        .trim_matches(|c: char| c == '(' || c == ')' || c == '`' || c == '\'' || c == '"');
+                    let cleaned = raw.trim_matches(|c: char| {
+                        c == '(' || c == ')' || c == '`' || c == '\'' || c == '"'
+                    });
                     if !cleaned.is_empty() {
                         return cleaned.to_string();
                     }
@@ -250,13 +251,22 @@ mod tests {
 
     #[test]
     fn test_extract_function_name_basic() {
-        assert_eq!(RepairCtx::extract_function_name("Fix add() function"), "add");
-        assert_eq!(RepairCtx::extract_function_name("implement `sort` method"), "sort");
+        assert_eq!(
+            RepairCtx::extract_function_name("Fix add() function"),
+            "add"
+        );
+        assert_eq!(
+            RepairCtx::extract_function_name("implement `sort` method"),
+            "sort"
+        );
     }
 
     #[test]
     fn test_extract_function_name_fallback() {
-        assert_eq!(RepairCtx::extract_function_name("do something"), "the function");
+        assert_eq!(
+            RepairCtx::extract_function_name("do something"),
+            "the function"
+        );
     }
 
     #[test]

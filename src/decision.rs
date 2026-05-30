@@ -4,9 +4,9 @@ use crate::protocol::Cmd;
 use crate::types::ContextConfig;
 use std::path::Path;
 
-// 
+//
 // Goal Validator v1.2
-// 
+//
 
 /// Validates that the goal is specific enough for execution
 pub fn validate_goal(goal: &str) -> Option<String> {
@@ -45,9 +45,9 @@ pub fn validate_goal(goal: &str) -> Option<String> {
     None
 }
 
-// 
+//
 // Patch Uniqueness Validator v5.6
-// 
+//
 
 /// Validates that each search block in patch_file is unique in the target file
 pub fn validate_patch_uniqueness(workspace: &Path, plan: &[Cmd]) -> Vec<String> {
@@ -82,9 +82,9 @@ pub fn validate_patch_uniqueness(workspace: &Path, plan: &[Cmd]) -> Vec<String> 
     issues
 }
 
-// 
+//
 // Plan Integrity Validator v7.5
-// 
+//
 
 /// Validates plan integrity (no duplication, complete definitions)
 pub fn validate_plan_integrity(plan: &[Cmd]) -> Vec<String> {
@@ -118,25 +118,25 @@ pub fn validate_plan_integrity(plan: &[Cmd]) -> Vec<String> {
                 if path.ends_with(".rs")
                     && (content.contains("#[cfg(test)]") || content.contains("mod tests"))
                     && content.contains("Stack::new()")
-                        && !content.contains("struct Stack")
-                        && !content.contains("use ")
-                    => {
-                        issues.push(format!(
+                    && !content.contains("struct Stack")
+                    && !content.contains("use ") =>
+            {
+                issues.push(format!(
                             "COMPLETENESS ERROR in '{}': Test uses 'Stack' but 'struct Stack' is not defined or imported.",
                             path
                         ));
-                    }
+            }
             Cmd::PatchFile { path, .. }
                 if has_cargo_new
                     && (path.ends_with("src/lib.rs")
                         || path.ends_with("src/main.rs")
-                        || path.ends_with("Cargo.toml"))
-                => {
-                    issues.push(format!(
+                        || path.ends_with("Cargo.toml")) =>
+            {
+                issues.push(format!(
                         "PLAN ERROR: You used 'cargo new' which creates a dummy '{}'. You MUST use write_file to completely replace it, DO NOT use patch_file.",
                         path
                     ));
-                }
+            }
             _ => {}
         }
     }
@@ -144,9 +144,9 @@ pub fn validate_plan_integrity(plan: &[Cmd]) -> Vec<String> {
     issues
 }
 
-// 
+//
 // Language Hint Builder v5.6
-// 
+//
 
 /// Builds a language hint based on the workspace manifest
 pub fn build_lang_hint(workspace: &Path) -> String {
@@ -162,9 +162,9 @@ pub fn build_lang_hint(workspace: &Path) -> String {
     }
 }
 
-// 
+//
 // Skeleton Context Builder v5.6
-// 
+//
 
 /// Builds a skeleton context showing the current structure of files
 pub fn build_skeleton_context(workspace: &Path) -> String {
@@ -248,9 +248,9 @@ pub fn build_skeleton_context(workspace: &Path) -> String {
     map
 }
 
-// 
+//
 // Pre-Repair Checklist v7.5.1
-// 
+//
 
 pub enum ChecklistResult {
     Handled,
@@ -307,11 +307,12 @@ pub fn pre_repair_checklist(
     if matches!(kind, crate::failure::FailureKind::ImportError)
         && stderr.contains("NameError")
         && stderr.contains("is not defined")
-        && try_auto_import_fix(plan, &stderr) {
-            println!("    Pre-Repair: auto-import fix applied");
-            ctx.failed_steps.clear();
-            return ChecklistResult::Handled;
-        }
+        && try_auto_import_fix(plan, &stderr)
+    {
+        println!("    Pre-Repair: auto-import fix applied");
+        ctx.failed_steps.clear();
+        return ChecklistResult::Handled;
+    }
 
     // Check 3: Rust E0762 (unterminated character literal)  re-sanitize .rs file
     if (stderr.contains("E0762") || stderr.contains("unterminated character literal"))
@@ -331,7 +332,10 @@ pub fn pre_repair_checklist(
                         .replace("-> \u{201C}static", "-> &'static")
                         .replace("-> 'static str", "-> &'static str");
                     if fixed != content {
-                        println!("    AutoFix E0762: sanitizing Unicode quotes in {}", culprit);
+                        println!(
+                            "    AutoFix E0762: sanitizing Unicode quotes in {}",
+                            culprit
+                        );
                         let _ = std::fs::write(&full_path, &fixed);
                         plan.clear();
                         plan.push(Cmd::RunTests {
@@ -442,7 +446,10 @@ fn try_semantic_go_worker_pool_fix(
     workspace: &Path,
     stderr: &str,
 ) -> bool {
-    if !(stderr.contains("TestProcessJobs") && stderr.contains("expected") && stderr.contains("got")) {
+    if !(stderr.contains("TestProcessJobs")
+        && stderr.contains("expected")
+        && stderr.contains("got"))
+    {
         return false;
     }
 
@@ -452,7 +459,10 @@ fn try_semantic_go_worker_pool_fix(
         Err(_) => return false,
     };
 
-    if !src.contains("ProcessJobs(") || src.contains("sort.Ints(results)") || !src.contains("return results") {
+    if !src.contains("ProcessJobs(")
+        || src.contains("sort.Ints(results)")
+        || !src.contains("return results")
+    {
         return false;
     }
 
@@ -488,7 +498,10 @@ fn try_semantic_ts_retry_fix(
     if !workspace.join("retry.test.ts").exists() {
         return false;
     }
-    if !(stderr.contains("Exceeded timeout") || stderr.contains("retry.test.ts") || stderr.contains("test timed out")) {
+    if !(stderr.contains("Exceeded timeout")
+        || stderr.contains("retry.test.ts")
+        || stderr.contains("test timed out"))
+    {
         return false;
     }
 
@@ -579,8 +592,7 @@ fn try_semantic_ts_api_client_fix(
         return false;
     }
 
-    let semantic_ts_error =
-        (stderr.contains("TS2345") && stderr.contains("never"))
+    let semantic_ts_error = (stderr.contains("TS2345") && stderr.contains("never"))
         || stderr.contains("TS2459")
         || stderr.contains("TS1192")
         || stderr.contains("mockResolvedValue")
@@ -694,15 +706,15 @@ fn try_auto_import_fix(plan: &mut Vec<Cmd>, stderr: &str) -> bool {
     false
 }
 
-// 
+//
 // Workspace Context Builder v6.6
-// 
+//
 
 /// Reads all existing workspace files and builds a full context
 pub fn build_workspace_context(workspace: &Path) -> String {
     let mut ctx = String::new();
 
-    //  
+    //
     let supported = ["ts", "js", "py", "go", "rs", "toml", "json", "mod"];
 
     //     recursive ( 50   300   )
@@ -766,7 +778,7 @@ pub fn build_workspace_context(workspace: &Path) -> String {
                     String::new()
                 }
             );
-            //     
+            //
             if total_chars + file_content.len() > MAX_CONTEXT_CHARS {
                 ctx.push_str(&format!(
                     "--- FILE: {} (skipped  context limit) ---\n\n",
@@ -783,9 +795,9 @@ pub fn build_workspace_context(workspace: &Path) -> String {
     ctx
 }
 
-// 
+//
 // Reference File Context Builder v5.1
-// 
+//
 
 /// Builds a context from the reference file if it exists
 pub fn build_ref_context(config: &ContextConfig) -> String {

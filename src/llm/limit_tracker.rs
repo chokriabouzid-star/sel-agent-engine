@@ -2,8 +2,8 @@ use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct LimitTracker {
-    daily_dead: HashSet<String>,   //    
-    rpm_dead_until: std::collections::HashMap<String, u64>, //  X 
+    daily_dead: HashSet<String>,                            //
+    rpm_dead_until: std::collections::HashMap<String, u64>, //  X
 }
 
 impl Default for LimitTracker {
@@ -21,7 +21,10 @@ impl LimitTracker {
     }
 
     pub fn mark_daily(&mut self, provider: &str) {
-        eprintln!(" [{}] daily limit hit  skipping for rest of session", provider);
+        eprintln!(
+            " [{}] daily limit hit  skipping for rest of session",
+            provider
+        );
         self.daily_dead.insert(provider.to_string());
     }
 

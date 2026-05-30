@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use crate::types;
 
-use crate::commands::health::{ProviderStats, shorten_provider};
+use crate::commands::health::{shorten_provider, ProviderStats};
 
 #[allow(clippy::too_many_arguments)]
 pub async fn run_bench(
@@ -28,7 +28,7 @@ pub async fn run_bench(
         .filter(|c| focus.is_empty() || focus.contains(&c.name.to_string()))
         .collect();
 
-    // v5.7: integration suite   
+    // v5.7: integration suite
     // v7.1: compile suite
     if suite == "compile" {
         run_compile_bench(max_repairs).await?;
@@ -87,11 +87,7 @@ pub async fn run_bench(
 
     for iter in 0..iterations {
         if iterations > 1 {
-            println!(
-                "\n Iteration {}/{} ",
-                iter + 1,
-                iterations
-            );
+            println!("\n Iteration {}/{} ", iter + 1, iterations);
         }
         for (i, case) in cases.iter().enumerate() {
             let completed = iter as usize * total + i;
@@ -99,7 +95,7 @@ pub async fn run_bench(
                 println!("   ⏳ Cooling down {}s before next task...", delay);
                 tokio::time::sleep(Duration::from_secs(delay)).await;
             }
-            
+
             let name = &case.name;
             let goal = &case.goal;
 
@@ -131,9 +127,13 @@ pub async fn run_bench(
                     }
                     std::fs::write(&file_path, content).ok();
                 }
-                println!("   🏗  Scaffold ready: {} ({} files)", case.lang, case.scaffold_files.len());
+                println!(
+                    "   🏗  Scaffold ready: {} ({} files)",
+                    case.lang,
+                    case.scaffold_files.len()
+                );
             }
-            
+
             let completed = iter as usize * total + i;
             let eta_str = if completed > 0 {
                 let elapsed = bench_start_time.elapsed().as_secs_f32();
@@ -195,9 +195,14 @@ pub async fn run_bench(
 
             // v8.0: Auto-Heal (Rerecord) broken trajectories during offline replay
             if replay && !ok && rerecord {
-                let err_reason = agent.failed_reason().unwrap_or_else(|| "Unknown Error".to_string());
-                println!("   ❌ Replay failed ({})! Auto-rerecording trajectory...", err_reason);
-                
+                let err_reason = agent
+                    .failed_reason()
+                    .unwrap_or_else(|| "Unknown Error".to_string());
+                println!(
+                    "   ❌ Replay failed ({})! Auto-rerecording trajectory...",
+                    err_reason
+                );
+
                 // 1. Clean workspace for fresh start
                 let _ = std::fs::remove_dir_all(&workspace);
                 std::fs::create_dir_all(&workspace).ok();
@@ -239,7 +244,7 @@ pub async fn run_bench(
                     new_llm,
                 );
                 heal_agent.bench_mode = true;
-                
+
                 let heal_ok = heal_agent.run().await.is_ok();
                 if heal_ok {
                     println!("   ✅ Successfully auto-rerecorded.");
@@ -268,7 +273,11 @@ pub async fn run_bench(
                 "".to_string()
             };
             let model = agent.llm.get_stats().last_model;
-            let model_str = if model.is_empty() { "none".to_string() } else { model };
+            let model_str = if model.is_empty() {
+                "none".to_string()
+            } else {
+                model
+            };
             provider_stats.record(&model_str);
             let autofix = agent.ctx.autofix_count;
             println!(
@@ -328,18 +337,18 @@ pub async fn run_bench(
     println!("  Avg Repairs:    {:<23}", format!("{:.1}", avg_repairs));
     println!(
         "  Mutation Tested:{:<23}",
-        format!("{}/{} tasks ({:.0}%)", mutation_total, total_runs, tested_percent)
+        format!(
+            "{}/{} tasks ({:.0}%)",
+            mutation_total, total_runs, tested_percent
+        )
     );
     println!(
         "  Kill Rate:      {:<23}",
         format!("{:.0}% of tested", kill_rate)
     );
-    println!(
-        "  Full Coverage:  {:<23}",
-        format!("{:.0}%", full_coverage)
-    );
+    println!("  Full Coverage:  {:<23}", format!("{:.0}%", full_coverage));
     println!("  Quality Index:  {:<23}", format!("{:.2}", quality));
-    
+
     if !auto_healed.is_empty() {
         println!();
         println!("   🩹 Auto-Healed (rerecorded):            ");
@@ -347,7 +356,7 @@ pub async fn run_bench(
             println!("    - {:<36}", h);
         }
     }
-    
+
     println!();
     println!("🔗 Provider Usage:                     ");
 
@@ -360,7 +369,11 @@ pub async fn run_bench(
     }
 
     println!("    ");
-    println!("    {:<14}  {:>2} calls             ", "total", provider_stats.total());
+    println!(
+        "    {:<14}  {:>2} calls             ",
+        "total",
+        provider_stats.total()
+    );
     println!("\n");
 
     // POST to Observatory
@@ -399,16 +412,35 @@ pub async fn run_stress(
     rerecord: bool,
 ) -> Result<()> {
     println!();
-    println!("{}", "╔══════════════════════════════════════════════════╗".cyan());
-    println!("{}", "║   SEL Agent v8.5.0 🔥 Stress Test               ║".cyan());
-    println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
-    println!("║  Cases: {:3}  Mode: {:<20}  ║",
+    println!(
+        "{}",
+        "╔══════════════════════════════════════════════════╗".cyan()
+    );
+    println!(
+        "{}",
+        "║   SEL Agent v8.5.0 🔥 Stress Test               ║".cyan()
+    );
+    println!(
+        "{}",
+        "╠══════════════════════════════════════════════════╣".cyan()
+    );
+    println!(
+        "║  Cases: {:3}  Mode: {:<20}  ║",
         case_limit,
-        if replay && rerecord { "REPLAY+RERECORD" }
-        else if replay { "REPLAY" }
-        else if record { "RECORD" }
-        else { "LIVE" });
-    println!("{}", "╚══════════════════════════════════════════════════╝".cyan());
+        if replay && rerecord {
+            "REPLAY+RERECORD"
+        } else if replay {
+            "REPLAY"
+        } else if record {
+            "RECORD"
+        } else {
+            "LIVE"
+        }
+    );
+    println!(
+        "{}",
+        "╚══════════════════════════════════════════════════╝".cyan()
+    );
     println!();
 
     let all_cases = crate::bench_cases::suite_cases("all");
@@ -431,12 +463,20 @@ pub async fn run_stress(
             .unwrap_or_default()
             .join("fixtures")
             .join("trajectories")
-            .join(format!("stress_{}", case.name.to_lowercase().replace(' ', "_")));
+            .join(format!(
+                "stress_{}",
+                case.name.to_lowercase().replace(' ', "_")
+            ));
 
         let pb = ProgressBar::new_spinner();
         pb.set_style(
             ProgressStyle::default_spinner()
-                .template(&format!("{{spinner:.yellow}}  [{:02}/{:02}] {}...", i+1, total, name))
+                .template(&format!(
+                    "{{spinner:.yellow}}  [{:02}/{:02}] {}...",
+                    i + 1,
+                    total,
+                    name
+                ))
                 .unwrap(),
         );
         pb.enable_steady_tick(Duration::from_millis(80));
@@ -481,7 +521,8 @@ pub async fn run_stress(
             let _ = std::fs::create_dir_all(&traj_dir);
             let live = crate::llm::live::LiveProvider::from_env();
             let rec = Box::new(crate::llm::record::RecorderProvider::new(
-                Box::new(live), &traj_dir,
+                Box::new(live),
+                &traj_dir,
             ));
             let mut ag2 = crate::agent::Agent::new_with_model(
                 api_key.to_string(),
@@ -503,8 +544,12 @@ pub async fn run_stress(
         if case_passed {
             let repairs = ag.repair_count();
             total_repairs += repairs;
-            println!("    {} (repairs: {}{})", name.green(), repairs,
-                if rerecord && healed > 0 { " 🩹" } else { "" });
+            println!(
+                "    {} (repairs: {}{})",
+                name.green(),
+                repairs,
+                if rerecord && healed > 0 { " 🩹" } else { "" }
+            );
             passed += 1;
         } else {
             println!("    {}", name.red());
@@ -521,12 +566,24 @@ pub async fn run_stress(
         0.0
     };
     println!();
-    println!("{}", "╔══════════════════════════════════════════════════╗".cyan());
-    println!("║  Stress Results: {}/{} passed | avg repairs: {:.1}  ║", passed, total, avg);
+    println!(
+        "{}",
+        "╔══════════════════════════════════════════════════╗".cyan()
+    );
+    println!(
+        "║  Stress Results: {}/{} passed | avg repairs: {:.1}  ║",
+        passed, total, avg
+    );
     if healed > 0 {
-        println!("║  Auto-healed: {}                                   ║", healed);
+        println!(
+            "║  Auto-healed: {}                                   ║",
+            healed
+        );
     }
-    println!("{}", "╚══════════════════════════════════════════════════╝".cyan());
+    println!(
+        "{}",
+        "╚══════════════════════════════════════════════════╝".cyan()
+    );
     println!();
     Ok(())
 }
@@ -590,12 +647,7 @@ pub async fn run_integration_bench(api_key: &str, max_repairs: u8) -> Result<()>
     let tmpdir = std::env::temp_dir();
 
     for (i, (name, goal1, goal2, ref_hint)) in cases.iter().enumerate() {
-        println!(
-            "\n Test {}/{}: {} ",
-            i + 1,
-            total,
-            name
-        );
+        println!("\n Test {}/{}: {} ", i + 1, total, name);
 
         // Phase 1: Build
         let workspace = tmpdir.join(format!("sel-integration-{}", i));
@@ -697,16 +749,12 @@ pub async fn run_integration_bench(api_key: &str, max_repairs: u8) -> Result<()>
         "  Phase2 passed:  {:<23}",
         format!("{}/{}", phase2_passed, total)
     );
-    println!(
-        "  Full passed:    {:<23}",
-        format!("{}/{}", passed, total)
-    );
+    println!("  Full passed:    {:<23}", format!("{}/{}", passed, total));
     println!("  Avg Repairs:    {:<23}", format!("{:.1}", avg_repairs));
     println!("\n");
 
     Ok(())
 }
-
 
 pub async fn run_compile_bench(max_repairs: u8) -> Result<()> {
     use crate::bench_compile::{all_cases, check_result, setup_case};
@@ -726,7 +774,7 @@ pub async fn run_compile_bench(max_repairs: u8) -> Result<()> {
         let _ = std::fs::remove_dir_all(&workspace);
         std::fs::create_dir_all(&workspace).ok();
 
-        // Setup:   
+        // Setup:
         setup_case(case.name, &workspace);
 
         let pb = ProgressBar::new_spinner();
@@ -742,7 +790,7 @@ pub async fn run_compile_bench(max_repairs: u8) -> Result<()> {
         );
         pb.enable_steady_tick(Duration::from_millis(80));
 
-        //  Agent  goal 
+        //  Agent  goal
         let mut agent = crate::agent::Agent::new(
             String::new(),
             workspace.clone(),
@@ -756,7 +804,7 @@ pub async fn run_compile_bench(max_repairs: u8) -> Result<()> {
         let repairs = agent.repair_count();
         let mutation = agent.mutation_score();
 
-        //  
+        //
         let check = check_result(case.name, &workspace, ok, repairs, mutation);
 
         #[allow(clippy::if_same_then_else)]
@@ -793,11 +841,11 @@ pub async fn run_compile_bench(max_repairs: u8) -> Result<()> {
             note_str,
         ));
 
-        // 
+        //
         let _ = std::fs::remove_dir_all(&workspace);
     }
 
-    //  
+    //
     let rate = passed as f64 / total as f64 * 100.0;
     println!("\n");
     println!("📊 Compile Bench Results                   ");
@@ -840,7 +888,19 @@ pub async fn run_quick_bench(
     delay: u64,
 ) -> Result<Vec<String>> {
     println!("\n ⚡ Quick Mode: Stage 1  Running Replay for '{}'", suite);
-    let failed = run_bench(api_key, suite, max_repairs, iterations, focus, false, true, delay, false, false).await?;
+    let failed = run_bench(
+        api_key,
+        suite,
+        max_repairs,
+        iterations,
+        focus,
+        false,
+        true,
+        delay,
+        false,
+        false,
+    )
+    .await?;
 
     if failed.is_empty() {
         println!("\n ✅ Quick Mode: All cases passed via Replay. System is stable.");
@@ -914,5 +974,6 @@ pub async fn run_bench_swe_cmd(
         record,
         replay,
         rerecord,
-    ).await
+    )
+    .await
 }

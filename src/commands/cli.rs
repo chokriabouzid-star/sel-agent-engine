@@ -9,7 +9,6 @@ pub struct Cli {
     pub command: Commands,
 }
 
-
 #[derive(Subcommand)]
 pub enum Commands {
     Run {
@@ -80,7 +79,7 @@ pub enum Commands {
         rerecord: bool,
     },
     Scan {
-        ///  
+        ///
         #[arg(long, default_value = ".")]
         workspace: String,
         ///  JSON
@@ -153,7 +152,6 @@ pub enum Commands {
         focus: Vec<String>,
     },
 
-
     /// SELBench v1.1-rc — Extended benchmark (18 core + 2 system)
     #[command(name = "bench-sel-v11")]
     BenchSelV11 {
@@ -216,4 +214,3 @@ pub enum Commands {
     #[command(name = "reset-providers")]
     ResetProviders,
 }
-

@@ -1,7 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
-use serde::{Deserialize, Serialize};
 
 const EXHAUSTION_TTL_SECS: u64 = 86400; // 24 hours
 
@@ -56,9 +56,7 @@ impl ProviderStateCache {
             .unwrap()
             .as_secs();
 
-        let entry = self.providers
-            .entry(provider.to_string())
-            .or_default();
+        let entry = self.providers.entry(provider.to_string()).or_default();
 
         // Expand array if needed
         while entry.keys.len() <= key_idx {
@@ -70,9 +68,7 @@ impl ProviderStateCache {
     }
 
     pub fn mark_permanently_expired(&mut self, provider: &str, key_idx: usize) {
-        let entry = self.providers
-            .entry(provider.to_string())
-            .or_default();
+        let entry = self.providers.entry(provider.to_string()).or_default();
 
         while entry.keys.len() <= key_idx {
             entry.keys.push(KeyState::default());
@@ -88,10 +84,16 @@ impl ProviderStateCache {
             .unwrap()
             .as_secs();
 
-        match self.providers.get(provider).and_then(|p| p.keys.get(key_idx)) {
+        match self
+            .providers
+            .get(provider)
+            .and_then(|p| p.keys.get(key_idx))
+        {
             None => false,
             Some(k) => {
-                if k.expired { return true; }
+                if k.expired {
+                    return true;
+                }
                 if let Some(t) = k.exhausted_at {
                     if now.saturating_sub(t) < EXHAUSTION_TTL_SECS {
                         return true;
@@ -109,9 +111,10 @@ impl ProviderStateCache {
     }
 
     pub fn estimated_remaining_calls(&self, providers: &[(&str, usize)]) -> usize {
-        providers.iter().map(|(name, key_count)| {
-            self.available_key_count(name, *key_count) * 50
-        }).sum()
+        providers
+            .iter()
+            .map(|(name, key_count)| self.available_key_count(name, *key_count) * 50)
+            .sum()
     }
 }
 
@@ -122,9 +125,9 @@ mod tests {
     #[test]
     fn test_mark_and_detect_exhausted() {
         let mut cache = ProviderStateCache::default();
-        
+
         assert!(!cache.is_key_exhausted("groq", 0));
-        
+
         cache.mark_exhausted("groq", 0);
         assert!(cache.is_key_exhausted("groq", 0));
     }
@@ -142,10 +145,10 @@ mod tests {
         let mut cache = ProviderStateCache::default();
         cache.mark_exhausted("groq", 0);
         cache.mark_exhausted("cerebras", 2);
-        
+
         let json = serde_json::to_string(&cache).unwrap();
         let loaded: ProviderStateCache = serde_json::from_str(&json).unwrap();
-        
+
         assert!(loaded.is_key_exhausted("groq", 0));
         assert!(loaded.is_key_exhausted("cerebras", 2));
         assert!(!loaded.is_key_exhausted("gemini", 0));
@@ -154,9 +157,15 @@ mod tests {
     #[test]
     fn test_preflight_with_burned_keys() {
         let mut cache = ProviderStateCache::default();
-        for i in 0..4 { cache.mark_exhausted("groq", i); }
-        for i in 0..4 { cache.mark_exhausted("gemini", i); }
-        for i in 0..4 { cache.mark_exhausted("cerebras", i); }
+        for i in 0..4 {
+            cache.mark_exhausted("groq", i);
+        }
+        for i in 0..4 {
+            cache.mark_exhausted("gemini", i);
+        }
+        for i in 0..4 {
+            cache.mark_exhausted("cerebras", i);
+        }
 
         let providers = vec![
             ("groq", 4),

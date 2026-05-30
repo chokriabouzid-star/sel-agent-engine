@@ -3,9 +3,8 @@ use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::time::Duration;
 
-use crate::{llm, types};
 use crate::llm::LLMProvider;
-
+use crate::{llm, types};
 
 pub async fn run_health(api_key: &str) -> Result<()> {
     println!("\n");
@@ -116,11 +115,12 @@ pub struct ProviderStats {
 
 impl ProviderStats {
     pub fn record(&mut self, provider_name: &str) {
-        *self.call_counts
+        *self
+            .call_counts
             .entry(provider_name.to_string())
             .or_insert(0) += 1;
     }
-    
+
     pub fn total(&self) -> u32 {
         self.call_counts.values().sum()
     }
@@ -141,4 +141,3 @@ pub fn shorten_provider(name: &str) -> &str {
         name
     }
 }
-

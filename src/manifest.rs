@@ -14,7 +14,7 @@ pub struct FileEntry {
     pub path: String,
     pub kind: FileKind,
     pub exports: Vec<String>,
-    pub imports: Vec<String>, //    
+    pub imports: Vec<String>, //
     pub size: usize,
 }
 
@@ -116,7 +116,7 @@ impl ProjectManifest {
         })
     }
 
-    //  Exports 
+    //  Exports
     fn extract_exports(content: &str, ext: &str) -> Vec<String> {
         let mut out = Vec::new();
         for line in content.lines() {
@@ -167,7 +167,7 @@ impl ProjectManifest {
         out
     }
 
-    //  Imports () 
+    //  Imports ()
     fn extract_imports(content: &str, ext: &str) -> Vec<String> {
         let mut out = Vec::new();
         for line in content.lines() {
@@ -218,7 +218,7 @@ impl ProjectManifest {
         out
     }
 
-    //  Helpers 
+    //  Helpers
     fn first_ident(s: &str) -> Option<String> {
         // "function add("  "add"
         // "class User"     "User"
@@ -276,7 +276,7 @@ impl ProjectManifest {
         }
     }
 
-    //  Summary  LLM 
+    //  Summary  LLM
     pub fn to_summary(&self) -> String {
         if self.files.is_empty() {
             return String::new();

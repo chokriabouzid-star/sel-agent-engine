@@ -5,7 +5,7 @@
 //! 1. Environment Lock:  pytest  Node  npm  Python
 //! 2. Config Deduplication:   jest.config.js   package.json  jest
 //! 3. Dependency Normalization:  versions   pinned stacks
-//! 4. Fatal Constraints:    
+//! 4. Fatal Constraints:
 //!
 //!  :
 //! 1 environment::enforce  2 config::deduplicate  3 dependencies::normalize
@@ -17,7 +17,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 // ============================================================================
-//   
+//
 // ============================================================================
 
 ///   -     Scanner
@@ -53,7 +53,7 @@ impl ProjectEnv {
     }
 }
 
-///    disk -    
+///    disk -
 #[derive(Debug, Clone, Default)]
 pub struct ProjectState {
     pub files: HashSet<String>,
@@ -64,7 +64,7 @@ pub struct ProjectState {
 }
 
 impl ProjectState {
-    ///  workspace   
+    ///  workspace
     pub fn scan(workspace: &Path) -> Self {
         let mut files = HashSet::new();
         let has_jest_config;
@@ -81,7 +81,7 @@ impl ProjectState {
             has_jest_config = true;
         } else {
             has_jest_config = false;
-        }        //  tsconfig.json
+        } //  tsconfig.json
         let has_tsconfig = if workspace.join("tsconfig.json").exists() {
             files.insert("tsconfig.json".to_string());
             true
@@ -123,17 +123,17 @@ impl ProjectState {
     }
 }
 
-///   
+///
 #[derive(Debug, Clone)]
 pub enum ConstraintResult {
     ///  -   ( )
     Ok(Vec<Cmd>),
-    ///   -     
+    ///   -
     Fatal(String),
 }
 
 // ============================================================================
-// Pinned Stacks -   
+// Pinned Stacks -
 // ============================================================================
 
 /// Pinned Stack  TypeScript + Jest
@@ -161,7 +161,7 @@ const CORRECT_PACKAGE_JSON_TS: &str = r#"{
 //  1: Environment Lock
 // ============================================================================
 
-///     
+///
 fn enforce_environment(plan: Vec<Cmd>, env: &ProjectEnv) -> Vec<Cmd> {
     let mut filtered = Vec::new();
 
@@ -230,19 +230,19 @@ fn intercept_write_file(
                 " Constraint: blocked write '{}' (jest already in package.json)",
                 path
             );
-            return None; //   
+            return None; //
         }
 
         //     package.json    jest field    package.json
         if state.has_package_json {
             eprintln!(" Constraint: converting jest.config.js  merge into package.json");
-            //   jest config  package.json    
+            //   jest config  package.json
             //    normalize_package_json
-            return None; //   normalize_package_json  
+            return None; //   normalize_package_json
         }
     }
 
-    //  2:  package.json -    
+    //  2:  package.json -
     if path_lower.ends_with("package.json") {
         return Some(Cmd::WriteFile {
             path: path.to_string(),
@@ -283,7 +283,7 @@ fn normalize_package_json(content: &str, state: &ProjectState, env: &ProjectEnv)
         .and_then(|d| d.as_object_mut());
 
     if let Some(deps) = dev_deps {
-        //  typescript  
+        //  typescript
         deps.insert("typescript".to_string(), Value::String("5.3.3".to_string()));
         deps.insert("ts-jest".to_string(), Value::String("29.1.1".to_string()));
         deps.insert("jest".to_string(), Value::String("29.7.0".to_string()));
@@ -292,7 +292,7 @@ fn normalize_package_json(content: &str, state: &ProjectState, env: &ProjectEnv)
             Value::String("29.5.11".to_string()),
         );
     } else {
-        //    devDependencies  
+        //    devDependencies
         let mut deps = serde_json::Map::new();
         deps.insert("typescript".to_string(), Value::String("5.3.3".to_string()));
         deps.insert("ts-jest".to_string(), Value::String("29.1.1".to_string()));
@@ -304,10 +304,10 @@ fn normalize_package_json(content: &str, state: &ProjectState, env: &ProjectEnv)
         json["devDependencies"] = Value::Object(deps);
     }
 
-    // 2.  scripts 
+    // 2.  scripts
     let scripts = json.get_mut("scripts").and_then(|s| s.as_object_mut());
     if let Some(scripts) = scripts {
-        //      script    
+        //      script
         if !scripts.contains_key("test") {
             scripts.insert("test".to_string(), Value::String("jest".to_string()));
         }
@@ -399,7 +399,7 @@ fn normalize_dependencies(plan: Vec<Cmd>, env: &ProjectEnv) -> Vec<Cmd> {
 //  4: Fatal Constraints
 // ============================================================================
 
-///  fatal errors -   
+///  fatal errors -
 fn check_fatal(plan: &[Cmd], env: &ProjectEnv) -> Option<String> {
     let mut has_npm = false;
     let mut has_pip = false;
@@ -440,12 +440,12 @@ fn check_fatal(plan: &[Cmd], env: &ProjectEnv) -> Option<String> {
 }
 
 // ============================================================================
-//  
+//
 // ============================================================================
 
-///     
+///
 pub fn apply(plan: Vec<Cmd>, env: &ProjectEnv, state: &ProjectState) -> ConstraintResult {
-    // 1.  fatal 
+    // 1.  fatal
     if let Some(reason) = check_fatal(&plan, env) {
         return ConstraintResult::Fatal(reason);
     }
@@ -477,7 +477,7 @@ pub fn apply(plan: Vec<Cmd>, env: &ProjectEnv, state: &ProjectState) -> Constrai
 }
 
 // ============================================================================
-//  
+//
 // ============================================================================
 
 #[cfg(test)]

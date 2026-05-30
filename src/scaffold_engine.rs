@@ -18,11 +18,11 @@ pub enum ProjectKind {
 pub struct ScaffoldResult {
     pub kind: ProjectKind,
     pub ready: bool,
-    pub logic_hint: String, //   LLM    
+    pub logic_hint: String, //   LLM
     pub files_created: Vec<String>,
 }
 
-//  Pinned Stacks 
+//  Pinned Stacks
 const TS_JEST_DEPS: &str = "typescript@5.3.3 ts-jest@29.1.1 jest@29.7.0 @types/jest@29.5.11";
 
 const PACKAGE_JSON_TS: &str = r#"{
@@ -62,7 +62,7 @@ const TSCONFIG_JSON: &str = r#"{
   "exclude": ["node_modules", "dist"]
 }"#;
 
-//    
+//
 pub async fn prepare(workspace: &Path, goal: &str, replay_mode: bool) -> ScaffoldResult {
     if replay_mode {
         return prepare_from_cache(workspace, goal).await;
@@ -270,15 +270,15 @@ async fn prepare_from_cache(workspace: &Path, goal: &str) -> ScaffoldResult {
 
 // detect_kind moved to goal_parser.rs  v6.5
 
-//  Scaffold TypeScript 
+//  Scaffold TypeScript
 async fn scaffold_typescript(workspace: &Path, extra_deps: &[String]) -> ScaffoldResult {
     println!("   🏗  Scaffold: TypeScript environment");
     let mut created = vec![];
 
-    // 1) package.json   
+    // 1) package.json
     let pkg_path = workspace.join("package.json");
     let pkg_content = if pkg_path.exists() {
-        //      
+        //
         normalize_existing_package_json(&pkg_path)
     } else {
         PACKAGE_JSON_TS.to_string()
@@ -375,7 +375,7 @@ async fn scaffold_typescript(workspace: &Path, extra_deps: &[String]) -> Scaffol
     }
 }
 
-//  Scaffold Python 
+//  Scaffold Python
 async fn scaffold_python(workspace: &Path, extra_deps: &[String]) -> ScaffoldResult {
     println!("   🏗  Scaffold: Python environment");
     let mut created = vec![];
@@ -476,7 +476,7 @@ async fn scaffold_python(workspace: &Path, extra_deps: &[String]) -> ScaffoldRes
     }
 }
 
-//   package.json  
+//   package.json
 fn normalize_existing_package_json(path: &Path) -> String {
     let src = std::fs::read_to_string(path).unwrap_or_default();
     if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&src) {
@@ -505,7 +505,7 @@ fn normalize_existing_package_json(path: &Path) -> String {
     PACKAGE_JSON_TS.to_string()
 }
 
-//  Logic Hints  LLM 
+//  Logic Hints  LLM
 fn build_ts_logic_hint(workspace: &Path) -> String {
     let files: Vec<String> = std::fs::read_dir(workspace)
         .map(|rd| {

@@ -7,16 +7,16 @@
 //! ## Architecture
 //!
 //! ```text
-//!           
-//!    CLI/main      Executor      LLM Provider  
-//!           
-//!                            
-//!                    
-//!                                    
-//!                 
-//!                Repair         Protocol   
-//!                Strategy       Parser     
-//!                 
+//!
+//!    CLI/main      Executor      LLM Provider
+//!
+//!
+//!
+//!
+//!
+//!                Repair         Protocol
+//!                Strategy       Parser
+//!
 //! ```
 //!
 //! ## Modules

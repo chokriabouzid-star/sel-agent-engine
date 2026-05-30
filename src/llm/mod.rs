@@ -1,11 +1,10 @@
 // src/llm/mod.rs
+pub mod json_sanitizer;
+pub mod key_pool;
+pub mod limit_tracker;
 pub mod live;
 pub mod record;
 pub mod replay;
-pub mod limit_tracker;
-pub mod key_pool;
-pub mod json_sanitizer;
-
 
 use crate::types::Message;
 use async_trait::async_trait;
@@ -65,18 +64,22 @@ JSON SAFETY  MANDATORY:
 "#.to_string();
 
     if bench_mode {
-        prompt.push_str(r#"
+        prompt.push_str(
+            r#"
 SPEC FILE PROTECTION  MANDATORY:
 - NEVER modify existing test files (test_*.py, *_test.go, *.test.ts, *.spec.ts).
 - If tests fail, fix the SOURCE code, NOT the tests.
 - Creating NEW test files is allowed; modifying EXISTING ones is FORBIDDEN.
-"#);
+"#,
+        );
     } else {
-        prompt.push_str(r#"
+        prompt.push_str(
+            r#"
 SPEC FILE PROTECTION  RELAXED (RUN MODE):
 - You may augment existing test files with NEW test cases to cover edge cases.
 - NEVER delete or alter the logic of existing test cases.
-"#);
+"#,
+        );
     }
 
     prompt
@@ -163,24 +166,37 @@ pub fn preflight_quota_check(task_count: usize, provider: &dyn LLMProvider) {
     if mode == "replay" {
         return;
     }
-    
+
     // Estimate: 1 planning + 1 repair per task = 2 calls per task
     let total_estimated = task_count * 2;
     println!("\n 📊 [Quota] Preflight check:");
     println!("   Tasks:      {}", task_count);
-    println!("   Est. Calls: {} (planning + avg repairs)", total_estimated);
-    
+    println!(
+        "   Est. Calls: {} (planning + avg repairs)",
+        total_estimated
+    );
+
     // In live mode, we can show configured provider count
     if mode == "live" {
         let cache = crate::provider_state::ProviderStateCache::load();
-        
+
         // Count keys from env directly to know total available across runs
-        let groq_keys = crate::llm::key_pool::KeyPool::from_env("GROQ_API_KEY").keys.len();
-        let gemini_keys = crate::llm::key_pool::KeyPool::from_env("GEMINI_API_KEY").keys.len();
-        let cerebras_keys = crate::llm::key_pool::KeyPool::from_env("CEREBRAS_API_KEY").keys.len();
-        let openrouter_keys = crate::llm::key_pool::KeyPool::from_env("OPENROUTER_API_KEY").keys.len();
-        let github_keys = crate::llm::key_pool::KeyPool::from_env("GITHUB_TOKEN").keys.len();
-        
+        let groq_keys = crate::llm::key_pool::KeyPool::from_env("GROQ_API_KEY")
+            .keys
+            .len();
+        let gemini_keys = crate::llm::key_pool::KeyPool::from_env("GEMINI_API_KEY")
+            .keys
+            .len();
+        let cerebras_keys = crate::llm::key_pool::KeyPool::from_env("CEREBRAS_API_KEY")
+            .keys
+            .len();
+        let openrouter_keys = crate::llm::key_pool::KeyPool::from_env("OPENROUTER_API_KEY")
+            .keys
+            .len();
+        let github_keys = crate::llm::key_pool::KeyPool::from_env("GITHUB_TOKEN")
+            .keys
+            .len();
+
         let providers = vec![
             ("GROQ_API_KEY", groq_keys),
             ("GEMINI_API_KEY", gemini_keys),
@@ -188,17 +204,22 @@ pub fn preflight_quota_check(task_count: usize, provider: &dyn LLMProvider) {
             ("OPENROUTER_API_KEY", openrouter_keys),
             ("GITHUB_TOKEN", github_keys),
         ];
-        
+
         let remaining = cache.estimated_remaining_calls(&providers);
-        println!("   Est. Remaining Capacity: ~{} calls across all providers", remaining);
-        
+        println!(
+            "   Est. Remaining Capacity: ~{} calls across all providers",
+            remaining
+        );
+
         if total_estimated > 30 {
-            println!("   ⚠️  HIGH LOAD: {} tasks may exhaust free-tier quotas quickly.", task_count);
+            println!(
+                "   ⚠️  HIGH LOAD: {} tasks may exhaust free-tier quotas quickly.",
+                task_count
+            );
         } else {
             println!("    Load seems manageable for the configured providers.");
         }
-        
-        if remaining < total_estimated {
-        }
+
+        if remaining < total_estimated {}
     }
 }

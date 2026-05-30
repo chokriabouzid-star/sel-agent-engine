@@ -9,7 +9,7 @@ pub enum MutationResult {
 
 pub fn apply_all_mutations(code: &str) -> Vec<(String, String, String)> {
     let strategies: &[(&str, &str)] = &[
-        //  Operators (existing) 
+        //  Operators (existing)
         ("==", "!="),
         ("!=", "=="),
         (" > ", " < "),
@@ -18,51 +18,49 @@ pub fn apply_all_mutations(code: &str) -> Vec<(String, String, String)> {
         (" <= ", " >= "),
         (" + ", " - "),
         (" - ", " + "),
-        //  Boolean returns 
+        //  Boolean returns
         ("return True", "return False"),
         ("return False", "return True"),
-        ("return true", "return false"),       // Go/Rust/TS
-        ("return false", "return true"),       // Go/Rust/TS
-        //  Constants (covers helper.py: return 42) 
+        ("return true", "return false"), // Go/Rust/TS
+        ("return false", "return true"), // Go/Rust/TS
+        //  Constants (covers helper.py: return 42)
         ("return 0\n", "return 1\n"),
         ("return 1\n", "return 0\n"),
         ("return 42", "return 0"),
         ("return -1", "return 0"),
-        //  Function swaps (covers max_of_three.py, min/max confusion) 
+        //  Function swaps (covers max_of_three.py, min/max confusion)
         ("max(", "min("),
         ("min(", "max("),
-        //  Multiplication (covers double.py: x*2) 
+        //  Multiplication (covers double.py: x*2)
         (" * 2", " * 3"),
         (" * 3", " * 2"),
         (" * ", " / "),
-        //  Python slice reversal (covers reverse_string.py) 
+        //  Python slice reversal (covers reverse_string.py)
         ("[::-1]", "[::1]"),
-        //  List methods (covers stack.py pop/append) 
+        //  List methods (covers stack.py pop/append)
         (".append(", ".insert(0, "),
-        //  Go/Rust: without-space arithmetic (covers go add: a+b) 
+        //  Go/Rust: without-space arithmetic (covers go add: a+b)
         ("a+b", "a-b"),
         ("a-b", "a+b"),
         ("a + b", "a - b"),
         ("a - b", "a + b"),
-        //  Logical operators (Go/TS/Rust) 
+        //  Logical operators (Go/TS/Rust)
         (" && ", " || "),
         (" || ", " && "),
-        //  String operations (covers greet.py: f'Hi {name}') 
+        //  String operations (covers greet.py: f'Hi {name}')
         ("f'Hi {", "f'Bye {"),
         ("f\"Hi {", "f\"Bye {"),
-        //  Modulo (covers is_even: n%2==0)  handled by == already 
-        //  Recursion (covers factorial: n-1) 
+        //  Modulo (covers is_even: n%2==0)  handled by == already
+        //  Recursion (covers factorial: n-1)
         ("n - 1)", "n + 1)"),
         ("n - 1,", "n + 1,"),
     ];
 
     //    (loop variables  )
     let skip_patterns = [
-        "i += ", "i -= ", "j += ", "j -= ",
-        "idx", "index",
-        "count +=", "count -=",
-        "test", "Test", "assert", "expect",  //    
-        "#[", "//",  // Rust attributes and comments
+        "i += ", "i -= ", "j += ", "j -= ", "idx", "index", "count +=", "count -=", "test", "Test",
+        "assert", "expect", //
+        "#[", "//", // Rust attributes and comments
     ];
 
     let mut result = Vec::new();
@@ -200,4 +198,3 @@ impl SafeExecutor {
         }
     }
 }
-

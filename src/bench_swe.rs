@@ -32,45 +32,47 @@ pub enum Difficulty {
 impl Difficulty {
     fn label(&self) -> &'static str {
         match self {
-            Self::Easy   => "🟢",
+            Self::Easy => "🟢",
             Self::Medium => "🟡",
-            Self::Hard   => "🔴",
+            Self::Hard => "🔴",
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct SweCase {
-    pub id:           &'static str,
-    pub lang:         &'static str,
-    pub title:        &'static str,
-    pub difficulty:   Difficulty,
-    pub source_file:  &'static str,
-    pub source_code:  &'static str,
-    pub test_file:    &'static str,
-    pub test_code:    &'static str,
-    pub extra_deps:   &'static [&'static str],
+    pub id: &'static str,
+    pub lang: &'static str,
+    pub title: &'static str,
+    pub difficulty: Difficulty,
+    pub source_file: &'static str,
+    pub source_code: &'static str,
+    pub test_file: &'static str,
+    pub test_code: &'static str,
+    pub extra_deps: &'static [&'static str],
 }
 
 #[derive(Debug)]
 pub struct SweResult {
-    pub case_id:   String,
-    pub lang:      String,
-    pub title:     String,
-    pub passed:    bool,
-    pub repairs:   u8,
+    pub case_id: String,
+    pub lang: String,
+    pub title: String,
+    pub passed: bool,
+    pub repairs: u8,
     pub time_secs: f64,
-    pub score:     f64,
+    pub score: f64,
 }
 
 impl SweResult {
     pub fn compute_score(passed: bool, repairs: u8) -> f64 {
-        if !passed { return 0.0; }
+        if !passed {
+            return 0.0;
+        }
         match repairs {
-            0     => 1.0,
+            0 => 1.0,
             1..=2 => 0.8,
             3..=5 => 0.5,
-            _     => 0.3,
+            _ => 0.3,
         }
     }
 }
@@ -108,14 +110,36 @@ pub async fn run_bench_swe(
 
     // ─── Header ───
     println!();
-    println!("{}", "╔══════════════════════════════════════════════════╗".cyan());
-    println!("{}", "║   SEL Agent — Mini SWE-Bench v1.1                ║".cyan());
-    println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
-    println!("║  Cases: {:3}  Lang: {:<8}  Mode: {:<11}  ║",
+    println!(
+        "{}",
+        "╔══════════════════════════════════════════════════╗".cyan()
+    );
+    println!(
+        "{}",
+        "║   SEL Agent — Mini SWE-Bench v1.1                ║".cyan()
+    );
+    println!(
+        "{}",
+        "╠══════════════════════════════════════════════════╣".cyan()
+    );
+    println!(
+        "║  Cases: {:3}  Lang: {:<8}  Mode: {:<11}  ║",
         total,
         lang_filter,
-        if replay && rerecord { "REPLAY+RERECORD" } else if replay { "REPLAY" } else if record { "RECORD" } else { "LIVE" });
-    println!("{}", "╚══════════════════════════════════════════════════╝".cyan());
+        if replay && rerecord {
+            "REPLAY+RERECORD"
+        } else if replay {
+            "REPLAY"
+        } else if record {
+            "RECORD"
+        } else {
+            "LIVE"
+        }
+    );
+    println!(
+        "{}",
+        "╚══════════════════════════════════════════════════╝".cyan()
+    );
     println!();
 
     let mut results: Vec<SweResult> = Vec::new();
@@ -125,11 +149,14 @@ pub async fn run_bench_swe(
         let start = Instant::now();
 
         // طباعة الحالة الحالية
-        print!("  {} [{:02}/{:02}] {} {}",
+        print!(
+            "  {} [{:02}/{:02}] {} {}",
             case.difficulty.label(),
-            i + 1, total,
+            i + 1,
+            total,
             case.id.bright_cyan(),
-            case.title);
+            case.title
+        );
         std::io::Write::flush(&mut std::io::stdout()).ok();
 
         // تحضير الملفات
@@ -140,8 +167,10 @@ pub async fn run_bench_swe(
                 case_id: case.id.to_string(),
                 lang: case.lang.to_string(),
                 title: case.title.to_string(),
-                passed: false, repairs: 0,
-                time_secs: 0.0, score: 0.0,
+                passed: false,
+                repairs: 0,
+                time_secs: 0.0,
+                score: 0.0,
             });
             continue;
         }
@@ -163,34 +192,54 @@ pub async fn run_bench_swe(
 
         // تشغيل الوكيل
         let agent_result = run_agent_for_case(
-            &ws, &goal, api_key, max_repairs, case.lang,
-            record, replay, rerecord, &traj_dir,
-        ).await;
+            &ws,
+            &goal,
+            api_key,
+            max_repairs,
+            case.lang,
+            record,
+            replay,
+            rerecord,
+            &traj_dir,
+        )
+        .await;
 
         let elapsed = start.elapsed().as_secs_f64();
         let (passed, repairs) = match &agent_result {
             Ok((p, r)) => (*p, *r),
-            Err(_)     => (false, max_repairs),
+            Err(_) => (false, max_repairs),
         };
         let score = SweResult::compute_score(passed, repairs);
 
         // طباعة النتيجة
         if passed {
-            println!(" → ✅ ({:.1}s, {} repairs, {:.0}pts)",
-                elapsed, repairs, score * 100.0);
+            println!(
+                " → ✅ ({:.1}s, {} repairs, {:.0}pts)",
+                elapsed,
+                repairs,
+                score * 100.0
+            );
         } else {
-            let reason = agent_result.err()
+            let reason = agent_result
+                .err()
                 .map(|e| e.to_string())
                 .unwrap_or_default();
-            let short = if reason.len() > 40 { &reason[..40] } else { &reason };
+            let short = if reason.len() > 40 {
+                &reason[..40]
+            } else {
+                &reason
+            };
             println!(" → ❌ ({:.1}s) {}", elapsed, short.dimmed());
         }
 
         results.push(SweResult {
-            case_id:   case.id.to_string(),
-            lang:      case.lang.to_string(),
-            title:     case.title.to_string(),
-            passed, repairs, time_secs: elapsed, score,
+            case_id: case.id.to_string(),
+            lang: case.lang.to_string(),
+            title: case.title.to_string(),
+            passed,
+            repairs,
+            time_secs: elapsed,
+            score,
         });
 
         // تنظيف workspace
@@ -264,7 +313,7 @@ fn prepare_python(ws: &Path, case: &SweCase) -> Result<()> {
             .current_dir(ws)
             .output();
     }
-    
+
     // Always install pytest
     let _ = std::process::Command::new(ws.join("venv/bin/pip3").to_str().unwrap_or("pip3"))
         .args(["install", "-q", "pytest"])
@@ -281,7 +330,8 @@ fn prepare_python(ws: &Path, case: &SweCase) -> Result<()> {
 }
 
 fn prepare_rust(ws: &Path, case: &SweCase) -> Result<()> {
-    let dev_deps = case.extra_deps
+    let dev_deps = case
+        .extra_deps
         .iter()
         .map(|d| format!("{} = \"*\"", d))
         .collect::<Vec<_>>()
@@ -391,7 +441,7 @@ async fn run_agent_for_case(
     );
     agent.ctx.skip_mutation = true;
     agent.bench_mode = true;
-    
+
     let res = agent.run().await;
     let success = agent.is_success();
 
@@ -400,14 +450,19 @@ async fn run_agent_for_case(
         let live = crate::llm::live::LiveProvider::from_env();
         let _ = fs::create_dir_all(traj_dir);
         let rec = Box::new(crate::llm::record::RecorderProvider::new(
-            Box::new(live), traj_dir,
+            Box::new(live),
+            traj_dir,
         ));
         let _ = std::fs::remove_dir_all(ws);
         let _ = std::fs::create_dir_all(ws);
         let mut ag2 = crate::agent::Agent::new_with_model(
-            String::new(), String::new(),
-            ws.to_path_buf(), goal.to_string(),
-            max_repairs, crate::types::ContextConfig::default(), rec,
+            String::new(),
+            String::new(),
+            ws.to_path_buf(),
+            goal.to_string(),
+            max_repairs,
+            crate::types::ContextConfig::default(),
+            rec,
         );
         ag2.ctx.skip_mutation = true;
         ag2.bench_mode = true;
@@ -426,43 +481,72 @@ async fn run_agent_for_case(
 // ─────────────────────────────────────────────────────────────────
 
 fn print_results(results: &[SweResult], total: usize) {
-    let passed     = results.iter().filter(|r| r.passed).count();
+    let passed = results.iter().filter(|r| r.passed).count();
     let total_score: f64 = results.iter().map(|r| r.score).sum();
-    let max_score  = total as f64;
+    let max_score = total as f64;
     let pct_passed = passed as f64 / total as f64 * 100.0;
-    let pct_score  = total_score / max_score * 100.0;
+    let pct_score = total_score / max_score * 100.0;
 
     // ─── تجميع حسب اللغة ───
     let langs = ["python", "go", "rust", "typescript"];
 
     println!();
-    println!("{}", "╔══════════════════════════════════════════════════╗".cyan());
-    println!("{}", "║   SEL Mini SWE-Bench — النتائج النهائية          ║".cyan());
-    println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
-    println!("║  المجموع: {:2}/{:2} ({:.1}%){}║",
-        passed, total, pct_passed,
-        " ".repeat(24 - format!("{:.1}%", pct_passed).len()));
-    println!("║  النقاط:  {:.1}/{:.0} ({:.1}%){}║",
-        total_score, max_score, pct_score,
-        " ".repeat(22 - format!("{:.1}/{:.0}", total_score, max_score).len()));
-    println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
+    println!(
+        "{}",
+        "╔══════════════════════════════════════════════════╗".cyan()
+    );
+    println!(
+        "{}",
+        "║   SEL Mini SWE-Bench — النتائج النهائية          ║".cyan()
+    );
+    println!(
+        "{}",
+        "╠══════════════════════════════════════════════════╣".cyan()
+    );
+    println!(
+        "║  المجموع: {:2}/{:2} ({:.1}%){}║",
+        passed,
+        total,
+        pct_passed,
+        " ".repeat(24 - format!("{:.1}%", pct_passed).len())
+    );
+    println!(
+        "║  النقاط:  {:.1}/{:.0} ({:.1}%){}║",
+        total_score,
+        max_score,
+        pct_score,
+        " ".repeat(22 - format!("{:.1}/{:.0}", total_score, max_score).len())
+    );
+    println!(
+        "{}",
+        "╠══════════════════════════════════════════════════╣".cyan()
+    );
     println!("║  حسب اللغة:{}║", " ".repeat(38));
 
     for lang in &langs {
         let lang_results: Vec<_> = results.iter().filter(|r| r.lang == *lang).collect();
-        if lang_results.is_empty() { continue; }
+        if lang_results.is_empty() {
+            continue;
+        }
         let lp = lang_results.iter().filter(|r| r.passed).count();
         let lt = lang_results.len();
         let bar = "█".repeat(lp * 10 / lt.max(1));
         let empty = "░".repeat(10 - bar.chars().count());
-        println!("║    {:<12} {}{} {:2}/{:2}{}║",
+        println!(
+            "║    {:<12} {}{} {:2}/{:2}{}║",
             format!("{}:", lang),
-            bar.green(), empty.dimmed(),
-            lp, lt,
-            " ".repeat(10 - format!("{:2}/{:2}", lp, lt).len()));
+            bar.green(),
+            empty.dimmed(),
+            lp,
+            lt,
+            " ".repeat(10 - format!("{:2}/{:2}", lp, lt).len())
+        );
     }
 
-    println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
+    println!(
+        "{}",
+        "╠══════════════════════════════════════════════════╣".cyan()
+    );
 
     // ─── الحالات الفاشلة ───
     let failed: Vec<_> = results.iter().filter(|r| !r.passed).collect();
@@ -470,12 +554,17 @@ fn print_results(results: &[SweResult], total: usize) {
         println!("║  ❌ الحالات الفاشلة:{}║", " ".repeat(30));
         for r in &failed {
             let title_snippet = truncate_safe(&r.title, 32);
-            println!("║    {} {}{}║",
+            println!(
+                "║    {} {}{}║",
                 r.case_id.bright_red(),
                 title_snippet,
-                " ".repeat(42usize.saturating_sub(r.case_id.len() + title_snippet.len() + 1)));
+                " ".repeat(42usize.saturating_sub(r.case_id.len() + title_snippet.len() + 1))
+            );
         }
-        println!("{}", "╠══════════════════════════════════════════════════╣".cyan());
+        println!(
+            "{}",
+            "╠══════════════════════════════════════════════════╣".cyan()
+        );
     }
 
     // ─── الحكم النهائي ───
@@ -490,12 +579,15 @@ fn print_results(results: &[SweResult], total: usize) {
     } else {
         "❌ يحتاج عمل جوهري".red().to_string()
     };
-    println!("║  {}{}║",
+    println!(
+        "║  {}{}║",
         verdict,
-        " ".repeat(49usize.saturating_sub(
-            strip_ansi(&verdict).len()
-        )));
-    println!("{}", "╚══════════════════════════════════════════════════╝".cyan());
+        " ".repeat(49usize.saturating_sub(strip_ansi(&verdict).len()))
+    );
+    println!(
+        "{}",
+        "╚══════════════════════════════════════════════════╝".cyan()
+    );
 }
 
 fn strip_ansi(s: &str) -> String {

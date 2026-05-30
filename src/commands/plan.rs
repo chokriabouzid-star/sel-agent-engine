@@ -4,10 +4,6 @@ use anyhow::Result;
 
 use crate::{agent, types};
 
-
-
-
-
 pub async fn run_plan(
     api_key: &str,
     workspace: &std::path::Path,
@@ -64,11 +60,7 @@ pub async fn run_plan(
     let mut total_repairs = 0usize;
 
     for (i, task) in tasks.iter().enumerate() {
-        println!(
-            "\n Task {}/{} ",
-            i + 1,
-            tasks.len()
-        );
+        println!("\n Task {}/{} ", i + 1, tasks.len());
         println!("    {}", &task.chars().take(80).collect::<String>());
 
         let pb = indicatif::ProgressBar::new_spinner();
@@ -123,4 +115,3 @@ pub async fn run_plan(
 
     Ok(())
 }
-

@@ -1,6 +1,5 @@
 #![allow(clippy::print_literal)]
 
-
 pub fn cmd_scan(workspace: &str, json: bool) {
     use crate::context::Scanner;
     use std::path::Path;
@@ -53,10 +52,7 @@ pub fn cmd_scan(workspace: &str, json: bool) {
         "  Build    : {}",
         profile.build_cmd.as_deref().unwrap_or("")
     );
-    println!(
-        " Test cmd : {}",
-        profile.test_cmd.as_deref().unwrap_or("")
-    );
+    println!(" Test cmd : {}", profile.test_cmd.as_deref().unwrap_or(""));
     println!(
         " Confid.  : {:.0}%  {}",
         profile.confidence * 100.0,
@@ -71,7 +67,6 @@ pub fn confidence_bar(c: f32) -> String {
     format!("[{}{}]", "".repeat(filled), "".repeat(empty))
 }
 
-// 
+//
 // Compile Bench  v7.1
-// 
-
+//

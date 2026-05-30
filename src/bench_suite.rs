@@ -1,5 +1,5 @@
 // src/bench_suite.rs  v8.5.0: Unified Benchmark Facade
-//     
+//
 //   T0: bench_cases.rs      (36 )  sel-agent bench --suite all
 //   T1-T4: bench_realworld.rs (14 )  sel-agent bench-real-world
 //   Smoke: sel_smoke_test.sh  (12 )  bash sel_smoke_test.sh
@@ -51,7 +51,10 @@ pub fn print_suite_info() {
     println!();
     println!("                                                              ");
     println!("  Rust-Native Benchmarks:                                     ");
-    println!("   T0:Base        {:>2} cases   sel-agent bench --suite all  ", base_count);
+    println!(
+        "   T0:Base        {:>2} cases   sel-agent bench --suite all  ",
+        base_count
+    );
     println!("   T1:Compile      4 cases   sel-agent bench-real-world    ");
     println!("   T2:QuickFix     3 cases   sel-agent bench-real-world    ");
     println!("   T3:BugFix       3 cases   sel-agent bench-real-world    ");
@@ -60,7 +63,10 @@ pub fn print_suite_info() {
     println!("  Shell Benchmark:                                            ");
     println!("   Smoke:E2E      12 cases   bash sel_smoke_test.sh        ");
     println!("                                                              ");
-    println!("  Total:           {:>2} cases                                  ", base_count + 14 + 12);
+    println!(
+        "  Total:           {:>2} cases                                  ",
+        base_count + 14 + 12
+    );
     println!("  Trajectories:    fixtures/trajectories/                      ");
     println!("\n");
 }

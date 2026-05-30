@@ -256,7 +256,7 @@ fn fix_single_quotes(s: &str) -> String {
                     } else {
                         false
                     };
-                    
+
                     if is_inner {
                         content.push(chars[i]);
                         i += 1;
@@ -386,7 +386,10 @@ mod tests {
 
     #[test]
     fn test_sanitize_no_json_error() {
-        assert!(matches!(sanitize("nothing here"), Err(SanitizeError::NoJsonFound)));
+        assert!(matches!(
+            sanitize("nothing here"),
+            Err(SanitizeError::NoJsonFound)
+        ));
     }
 
     #[test]
@@ -409,10 +412,19 @@ mod tests {
     #[test]
     fn test_fix_single_quotes_preserves_rust_lifetimes() {
         // v8.3: Rust lifetimes inside double-quoted JSON strings must NOT be corrupted
-        let input = r#"{"content": "pub fn most_frequent<'a>(items: &[&'a str]) -> Option<&'a str>"}"#;
+        let input =
+            r#"{"content": "pub fn most_frequent<'a>(items: &[&'a str]) -> Option<&'a str>"}"#;
         let result = fix_single_quotes(input);
-        assert!(result.contains("<'a>"), "lifetime <'a> was corrupted: {}", result);
-        assert!(result.contains("&'a"), "lifetime &'a was corrupted: {}", result);
+        assert!(
+            result.contains("<'a>"),
+            "lifetime <'a> was corrupted: {}",
+            result
+        );
+        assert!(
+            result.contains("&'a"),
+            "lifetime &'a was corrupted: {}",
+            result
+        );
     }
 
     #[test]

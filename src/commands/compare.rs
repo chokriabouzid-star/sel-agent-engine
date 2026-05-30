@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use crate::{evaluator, types};
 
-
 pub async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<()> {
     println!("\n");
     println!("   SEL Agent v7.6.0  Model Comparison       ");
@@ -42,17 +41,11 @@ pub async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Res
     let mut results: Vec<ModelResult> = Vec::new();
 
     for model_alias in models {
-        println!(
-            "\n Testing model: {} ",
-            model_alias
-        );
+        println!("\n Testing model: {} ", model_alias);
 
         let model_cfg = crate::llm::ModelConfig::from_alias(model_alias);
         let api_key = std::env::var(&model_cfg.env_key).unwrap_or_else(|_| {
-            println!(
-                "    {}      {}",
-                model_cfg.env_key, model_alias
-            );
+            println!("    {}      {}", model_cfg.env_key, model_alias);
             String::new()
         });
 
@@ -123,7 +116,7 @@ pub async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Res
 
             let repairs = agent.repair_count();
             total_repairs += repairs;
-            // v6.1:   
+            // v6.1:
             let cstats = agent.call_stats();
             total_retries += cstats.retries as usize;
             total_connection_errors += cstats.connection_errors as usize;
@@ -182,7 +175,7 @@ pub async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Res
         });
     }
 
-    //  v6.1: RAS + DTO 
+    //  v6.1: RAS + DTO
     let max_time = results.iter().map(|r| r.elapsed_secs).max().unwrap_or(1);
     let mut scores: Vec<evaluator::ModelScore> = results
         .iter()
@@ -217,4 +210,3 @@ pub async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Res
 
     Ok(())
 }
-

@@ -80,14 +80,34 @@ impl AgentCommand {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum Cmd {
-    Run { command: String },
-    WriteFile { path: String, content: String },
-    AppendFile { path: String, content: String },
-    DeleteFile { path: String },
-    PatchFile { path: String, search: String, replace: String },
-    ReadFile { path: String },
-    Mkdir { path: String },
-    RunTests { target: String },
+    Run {
+        command: String,
+    },
+    WriteFile {
+        path: String,
+        content: String,
+    },
+    AppendFile {
+        path: String,
+        content: String,
+    },
+    DeleteFile {
+        path: String,
+    },
+    PatchFile {
+        path: String,
+        search: String,
+        replace: String,
+    },
+    ReadFile {
+        path: String,
+    },
+    Mkdir {
+        path: String,
+    },
+    RunTests {
+        target: String,
+    },
     Done {
         #[serde(default)]
         message: String,
@@ -98,7 +118,9 @@ impl Cmd {
     /// Short description for logging
     pub fn label(&self) -> String {
         match self {
-            Cmd::Run { command } => format!("run: {}", command.chars().take(60).collect::<String>()),
+            Cmd::Run { command } => {
+                format!("run: {}", command.chars().take(60).collect::<String>())
+            }
             Cmd::WriteFile { path, .. } => format!("write_file: {}", path),
             Cmd::AppendFile { path, .. } => format!("append_file: {}", path),
             Cmd::DeleteFile { path } => format!("delete_file: {}", path),
@@ -119,7 +141,8 @@ impl Cmd {
     /// Simple hash for deduplication
     pub fn hash(&self) -> u64 {
         let s = self.label();
-        s.bytes().fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64))
+        s.bytes()
+            .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64))
     }
 
     pub fn is_run_tests(&self) -> bool {
@@ -139,7 +162,7 @@ impl Cmd {
     }
 }
 
-//  AgentResponse 
+//  AgentResponse
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentResponseRaw {
@@ -154,7 +177,7 @@ pub struct AgentResponse {
     pub commands: Vec<Cmd>,
 }
 
-//  Parser 
+//  Parser
 
 pub fn parse(raw: &str) -> Result<AgentResponse, ProtocolError> {
     let json_str = extract_json_block(raw)?;
@@ -173,7 +196,10 @@ fn validate(raw: AgentResponseRaw) -> Result<AgentResponse, ProtocolError> {
     }
     for (i, cmd) in raw.commands.iter().enumerate() {
         if cmd.action.is_empty() {
-            return Err(ProtocolError::MissingField(format!("commands[{}].action", i)));
+            return Err(ProtocolError::MissingField(format!(
+                "commands[{}].action",
+                i
+            )));
         }
     }
     let commands: Vec<Cmd> = raw
@@ -214,7 +240,11 @@ pub fn validate_test_order(resp: &mut AgentResponse) -> Result<(), String> {
 
     // Check order: run_tests must precede done
     if has_run_tests && has_done {
-        let tests_pos = resp.commands.iter().position(|c| c.is_run_tests()).unwrap_or(0);
+        let tests_pos = resp
+            .commands
+            .iter()
+            .position(|c| c.is_run_tests())
+            .unwrap_or(0);
         let done_pos = resp.commands.iter().position(|c| c.is_done()).unwrap_or(0);
         if tests_pos > done_pos {
             return Err("run_tests appears AFTER done  fix the order".to_string());
@@ -257,7 +287,8 @@ mod tests {
 
     #[test]
     fn test_parse_clean_json() {
-        let input = r#"{"plan":"fix","commands":[{"action":"write_file","path":"m.go","content":"x"}]}"#;
+        let input =
+            r#"{"plan":"fix","commands":[{"action":"write_file","path":"m.go","content":"x"}]}"#;
         let resp = parse(input).unwrap();
         assert_eq!(resp.commands.len(), 1);
         assert!(resp.commands[0].is_write_file());
@@ -282,10 +313,12 @@ mod tests {
     fn test_validate_test_order_injects_run_tests() {
         let mut resp = AgentResponse {
             plan: String::new(),
-            commands: vec![Cmd::Done { message: String::new() }],
+            commands: vec![Cmd::Done {
+                message: String::new(),
+            }],
         };
         let result = validate_test_order(&mut resp);
-        assert!(result.is_err()); //  
+        assert!(result.is_err()); //
         assert_eq!(resp.commands.len(), 2);
         assert!(resp.commands[0].is_run_tests());
     }
@@ -298,12 +331,18 @@ mod tests {
 
     #[test]
     fn test_no_json_error() {
-        assert!(matches!(parse("no json here"), Err(ProtocolError::NoJsonFound)));
+        assert!(matches!(
+            parse("no json here"),
+            Err(ProtocolError::NoJsonFound)
+        ));
     }
 
     #[test]
     fn test_cmd_label_and_hash() {
-        let c = Cmd::WriteFile { path: "a.rs".into(), content: "x".into() };
+        let c = Cmd::WriteFile {
+            path: "a.rs".into(),
+            content: "x".into(),
+        };
         assert!(c.label().contains("a.rs"));
         assert!(c.hash() > 0);
         assert!(c.is_write_file());

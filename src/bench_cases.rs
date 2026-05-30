@@ -3,9 +3,9 @@ use crate::types::BenchCase;
 
 pub fn all_cases() -> Vec<BenchCase> {
     vec![
-        // 
+        //
         // Python BUGFIX Tasks (01-12)  broken code provided
-        // 
+        //
 
         // 01: broken import  typo in module name
         BenchCase::bugfix("broken import", "python",
@@ -116,24 +116,24 @@ pub fn all_cases() -> Vec<BenchCase> {
             ],
         ),
 
-        // 
+        //
         // Go  Bugfix Tasks (Moved from Creation to Bugfix)
-        // 
-        BenchCase::bugfix("go add", "go", 
+        //
+        BenchCase::bugfix("go add", "go",
             "Fix Add. Write test in main_test.go testing Add(2,3)==5 and Add(-1,1)==0. Run go test.",
             vec![
                 ("go.mod", "module gotest\n\ngo 1.21\n"),
                 ("main.go", "package main\n\nfunc Add(a, b int) int {\n    return a - b\n}\n"),
             ]
         ),
-        BenchCase::bugfix("go fizzbuzz", "go", 
+        BenchCase::bugfix("go fizzbuzz", "go",
             "Fix FizzBuzz(n int) string. Write test in main_test.go with 4 test cases using only t.Errorf. Run go test.",
             vec![
                 ("go.mod", "module gotest\n\ngo 1.21\n"),
                 ("main.go", "package main\n\nimport \"strconv\"\n\nfunc FizzBuzz(n int) string {\n    if n%3 == 0 { return \"Fizz\" }\n    if n%5 == 0 { return \"Buzz\" }\n    return strconv.Itoa(n)\n}\n"),
             ]
         ),
-        BenchCase::bugfix("go reverse", "go", 
+        BenchCase::bugfix("go reverse", "go",
             "Fix Reverse  it appends 'WRONG' to the result. Remove the appended string. Write test in main_test.go testing Reverse(\"hello\")==\"olleh\" and Reverse(\"\")==\"\". Run go test.",
             vec![
                 ("go.mod", "module gotest\n\ngo 1.21\n"),
@@ -148,9 +148,9 @@ pub fn all_cases() -> Vec<BenchCase> {
             ],
         ),
 
-        // 
+        //
         // Node.js  Creation Tasks
-        // 
+        //
         BenchCase::bugfix("node add", "node",
             "Fix math.ts  the add function returns 0. Fix it to return a + b. Do NOT modify math.test.ts. Run npm test.",
             vec![
@@ -180,9 +180,9 @@ pub fn all_cases() -> Vec<BenchCase> {
             ],
         ),
 
-        // 
+        //
         // TypeScript  Creation Tasks
-        // 
+        //
         BenchCase::bugfix("ts add", "ts",
             "Fix math.ts  the add function returns 0. Fix it to return a + b. Do NOT modify math.test.ts. Run npm test.",
             vec![
@@ -212,25 +212,25 @@ pub fn all_cases() -> Vec<BenchCase> {
             ],
         ),
 
-        // 
+        //
         // Rust  Creation Tasks
-        // 
+        //
         BenchCase::new("rust add",     "rust", "Create Rust library crate using 'cargo new mylib --lib'. Write pub fn add(a:i32,b:i32)->i32 in mylib/src/lib.rs. Write tests module inside the SAME lib.rs file testing add(2,3)==5 and add(-1,1)==0. Run cargo test."),
         BenchCase::new("rust fizzbuzz","rust", "Create Rust library crate using 'cargo new mylib --lib'. Write pub fn fizzbuzz(n:u32)->String returning Fizz Buzz FizzBuzz or number in mylib/src/lib.rs. Write tests module inside the SAME lib.rs file with 4 cases. Run cargo test."),
         BenchCase::new("rust reverse", "rust", "Create Rust library crate using 'cargo new mylib --lib'. Write pub fn reverse(s:&str)->String in mylib/src/lib.rs. Write tests module inside the SAME lib.rs file testing hello->olleh and empty string. Run cargo test."),
         BenchCase::new("rust stack",   "rust", "Create a generic Stack<T> data structure in Rust. Use 'cargo new ruststack --lib'. Write implementation AND unit tests in ruststack/src/lib.rs using #[cfg(test)] mod tests { use super::*; }. Do NOT create a separate tests/ directory. Run cargo test."),
 
-        // 
+        //
         // Web  Creation Tasks
-        // 
+        //
         BenchCase::new("flask hello",   "python", "Create Python Flask app in app.py with GET /hello route returning JSON {\"message\":\"hello world\"}. Create requirements.txt containing only: flask. Write test_app.py using Flask test client: assert response.status_code==200 and response.get_json()[\"message\"]==\"hello world\". Run pytest."),
         BenchCase::new("fastapi route", "python", "Create Python FastAPI app in main.py with GET /hello route returning {\"message\":\"hello\"}. Create requirements.txt containing: fastapi httpx. Write test_main.py using TestClient from fastapi.testclient: assert response.status_code==200 and response.json()[\"message\"]==\"hello\". Run pytest."),
         BenchCase::new("express api",   "node",   "Create Node.js Express app in app.js exporting the express app with GET /ping route returning JSON {ok:true}. Create package.json with jest supertest express. Write app.test.js using supertest: assert status 200 and body.ok===true. Run npm test."),
         BenchCase::new("ts express",    "ts",     "Create TypeScript Express app. Write app.ts exporting express app with GET /health route returning JSON {status:\"ok\"}. Create package.json with ts-jest jest typescript express @types/express supertest @types/supertest. Create tsconfig.json. Write app.test.ts using supertest: assert status 200 and body.status==\"ok\". Run npm test."),
 
-        // 
+        //
         // v7 Feature Tests
-        // 
+        //
         BenchCase::bugfix("v7_quickfix", "v7",
             "Fix fetcher.py  is_success checks for status 404 instead of 200. Fix it so is_success returns True for 200. Do NOT modify test_fetcher.py. Run pytest.",
             vec![

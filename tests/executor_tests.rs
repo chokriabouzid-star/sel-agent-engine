@@ -180,7 +180,7 @@ fn test_full_flow_compile_fail_then_autofix_then_test_pass() {
         .output();
 
     let test_file = dir.join("calc_test.go");
-    write_file(&test_file, 
+    write_file(&test_file,
         "package main\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n    result := Add(1,2)\n    if result != 3 { t.Fatal(\"fail\") }\n}\n");
 
     let output_before = Command::new("go")

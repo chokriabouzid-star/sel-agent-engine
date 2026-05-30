@@ -1,4 +1,3 @@
-
 /// AutoFix:  Go stdlib import   LLM
 pub fn autofix_go_undefined_import(file: &std::path::Path, err: &str) -> Option<String> {
     let filename = file.file_name()?.to_str()?;
@@ -37,10 +36,10 @@ pub fn autofix_go_undefined_import(file: &std::path::Path, err: &str) -> Option<
         .find(|(name, _)| *name == sym.as_str())
         .map(|(_, pkg)| *pkg)?;
 
-    //  
+    //
     let src = std::fs::read_to_string(file).ok()?;
 
-    //    
+    //
     if src.contains(&format!("\"{}\"", pkg)) {
         return None;
     }
@@ -58,7 +57,7 @@ pub fn autofix_go_undefined_import(file: &std::path::Path, err: &str) -> Option<
     Some(pkg.to_string())
 }
 
-/// AutoFix:  Go import  
+/// AutoFix:  Go import
 pub fn autofix_go_unused_import(file: &std::path::Path, err: &str) -> Option<String> {
     let filename = file.file_name()?.to_str()?;
     let pkg = err
@@ -141,4 +140,3 @@ pub fn find_cargo_workspace(root: &std::path::Path) -> std::path::PathBuf {
     }
     root.to_path_buf()
 }
-

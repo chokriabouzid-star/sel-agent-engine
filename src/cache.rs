@@ -8,20 +8,18 @@ pub struct PersistentCache {
 
 impl PersistentCache {
     pub fn new() -> Result<Self> {
-        let base = std::env::current_dir()
-            .unwrap_or_default()
-            .join("fixtures");
-        
+        let base = std::env::current_dir().unwrap_or_default().join("fixtures");
+
         let trajectories = base.join("trajectories");
         if !trajectories.exists() {
             fs::create_dir_all(&trajectories)?;
         }
-        
+
         let quickfix = base.join("quickfix");
         if !quickfix.exists() {
             fs::create_dir_all(&quickfix)?;
         }
-        
+
         Ok(Self { base_dir: base })
     }
 
