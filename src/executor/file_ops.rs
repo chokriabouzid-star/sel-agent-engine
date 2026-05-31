@@ -1,3 +1,4 @@
+use crate::constitution;
 use crate::executor::autofix::*;
 use crate::executor::compile::*;
 use crate::executor::core::SafeExecutor;
@@ -20,6 +21,10 @@ impl SafeExecutor {
             || filename.contains(".test.")      // app.test.ts
             || filename.contains(".spec.")      // app.spec.ts
             || filename.ends_with("_spec.rb") // main_spec.rb
+    }
+
+    fn blocks_existing_spec_modification(&self, path: &str, p: &std::path::Path) -> bool {
+        p.exists() && self.is_spec_file(path)
     }
 
     pub fn write_file(&self, path: &str, content: &str) -> Result<ExecResult> {
@@ -100,6 +105,15 @@ impl SafeExecutor {
             content.as_ref().len(),
             content_str.len()
         );
+
+        if let Err(e) = constitution::check_write(
+            &p,
+            &content_str,
+            self.blocks_existing_spec_modification(path, &p),
+        ) {
+            return Ok(ExecResult::fail(e.to_string()));
+        }
+
         std::fs::write(&p, content_str.as_bytes())?;
 
         // Auto-fix: if jest.config.js is written -> remove "jest" field from package.json
@@ -185,6 +199,13 @@ impl SafeExecutor {
         }
         orig.push('\n');
         orig.push_str(content);
+
+        if let Err(e) =
+            constitution::check_write(&p, &orig, self.blocks_existing_spec_modification(path, &p))
+        {
+            return Ok(ExecResult::fail(e.to_string()));
+        }
+
         std::fs::write(&p, &orig)?;
         println!("   📝 {} (+{} bytes)", path, content.len());
         Ok(ExecResult::ok(format!("Appended: {}", path)))
@@ -326,6 +347,15 @@ impl SafeExecutor {
                 } else {
                     new_content
                 };
+
+                if let Err(e) = constitution::check_write(
+                    &p,
+                    &new_content,
+                    self.blocks_existing_spec_modification(path, &p),
+                ) {
+                    return Ok(ExecResult::fail(e.to_string()));
+                }
+
                 std::fs::write(&p, new_content.as_bytes())?;
                 self.patch_attempts.borrow_mut().insert(p.clone(), 0);
                 return Ok(ExecResult::ok(format!(
@@ -411,6 +441,14 @@ impl SafeExecutor {
         } else {
             new_content
         };
+
+        if let Err(e) = constitution::check_write(
+            &p,
+            &new_content,
+            self.blocks_existing_spec_modification(path, &p),
+        ) {
+            return Ok(ExecResult::fail(e.to_string()));
+        }
 
         std::fs::write(&p, &new_content)?;
 

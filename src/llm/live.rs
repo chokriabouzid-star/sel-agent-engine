@@ -82,9 +82,9 @@ impl Provider {
         let key_opt = pool.next_available();
         if let Some(k) = key_opt {
             if k.len() > 12 {
-                format!("{}...{}", &k[..8], &k[k.len() - 4..])
+                format!("{}...{}", safe_prefix_chars(k, 8), safe_suffix_chars(k, 4))
             } else if k.len() > 4 {
-                format!("{}...", &k[..4])
+                format!("{}...", safe_prefix_chars(k, 4))
             } else {
                 "***".to_string()
             }
@@ -104,6 +104,25 @@ pub struct LiveProvider {
 impl Default for LiveProvider {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn safe_prefix_chars(s: &str, n: usize) -> String {
+    s.chars().take(n).collect()
+}
+
+fn safe_suffix_chars(s: &str, n: usize) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let start = chars.len().saturating_sub(n);
+    chars[start..].iter().collect()
+}
+
+fn parse_leading_status_code(s: &str) -> Option<u16> {
+    let code: String = s.chars().take(3).collect();
+    if code.len() == 3 && code.chars().all(|c| c.is_ascii_digit()) {
+        code.parse().ok()
+    } else {
+        None
     }
 }
 
@@ -247,7 +266,7 @@ fn classify_error(err: &str) -> ErrorKind {
     if let Some(idx) = err.find("HTTP ") {
         let rest = &err[idx + 5..];
         if rest.len() >= 3 {
-            if let Ok(s) = rest[..3].parse::<u16>() {
+            if let Some(s) = parse_leading_status_code(rest) {
                 status = s;
             }
         }
