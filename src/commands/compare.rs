@@ -69,7 +69,8 @@ pub async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Res
             let goal = &case.goal;
             let workspace = tmpdir.join(format!("sel-cmp-{}-{}", model_alias, i));
             let _ = std::fs::remove_dir_all(&workspace);
-            std::fs::create_dir_all(&workspace).expect("failed to create workspace");
+            std::fs::create_dir_all(&workspace)
+                .map_err(|e| anyhow::anyhow!("failed to create workspace: {}", e))?;
 
             let pb = ProgressBar::new_spinner();
             pb.set_style(
@@ -80,7 +81,7 @@ pub async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Res
                         total,
                         name
                     ))
-                    .unwrap(),
+                    .expect("progress bar template"),
             );
             pb.enable_steady_tick(Duration::from_millis(80));
 

@@ -322,9 +322,9 @@ mod tests {
     #[test]
     fn test_chunk_radius() {
         use std::io::Write;
-        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        let mut tmp = tempfile::NamedTempFile::new().expect("test setup/use should succeed");
         for i in 1..=500 {
-            writeln!(tmp, "line {}", i).unwrap();
+            writeln!(tmp, "line {}", i).expect("test setup/use should succeed");
         }
         let chunk = read_file_chunk(tmp.path(), 250, 60).unwrap();
         assert_eq!(chunk.start_line, 190);
@@ -336,9 +336,9 @@ mod tests {
     #[test]
     fn test_chunk_at_start_of_file() {
         use std::io::Write;
-        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        let mut tmp = tempfile::NamedTempFile::new().expect("test setup/use should succeed");
         for i in 1..=500 {
-            writeln!(tmp, "line {}", i).unwrap();
+            writeln!(tmp, "line {}", i).expect("test setup/use should succeed");
         }
         let chunk = read_file_chunk(tmp.path(), 10, 60).unwrap();
         assert_eq!(chunk.start_line, 1);
@@ -361,9 +361,9 @@ mod tests {
     #[test]
     fn test_smart_content_full_file_small() {
         use std::io::Write;
-        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        let mut tmp = tempfile::NamedTempFile::new().expect("test setup/use should succeed");
         for i in 1..=100 {
-            writeln!(tmp, "fn line_{}() {{}}", i).unwrap();
+            writeln!(tmp, "fn line_{}() {{}}", i).expect("test setup/use should succeed");
         }
         let result = get_file_content_smart(tmp.path(), &[]).unwrap();
         assert!(!result.is_chunk());
@@ -372,9 +372,10 @@ mod tests {
     #[test]
     fn test_smart_content_chunk_large() {
         use std::io::Write;
-        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        let mut tmp = tempfile::NamedTempFile::new().expect("test setup/use should succeed");
         for i in 1..=600 {
-            writeln!(tmp, "fn line_{}() {{ /* code */ }}", i).unwrap();
+            writeln!(tmp, "fn line_{}() {{ /* code */ }}", i)
+                .expect("test setup/use should succeed");
         }
         let loc = ErrorLocation {
             file: "test".into(),
@@ -393,7 +394,9 @@ mod tests {
             total_lines: 1800,
         };
         let smart = SmartContent::Chunk(chunk);
-        let hint = smart.context_hint("src/core.py").unwrap();
+        let hint = smart
+            .context_hint("src/core.py")
+            .expect("test setup/use should succeed");
         assert!(hint.contains("1800"));
         assert!(hint.contains("1210-1270"));
     }

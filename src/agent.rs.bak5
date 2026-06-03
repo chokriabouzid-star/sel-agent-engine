@@ -185,10 +185,7 @@ impl Agent {
             let msg = if scaffold.logic_hint.is_empty() {
                 format!("scaffold failed for {:?}", scaffold.kind)
             } else {
-                format!(
-                    "scaffold failed for {:?}: {}",
-                    scaffold.kind, scaffold.logic_hint
-                )
+                format!("scaffold failed for {:?}: {}", scaffold.kind, scaffold.logic_hint)
             };
             eprintln!("   ❌ Scaffold failed: {}", msg);
             self.send_event("scaffold_failed", None, None, None, None);
@@ -216,38 +213,31 @@ impl Agent {
         // the scaffold_files written by the bench runner.
         // v8.1: Preflight Workspace Scan before taking the initial snapshot
         let mut has_tests = false;
-        self.executor.protected_test_files.clear();
-
         for entry in walkdir::WalkDir::new(&ws)
             .into_iter()
             .filter_map(|e| e.ok())
         {
             if entry.file_type().is_file() {
                 let name = entry.file_name().to_string_lossy();
-
-                if self.executor.is_spec_file(&name) {
+                if name.starts_with("test_")
+                    || name.ends_with("_test.go")
+                    || name.ends_with(".test.ts")
+                    || name.ends_with(".spec.ts")
+                    || name.ends_with("test.py")
+                    || name.ends_with("test.rs")
+                {
                     has_tests = true;
-                    self.executor
-                        .protected_test_files
-                        .insert(entry.path().to_path_buf());
-                    continue;
+                    break;
                 }
-
                 if name.ends_with(".rs") {
                     if let Ok(content) = std::fs::read_to_string(entry.path()) {
                         if content.contains("#[test]") || content.contains("#[cfg(test)]") {
                             has_tests = true;
+                            break;
                         }
                     }
                 }
             }
-        }
-
-        if !self.executor.protected_test_files.is_empty() {
-            eprintln!(
-                "[TRACE] protected test files snapshot: {}",
-                self.executor.protected_test_files.len()
-            );
         }
         if !has_tests {
             // In bench_mode, benchmarks orchestrate tests on their own

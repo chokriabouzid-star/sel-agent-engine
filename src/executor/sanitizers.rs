@@ -58,7 +58,9 @@ pub fn fix_rust_string_literals(src: &str) -> String {
             }
         }
 
-        let ch = src[i..].chars().next().unwrap();
+        let Some(ch) = src[i..].chars().next() else {
+            break;
+        };
         result.push(ch);
         i += ch.len_utf8();
     }

@@ -46,7 +46,13 @@ pub fn record_session_usage(provider: &str, t_in: u32, t_out: u32) {
 
 pub fn print_session_summary() {
     let stats_mutex = SESSION_STATS.get_or_init(|| Mutex::new(HashMap::new()));
-    let stats = stats_mutex.lock().unwrap();
+    let stats = match stats_mutex.lock() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("session stats lock poisoned: {}", e);
+            return;
+        }
+    };
     if stats.is_empty() {
         return;
     }

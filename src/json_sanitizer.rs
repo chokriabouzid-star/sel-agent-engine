@@ -10,6 +10,13 @@
 //! This module applies a pipeline of repair passes to produce valid JSON.
 
 use std::borrow::Cow;
+use std::sync::LazyLock;
+
+static RE_TRAILING_OBJ: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r",(\s*\})").expect("RE_TRAILING_OBJ"));
+
+static RE_TRAILING_ARR: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r",(\s*\])").expect("RE_TRAILING_ARR"));
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -189,8 +196,8 @@ fn strip_block_comments(s: &str) -> String {
 /// Remove trailing commas before `}` or `]`.
 fn remove_trailing_commas(s: &str) -> String {
     // Pattern: ,\s*} or ,\s*]
-    let re_obj = regex::Regex::new(r",(\s*\})").unwrap();
-    let re_arr = regex::Regex::new(r",(\s*\])").unwrap();
+    let re_obj = &*RE_TRAILING_OBJ;
+    let re_arr = &*RE_TRAILING_ARR;
     let s = re_obj.replace_all(s, "$1");
     re_arr.replace_all(&s, "$1").to_string()
 }
@@ -371,16 +378,18 @@ mod tests {
     #[test]
     fn test_sanitize_with_trailing_comma() {
         let input = r#"{"a": 1,}"#;
-        let result = sanitize(input).unwrap();
-        let val: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let result = sanitize(input).expect("test setup/use should succeed");
+        let val: serde_json::Value =
+            serde_json::from_str(&result).expect("test setup/use should succeed");
         assert_eq!(val["a"], 1);
     }
 
     #[test]
     fn test_sanitize_markdown_fenced() {
         let input = "```json\n{\"x\": 42}\n```";
-        let result = sanitize(input).unwrap();
-        let val: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let result = sanitize(input).expect("test setup/use should succeed");
+        let val: serde_json::Value =
+            serde_json::from_str(&result).expect("test setup/use should succeed");
         assert_eq!(val["x"], 42);
     }
 
@@ -397,7 +406,8 @@ mod tests {
         let input = r#"{"a": /* comment */ 1}"#;
         let result = strip_block_comments(input);
         let sanitized = remove_trailing_commas(&result);
-        let val: serde_json::Value = serde_json::from_str(&sanitized).unwrap();
+        let val: serde_json::Value =
+            serde_json::from_str(&sanitized).expect("test setup/use should succeed");
         assert_eq!(val["a"], 1);
     }
 
@@ -406,7 +416,8 @@ mod tests {
         let input = "{\"content\": \"line1\nline2\"}";
         let result = fix_unescaped_newlines_in_strings(input);
         assert!(result.contains("\\n"));
-        let _: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let _: serde_json::Value =
+            serde_json::from_str(&result).expect("test setup/use should succeed");
     }
 
     #[test]

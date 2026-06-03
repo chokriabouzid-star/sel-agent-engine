@@ -487,22 +487,25 @@ mod tests {
 
     #[test]
     fn test_detect_rust() {
-        let dir = tempdir().unwrap();
-        std::fs::write(dir.path().join("Cargo.toml"), "[package]").unwrap();
+        let dir = tempdir().expect("test setup/use should succeed");
+        std::fs::write(dir.path().join("Cargo.toml"), "[package]")
+            .expect("test setup/use should succeed");
         assert_eq!(ProjectEnv::detect(dir.path()), ProjectEnv::Rust);
     }
 
     #[test]
     fn test_detect_python() {
-        let dir = tempdir().unwrap();
-        std::fs::write(dir.path().join("requirements.txt"), "").unwrap();
+        let dir = tempdir().expect("test setup/use should succeed");
+        std::fs::write(dir.path().join("requirements.txt"), "")
+            .expect("test setup/use should succeed");
         assert_eq!(ProjectEnv::detect(dir.path()), ProjectEnv::Python);
     }
 
     #[test]
     fn test_detect_node() {
-        let dir = tempdir().unwrap();
-        std::fs::write(dir.path().join("package.json"), "{}").unwrap();
+        let dir = tempdir().expect("test setup/use should succeed");
+        std::fs::write(dir.path().join("package.json"), "{}")
+            .expect("test setup/use should succeed");
         assert_eq!(
             ProjectEnv::detect(dir.path()),
             ProjectEnv::Node {
@@ -533,7 +536,7 @@ mod tests {
 
     #[test]
     fn test_normalize_package_json() {
-        let _dir = tempdir().unwrap();
+        let _dir = tempdir().expect("test setup/use should succeed");
         let state = ProjectState {
             has_jest_config: false,
             ..Default::default()

@@ -1,4 +1,9 @@
 #![allow(clippy::too_many_arguments)]
+use std::sync::LazyLock;
+
+static RE_ANSI: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\x1b\[[0-9;]*m").expect("RE_ANSI"));
+
 // src/bench_swe.rs — SEL Agent Mini SWE-Bench v1.1
 // 30 اختباراً حقيقياً + trajectory record/replay
 
@@ -592,7 +597,7 @@ fn print_results(results: &[SweResult], total: usize) {
 
 fn strip_ansi(s: &str) -> String {
     // إزالة ANSI codes لحساب الطول الحقيقي
-    let re = regex::Regex::new(r"\x1b\[[0-9;]*m").unwrap();
+    let re = &*RE_ANSI;
     re.replace_all(s, "").to_string()
 }
 
@@ -856,7 +861,7 @@ pub fn all_cases() -> Vec<SweCase> {
             source_file: "src/database.ts",
             source_code: "export async function saveUser(db: any, user: {name: string}): Promise<string> {\n    const id = Math.random().toString(36).slice(2);\n    db.insert(id, user);\n    return id;\n}\nexport async function getUser(db: any, id: string) { return db.find(id); }\n",
             test_file: "src/database.test.ts",
-            test_code: "import {saveUser, getUser} from './database';\nconst mkdb = () => ({ store: {} as any, insert: async (id:string,u:any)=>{mkdb._s=mkdb._s||{}}, find: async (id:string)=>null });\ndescribe('db', () => {\n    test('returns id', async () => {\n        const db={store:{} as any, insert:async(id:string,u:any)=>{db.store[id]=u;}, find:async(id:string)=>db.store[id]??null};\n        expect(typeof await saveUser(db,{name:'A'})).toBe('string');\n    });\n    test('retrieves saved', async () => {\n        const db={store:{} as any, insert:async(id:string,u:any)=>{db.store[id]=u;}, find:async(id:string)=>db.store[id]??null};\n        const id = await saveUser(db,{name:'B'});\n        expect(await getUser(db,id)).toEqual({name:'B'});\n    });\n});\n",
+            test_code: "import {saveUser, getUser} from './database';\ndescribe('db', () => {\n    test('returns id', async () => {\n        const db={store:{} as any, insert:async(id:string,u:any)=>{db.store[id]=u;}, find:async(id:string)=>db.store[id]??null};\n        expect(typeof await saveUser(db,{name:'A'})).toBe('string');\n    });\n    test('retrieves saved', async () => {\n        const db={store:{} as any, insert:async(id:string,u:any)=>{db.store[id]=u;}, find:async(id:string)=>db.store[id]??null};\n        const id = await saveUser(db,{name:'B'});\n        expect(await getUser(db,id)).toEqual({name:'B'});\n    });\n});\n",
             extra_deps: &[],
         },
         SweCase {

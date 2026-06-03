@@ -26,8 +26,8 @@ impl std::fmt::Display for Violation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Constitution Rule {} [{}] violated: {}",
-            self.rule_id, self.rule_name, self.detail
+            "CONSTITUTION_VIOLATION:{}\nCRITICAL INSTRUCTION: You attempted to violate a hard constraint. The test contract is fixed and CANNOT be modified. You MUST fix the SOURCE code ONLY. Do NOT output write_file for tests.\nDetail: {}",
+            self.rule_name, self.detail
         )
     }
 }

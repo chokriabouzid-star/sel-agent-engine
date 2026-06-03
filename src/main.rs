@@ -7,7 +7,7 @@ mod failure;
 pub mod llm;
 mod trajectory_index;
 mod workspace_oracle;
-// src/main.rs  SEL Agent v8.5.0
+// src/main.rs  SEL Agent v8.5.1
 mod agent;
 mod chunker;
 mod constraint_engine;
@@ -255,7 +255,10 @@ async fn main() -> Result<()> {
             use crate::llm::LLMProvider;
 
             println!("\n");
-            println!("   SEL Agent v8.5.0  State Machine Engine   ");
+            println!(
+                "   SEL Agent v{}  State Machine Engine   ",
+                env!("CARGO_PKG_VERSION")
+            );
             println!();
             println!("\n Goal: \"{}\"", goal);
             {

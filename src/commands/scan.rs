@@ -13,7 +13,13 @@ pub fn cmd_scan(workspace: &str, json: bool) {
     let profile = Scanner::scan(path);
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&profile).unwrap());
+        match serde_json::to_string_pretty(&profile) {
+            Ok(s) => println!("{}", s),
+            Err(e) => {
+                eprintln!("failed to serialize scan profile: {}", e);
+                return;
+            }
+        };
         return;
     }
 

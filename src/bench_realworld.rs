@@ -67,7 +67,11 @@ pub async fn run_bench_realworld(
     );
     println!(
         "{}",
-        "║   SEL Agent v8.5.0 — suite: realworld            ║".cyan()
+        format!(
+            "║   SEL Agent v{} — suite: realworld            ║",
+            env!("CARGO_PKG_VERSION")
+        )
+        .cyan()
     );
     println!(
         "{}",
@@ -922,7 +926,10 @@ fn print_results(
     };
 
     println!("\n");
-    println!("   SEL Agent v8.5.0  Benchmark Results                       ");
+    println!(
+        "   SEL Agent v{}  Benchmark Results                       ",
+        env!("CARGO_PKG_VERSION")
+    );
     println!();
     println!(
         "  Tier    : {}",

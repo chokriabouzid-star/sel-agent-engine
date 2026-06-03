@@ -8,7 +8,10 @@ use crate::{llm, types};
 
 pub async fn run_health(api_key: &str) -> Result<()> {
     println!("\n");
-    println!("   SEL Agent v8.5.0  Health Check                   ");
+    println!(
+        "   SEL Agent v{}  Health Check                   ",
+        env!("CARGO_PKG_VERSION")
+    );
     println!("\n");
     // Provider info   bench
     {
@@ -70,7 +73,7 @@ pub async fn run_health(api_key: &str) -> Result<()> {
     pb.set_style(
         ProgressStyle::default_spinner()
             .template("{spinner:.cyan}  Model:        Testing response...")
-            .unwrap(),
+            .expect("progress bar template"),
     );
     pb.enable_steady_tick(Duration::from_millis(100));
 

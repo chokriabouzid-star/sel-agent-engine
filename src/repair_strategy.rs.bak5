@@ -143,15 +143,6 @@ pub fn build_prompt(attempt: u8, error: &str, ctx: &RepairCtx) -> String {
         );
     }
 
-    if error.contains("CONSTITUTION_VIOLATION:no-modify-tests") {
-        return format!(
-            "CRITICAL CONSTRAINT VIOLATION.\n             You attempted to modify a protected test file.\n             NEVER write or patch any test file: [{}].\n             Fix SOURCE files ONLY: [{}].\n             The tests define the contract and are immutable.\n             Read the error carefully and change only implementation files.\n             Error:\n{}",
-            ctx.test_files.join(", "),
-            ctx.source_files.join(", "),
-            error
-        );
-    }
-
     let is_loop = detect_error_loop(ctx, attempt);
 
     match (attempt, is_loop) {

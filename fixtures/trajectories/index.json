@@ -615,7 +615,7 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-29T20:21:37.349083474+00:00",
+      "recorded_at": "2026-06-01T19:09:46.219455288+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -697,7 +697,7 @@
         "004.json"
       ],
       "interaction_count": 4,
-      "recorded_at": "2026-05-30T10:57:07.750132765+00:00",
+      "recorded_at": "2026-06-02T17:39:35.963178594+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"
@@ -711,7 +711,7 @@
         "004.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-28T14:20:45.440760691+00:00",
+      "recorded_at": "2026-06-02T17:40:35.769278859+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -727,10 +727,10 @@
         "006.json",
         "007.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-28T14:21:29.250200953+00:00",
+      "interaction_count": 5,
+      "recorded_at": "2026-06-02T17:40:55.531228457+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
-      "has_repairs": false,
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -743,7 +743,7 @@
         "005.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-27T18:16:37.236385851+00:00",
+      "recorded_at": "2026-06-02T17:43:08.779938264+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -754,7 +754,7 @@
         "001.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-27T00:29:12.352711036+00:00",
+      "recorded_at": "2026-06-02T17:44:38.078866256+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -788,7 +788,7 @@
         "004.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-22T21:13:25.578480309+00:00",
+      "recorded_at": "2026-06-02T17:47:13.389404722+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -800,7 +800,7 @@
         "002.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-22T21:13:47.833194331+00:00",
+      "recorded_at": "2026-06-02T17:47:18.832538613+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -815,20 +815,22 @@
         "005.json",
         "006.json"
       ],
-      "interaction_count": 6,
-      "recorded_at": "2026-05-27T23:21:13.926547238+00:00",
+      "interaction_count": 1,
+      "recorded_at": "2026-06-02T17:47:45.183043124+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
-      "has_repairs": true,
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
       "task_id": "run_write_a_go_struct_safecounter_",
       "files": [
         "001.json",
-        "002.json"
+        "002.json",
+        "003.json",
+        "004.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-22T21:17:26.751656852+00:00",
+      "recorded_at": "2026-06-02T17:48:13.630859502+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"
@@ -841,10 +843,10 @@
         "003.json",
         "004.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-28T14:28:06.637464008+00:00",
+      "interaction_count": 3,
+      "recorded_at": "2026-06-02T17:49:05.842857921+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
-      "has_repairs": false,
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -852,12 +854,15 @@
       "files": [
         "001.json",
         "002.json",
-        "003.json"
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-22T21:19:15.567542661+00:00",
+      "interaction_count": 2,
+      "recorded_at": "2026-06-02T17:49:15.641226956+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
-      "has_repairs": false,
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -881,10 +886,10 @@
         "005.json",
         "006.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-29T10:31:52.343622112+00:00",
+      "interaction_count": 6,
+      "recorded_at": "2026-06-01T19:12:27.701195464+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
-      "has_repairs": false,
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -924,15 +929,12 @@
         "003.json",
         "004.json",
         "005.json",
-        "006.json",
-        "007.json",
-        "008.json",
-        "009.json"
+        "006.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-05-29T10:44:14.874956958+00:00",
+      "interaction_count": 1,
+      "recorded_at": "2026-06-02T16:02:33.266083771+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
-      "has_repairs": true,
+      "has_repairs": false,
       "language": "trajectories"
     },
     {
@@ -1086,16 +1088,12 @@
       "task_id": "swe_go_01",
       "files": [
         "001.json",
-        "002.json",
-        "003.json",
-        "004.json",
-        "005.json",
-        "006.json"
+        "002.json"
       ],
-      "interaction_count": 1,
-      "recorded_at": "2026-05-29T23:48:54.885415567+00:00",
+      "interaction_count": 2,
+      "recorded_at": "2026-06-02T12:38:16.353307197+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
-      "has_repairs": false,
+      "has_repairs": true,
       "language": "trajectories"
     },
     {
@@ -1119,13 +1117,10 @@
       "files": [
         "001.json",
         "002.json",
-        "003.json",
-        "004.json",
-        "005.json",
-        "006.json"
+        "003.json"
       ],
       "interaction_count": 3,
-      "recorded_at": "2026-05-29T23:49:49.567944717+00:00",
+      "recorded_at": "2026-06-02T12:38:32.486280100+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"
@@ -1436,10 +1431,14 @@
       "task_id": "sel_rc_01",
       "files": [
         "001.json",
-        "002.json"
+        "002.json",
+        "003.json",
+        "004.json",
+        "005.json",
+        "006.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-05-26T22:35:14.824780426+00:00",
+      "interaction_count": 6,
+      "recorded_at": "2026-06-01T19:25:16.291524094+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"
@@ -1635,7 +1634,7 @@
         "006.json"
       ],
       "interaction_count": 6,
-      "recorded_at": "2026-05-29T20:37:15.262967111+00:00",
+      "recorded_at": "2026-06-01T19:26:49.501841652+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"
@@ -1651,7 +1650,7 @@
         "006.json"
       ],
       "interaction_count": 1,
-      "recorded_at": "2026-05-28T14:24:37.858564861+00:00",
+      "recorded_at": "2026-06-02T17:45:35.946941866+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": false,
       "language": "trajectories"

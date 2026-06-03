@@ -29,7 +29,13 @@ impl TrajectoryIndex {
 
     pub fn save(&self, fixtures_dir: &Path) {
         let index_path = fixtures_dir.join("index.json");
-        let data = serde_json::to_string_pretty(self).unwrap();
+        let data = match serde_json::to_string_pretty(self) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!("failed to serialize trajectory index: {}", e);
+                return;
+            }
+        };
         let _ = std::fs::write(index_path, data);
     }
 

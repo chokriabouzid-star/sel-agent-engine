@@ -254,11 +254,23 @@ impl SmartProviderOrchestra {
 
     /// Select the best available provider for the given task and optional previous error.
     pub fn select(&self, task: TaskKind, prev_error: Option<&str>) -> Option<ProviderId> {
-        let quotas = self.quotas.lock().unwrap();
+        let quotas = match self.quotas.lock() {
+            Ok(g) => g,
+            Err(e) => {
+                tracing::error!("quotas lock poisoned: {}", e);
+                return None;
+            }
+        };
 
         // 1. Check sticky provider
         {
-            let sticky = self.sticky.lock().unwrap();
+            let sticky = match self.sticky.lock() {
+                Ok(g) => g,
+                Err(e) => {
+                    tracing::error!("sticky lock poisoned: {}", e);
+                    return None;
+                }
+            };
             if let Some(p) = *sticky {
                 if quotas.get(&p).map(|q| q.is_available()).unwrap_or(false) {
                     debug!(provider = p.name(), "using sticky provider");
@@ -269,7 +281,13 @@ impl SmartProviderOrchestra {
 
         // 2. Check pattern memory for known-good provider for this error type
         if let Some(error) = prev_error {
-            let memory = self.memory.lock().unwrap();
+            let memory = match self.memory.lock() {
+                Ok(g) => g,
+                Err(e) => {
+                    tracing::error!("memory lock poisoned: {}", e);
+                    return None;
+                }
+            };
             if let Some(p) = memory.lookup(error) {
                 if quotas.get(&p).map(|q| q.is_available()).unwrap_or(false) {
                     info!(provider = p.name(), "pattern memory hit");
@@ -293,20 +311,36 @@ impl SmartProviderOrchestra {
 
     /// Record the result of a provider call.
     pub fn record_outcome(&self, provider: ProviderId, success: bool, error: Option<&str>) {
-        let mut quotas = self.quotas.lock().unwrap();
+        let mut quotas = match self.quotas.lock() {
+            Ok(g) => g,
+            Err(e) => {
+                tracing::error!("quotas lock poisoned in record_outcome: {}", e);
+                return;
+            }
+        };
         if let Some(q) = quotas.get_mut(&provider) {
             if success {
                 q.record_success();
                 // Lock in this provider as sticky
-                *self.sticky.lock().unwrap() = Some(provider);
+                if let Ok(mut sticky) = self.sticky.lock() {
+                    *sticky = Some(provider);
+                }
                 // Record in pattern memory if there was a previous error
                 if let Some(err) = error {
-                    self.memory.lock().unwrap().record(err, provider);
+                    if let Ok(mut memory) = self.memory.lock() {
+                        memory.record(err, provider);
+                    }
                 }
             } else {
                 q.record_error(60);
                 // Clear sticky on error
-                let mut sticky = self.sticky.lock().unwrap();
+                let mut sticky = match self.sticky.lock() {
+                    Ok(g) => g,
+                    Err(e) => {
+                        tracing::error!("sticky lock poisoned on error: {}", e);
+                        return;
+                    }
+                };
                 if *sticky == Some(provider) {
                     *sticky = None;
                 }
@@ -390,10 +424,12 @@ mod tests {
     #[test]
     fn test_spo_sticky_after_success() {
         let spo = SmartProviderOrchestra::new();
-        let p = spo.select(TaskKind::Repair, None).unwrap();
+        let p = spo
+            .select(TaskKind::Repair, None)
+            .expect("test setup/use should succeed");
         spo.record_outcome(p, true, None);
         // Sticky should now be set
-        let sticky = *spo.sticky.lock().unwrap();
+        let sticky = *spo.sticky.lock().expect("test setup/use should succeed");
         assert_eq!(sticky, Some(p));
     }
 }

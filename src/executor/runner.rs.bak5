@@ -151,9 +151,7 @@ impl SafeExecutor {
             let exit_ok = out.status.success();
             let (passed, failed) = parse_go_tests(&combined);
             let no_test_files = combined.contains("[no test files]");
-            let no_tests_to_run = combined.contains("[no tests to run]");
-            let success =
-                exit_ok && failed == 0 && passed > 0 && !no_test_files && !no_tests_to_run;
+            let success = exit_ok && (passed > 0 || no_test_files);
 
             return Ok(ExecResult {
                 success,

@@ -1,3 +1,8 @@
+use std::sync::LazyLock;
+
+static RE_LITERALS: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r#""[^"]*"|'[^']*'|-?\b\d+\b"#).expect("RE_LITERALS"));
+
 pub fn go_compile_check(workspace: &std::path::Path) -> Option<String> {
     if !workspace.join("go.mod").exists() {
         eprintln!("[TRACE] go_compile_check: skipped (no go.mod)");
@@ -108,7 +113,7 @@ pub fn count_assertions(content: &str) -> usize {
 pub fn extract_expected_values(content: &str) -> std::collections::BTreeSet<String> {
     let mut values = std::collections::BTreeSet::new();
     // Extract all numbers and quoted strings as a heuristic for test literals
-    let re = regex::Regex::new(r#""[^"]*"|'[^']*'|-?\b\d+\b"#).unwrap();
+    let re = &*RE_LITERALS;
     for cap in re.captures_iter(content) {
         values.insert(cap[0].to_string());
     }

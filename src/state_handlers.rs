@@ -502,12 +502,11 @@ async fn run_mutation_check(
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.path().is_file())
-        .map(|e| {
+        .filter_map(|e| {
             e.path()
                 .strip_prefix(ws)
-                .unwrap()
-                .to_string_lossy()
-                .to_string()
+                .ok()
+                .map(|p| p.to_string_lossy().to_string())
         })
         .filter(|f: &String| {
             !f.contains("test")

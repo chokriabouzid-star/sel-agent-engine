@@ -331,62 +331,41 @@ async fn scaffold_typescript(workspace: &Path, extra_deps: &[String]) -> Scaffol
         if !extra_deps.is_empty() {
             println!("   📦 Extra deps: {}", extra_deps.join(", "));
         }
-        let mut last_err = String::new();
-        let mut installed = false;
+        let out = tokio::process::Command::new("npm")
+            .args(&npm_args)
+            .current_dir(workspace)
+            .output()
+            .await;
 
-        for attempt in 1..=3 {
-            if attempt > 1 {
-                println!("   🔁 npm install retry {}/3...", attempt);
-                tokio::time::sleep(tokio::time::Duration::from_secs(attempt as u64)).await;
+        match out {
+            Ok(o) if o.status.success() => {
+                println!("   ✅ Dependencies installed (pinned)");
+                created.push("node_modules".to_string());
             }
-
-            let out = tokio::process::Command::new("npm")
-                .args(&npm_args)
-                .current_dir(workspace)
-                .output()
-                .await;
-
-            match out {
-                Ok(o) if o.status.success() => {
-                    println!("   ✅ Dependencies installed (pinned)");
-                    created.push("node_modules".to_string());
-                    installed = true;
-                    break;
-                }
-                Ok(o) => {
-                    let err = String::from_utf8_lossy(&o.stderr);
-                    let out_s = String::from_utf8_lossy(&o.stdout);
-                    last_err = format!(
-                        "npm install failed with status {} | stderr: {} | stdout: {}",
-                        o.status,
-                        err.chars().take(300).collect::<String>(),
-                        out_s.chars().take(200).collect::<String>()
-                    );
-                    eprintln!(
-                        "    TypeScript Scaffold WARN: npm install attempt {}/3 failed with status {}",
-                        attempt,
-                        o.status
-                    );
-                    eprintln!("    Details: {}", err.chars().take(200).collect::<String>());
-                }
-                Err(e) => {
-                    last_err = format!("npm install error: {}", e);
-                    eprintln!(
-                        "    TypeScript Scaffold WARN: npm install attempt {}/3 errored: {}",
-                        attempt, e
-                    );
-                }
+            Ok(o) => {
+                let err = String::from_utf8_lossy(&o.stderr);
+                eprintln!(
+                    "    TypeScript Scaffold FATAL: npm install failed with status {}",
+                    o.status
+                );
+                eprintln!("    Details: {}", err.chars().take(200).collect::<String>());
+                return ScaffoldResult {
+                    kind: ProjectKind::TypeScript,
+                    ready: false,
+                    logic_hint: format!("npm install failed: {}", err),
+                    files_created: created,
+                };
             }
-        }
-
-        if !installed {
-            eprintln!("    TypeScript Scaffold FATAL: npm install failed after retries");
-            return ScaffoldResult {
-                kind: ProjectKind::TypeScript,
-                ready: false,
-                logic_hint: last_err,
-                files_created: created,
-            };
+            Err(e) => {
+                eprintln!("    TypeScript Scaffold FATAL: npm install failed: {}", e);
+                eprintln!("    Fix: ensure node/npm are installed and workspace is writable");
+                return ScaffoldResult {
+                    kind: ProjectKind::TypeScript,
+                    ready: false,
+                    logic_hint: format!("npm install error: {}", e),
+                    files_created: created,
+                };
+            }
         }
     } else {
         println!("   ⏭  node_modules exists  skip install");

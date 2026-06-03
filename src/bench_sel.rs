@@ -1,3 +1,8 @@
+use std::sync::LazyLock;
+
+static RE_ANSI: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\x1b\[[0-9;]*m").expect("RE_ANSI"));
+
 // src/bench_sel.rs — SELBench v1.0
 // Internal benchmark covering all v8.4 capabilities
 // 10 core cases + 2 system checks
@@ -538,7 +543,7 @@ fn print_results(results: &[SelBenchResult], total: usize) {
 }
 
 fn strip_ansi(s: &str) -> String {
-    let re = regex::Regex::new(r"\x1b\[[0-9;]*m").unwrap();
+    let re = &*RE_ANSI;
     re.replace_all(s, "").to_string()
 }
 

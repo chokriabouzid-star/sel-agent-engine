@@ -66,7 +66,10 @@ impl LLMProvider for RecorderProvider {
         };
 
         let count = {
-            let mut c = self.counter.lock().unwrap();
+            let mut c = match self.counter.lock() {
+                Ok(v) => v,
+                Err(_) => return Err(anyhow::anyhow!("record provider counter lock poisoned")),
+            };
             *c += 1;
             *c
         };

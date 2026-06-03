@@ -142,14 +142,7 @@ impl SafeExecutor {
         // Errors in OTHER files (e.g. main_test.go when writing main.go) are
         // reported as warnings so the agent can continue and fix them separately.
         if path.ends_with(".go") {
-            // AutoFix: goroutine deadlock in ProcessJobs (must run before compile check)
-            if path == "main.go" {
-                if let Some(msg) = autofix_go_worker_pool_deadlock(&p) {
-                    println!("   ⚡ AutoFix Go deadlock: {}", msg);
-                }
-            }
-
-            if let Some(mut err) = go_compile_check(&self.workspace) {
+            if let Some(err) = go_compile_check(&self.workspace) {
                 eprintln!(
                     "[TRACE] Checking autofix for: {}",
                     err.chars().take(80).collect::<String>()
@@ -159,64 +152,24 @@ impl SafeExecutor {
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or(path);
-                let mut err_mentions_this_file = err.contains(file_name);
+                let err_mentions_this_file = err.contains(file_name);
 
-                if err_mentions_this_file {
-                    // AutoFix chain: syntax → imports → common Go test patterns
-                    if let Some(fixed) = autofix_go_missing_comma(&p, &err) {
-                        println!("   ⚡ AutoFix Go missing comma: {}", fixed);
-                        if let Some(err2) = go_compile_check(&self.workspace) {
-                            err = err2;
+                if let Some(fixed) = autofix_go_undefined_import(&p, &err) {
+                    println!("   ⚡ AutoFix Go import: {}", fixed);
+                    if go_compile_check(&self.workspace).is_none() {
+                        println!("   ✅ AutoFix succeeded");
+                    } else if let Some(err2) = go_compile_check(&self.workspace) {
+                        // Only block if error is in THIS file
+                        if err2.contains(file_name) {
+                            return Ok(ExecResult::fail(format!(
+                                "COMPILE ERROR in '{}':\n{}",
+                                path, err2
+                            )));
                         } else {
-                            println!("   ✅ AutoFix missing-comma succeeded");
-                            return Ok(ExecResult::ok(format!("Written: {}", path)));
+                            eprintln!("[TRACE] go_compile_check: error in other file, not blocking write of '{}'", path);
                         }
                     }
-
-                    if let Some(fixed) = autofix_go_unused_import(&p, &err) {
-                        println!("   ⚡ AutoFix Go unused import: {}", fixed);
-                        if let Some(err2) = go_compile_check(&self.workspace) {
-                            err = err2;
-                        } else {
-                            println!("   ✅ AutoFix unused-import succeeded");
-                            return Ok(ExecResult::ok(format!("Written: {}", path)));
-                        }
-                    }
-
-                    if let Some(fixed) = autofix_go_test_run_shadow_alias(&p, &err) {
-                        println!("   ⚡ AutoFix Go test shadow alias: {}", fixed);
-                        if let Some(err2) = go_compile_check(&self.workspace) {
-                            err = err2;
-                        } else {
-                            println!("   ✅ AutoFix test-shadow-alias succeeded");
-                            return Ok(ExecResult::ok(format!("Written: {}", path)));
-                        }
-                    }
-
-                    if let Some(fixed) = autofix_go_test_table_shadow_run(&p, &err) {
-                        println!("   ⚡ AutoFix Go test shadow: {}", fixed);
-                        if let Some(err2) = go_compile_check(&self.workspace) {
-                            err = err2;
-                        } else {
-                            println!("   ✅ AutoFix test-shadow succeeded");
-                            return Ok(ExecResult::ok(format!("Written: {}", path)));
-                        }
-                    }
-
-                    if let Some(fixed) = autofix_go_undefined_import(&p, &err) {
-                        println!("   ⚡ AutoFix Go import: {}", fixed);
-                        if let Some(err2) = go_compile_check(&self.workspace) {
-                            err = err2;
-                        } else {
-                            println!("   ✅ AutoFix import succeeded");
-                            return Ok(ExecResult::ok(format!("Written: {}", path)));
-                        }
-                    }
-
-                    err_mentions_this_file = err.contains(file_name);
-                }
-
-                if err_mentions_this_file {
+                } else if err_mentions_this_file {
                     // Error is specifically in this file — block and report
                     return Ok(ExecResult::fail(format!(
                         "COMPILE ERROR in '{}':\n{}",

@@ -71,7 +71,7 @@ pub async fn run_plan(
                     i + 1,
                     tasks.len()
                 ))
-                .unwrap(),
+                .expect("progress bar template"),
         );
         pb.enable_steady_tick(std::time::Duration::from_millis(80));
 

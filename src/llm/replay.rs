@@ -26,7 +26,10 @@ impl ReplayProvider {
 impl LLMProvider for ReplayProvider {
     async fn complete(&self, _req: LLMRequest) -> Result<LLMResponse> {
         let count = {
-            let mut c = self.counter.lock().unwrap();
+            let mut c = match self.counter.lock() {
+                Ok(v) => v,
+                Err(_) => return Err(anyhow::anyhow!("replay provider counter lock poisoned")),
+            };
             *c += 1;
             *c
         };

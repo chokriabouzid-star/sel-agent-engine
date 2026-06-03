@@ -25,10 +25,12 @@ mod bench_bugs {
     #[test]
     pub fn b2_patch_explicit_fail() {
         let ws = make_ws("b2");
-        fs::write(ws.join("main.rs"), "fn main() {}").unwrap();
+        fs::write(ws.join("main.rs"), "fn main() {}").expect("test setup/use should succeed");
 
         let exec = SafeExecutor::new(ws.clone(), 60);
-        let result = exec.patch_file("main.rs", "GHOST_TEXT", "NEW").unwrap();
+        let result = exec
+            .patch_file("main.rs", "GHOST_TEXT", "NEW")
+            .expect("test setup/use should succeed");
 
         assert!(
             !result.success,
@@ -45,10 +47,13 @@ mod bench_bugs {
     #[test]
     pub fn b4_language_wall_write() {
         let ws = make_ws("b4w");
-        fs::write(ws.join("Cargo.toml"), "[package]\nname=\"t\"\n").unwrap();
+        fs::write(ws.join("Cargo.toml"), "[package]\nname=\"t\"\n")
+            .expect("test setup/use should succeed");
 
         let exec = SafeExecutor::new(ws, 60);
-        let result = exec.write_file("calc.py", "x = 1").unwrap();
+        let result = exec
+            .write_file("calc.py", "x = 1")
+            .expect("test setup/use should succeed");
 
         assert!(
             !result.success,
@@ -65,11 +70,13 @@ mod bench_bugs {
     #[test]
     pub fn b4_language_wall_patch() {
         let ws = make_ws("b4p");
-        fs::write(ws.join("go.mod"), "module test\n").unwrap();
-        fs::write(ws.join("calc.py"), "x = 1\n").unwrap();
+        fs::write(ws.join("go.mod"), "module test\n").expect("test setup/use should succeed");
+        fs::write(ws.join("calc.py"), "x = 1\n").expect("test setup/use should succeed");
 
         let exec = SafeExecutor::new(ws, 60);
-        let result = exec.patch_file("calc.py", "x = 1", "x = 2").unwrap();
+        let result = exec
+            .patch_file("calc.py", "x = 1", "x = 2")
+            .expect("test setup/use should succeed");
 
         assert!(
             !result.success,

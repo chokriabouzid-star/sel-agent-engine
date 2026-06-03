@@ -74,17 +74,23 @@ impl Provider {
     }
 
     fn is_configured(&self) -> bool {
-        self.key_pool.lock().unwrap().has_available()
+        self.key_pool
+            .lock()
+            .map(|p| p.has_available())
+            .unwrap_or(false)
     }
 
     fn key_preview(&self) -> String {
-        let mut pool = self.key_pool.lock().unwrap();
+        let mut pool = match self.key_pool.lock() {
+            Ok(p) => p,
+            Err(_) => return "<lock-err>".to_string(),
+        };
         let key_opt = pool.next_available();
         if let Some(k) = key_opt {
-            if k.len() > 12 {
-                format!("{}...{}", safe_prefix_chars(k, 8), safe_suffix_chars(k, 4))
+            if k.len() > 8 {
+                format!("{}...{}", safe_prefix_chars(k, 4), safe_suffix_chars(k, 2))
             } else if k.len() > 4 {
-                format!("{}...", safe_prefix_chars(k, 4))
+                format!("{}...", safe_prefix_chars(k, 3))
             } else {
                 "***".to_string()
             }
@@ -156,7 +162,10 @@ impl LiveProvider {
         ];
 
         for (env_name, p) in candidates {
-            let pool = p.key_pool.lock().unwrap();
+            let pool = match p.key_pool.lock() {
+                Ok(g) => g,
+                Err(_) => continue,
+            };
             if pool.keys.is_empty() {
                 missing_keys.push(env_name);
                 continue;
@@ -316,7 +325,10 @@ impl LLMProvider for LiveProvider {
         let provider_names: Vec<String> = self.providers.iter().map(|p| p.name.clone()).collect();
 
         {
-            let tracker = self.tracker.lock().unwrap();
+            let tracker = match self.tracker.lock() {
+                Ok(g) => g,
+                Err(e) => return Err(anyhow!("tracker lock poisoned: {}", e)),
+            };
             if !tracker.any_available(&provider_names) {
                 return Err(anyhow!(" All providers exhausted for today"));
             }
@@ -331,9 +343,19 @@ impl LLMProvider for LiveProvider {
             loop {
                 // Tracker check
                 {
-                    let tracker = self.tracker.lock().unwrap();
-                    let has_keys = provider.key_pool.lock().unwrap().has_available();
-                    if !tracker.is_available(&provider.name) || !has_keys {
+                    let tracker_available = {
+                        match self.tracker.lock() {
+                            Ok(t) => t.is_available(&provider.name),
+                            Err(_) => false,
+                        }
+                    };
+                    let has_keys = {
+                        match provider.key_pool.lock() {
+                            Ok(p) => p.has_available(),
+                            Err(_) => false,
+                        }
+                    };
+                    if !tracker_available || !has_keys {
                         if !has_keys && attempt == 1 {
                             println!(
                                 "   ⏭  Skipping {}  all keys expired/exhausted",
@@ -380,13 +402,18 @@ impl LLMProvider for LiveProvider {
 
                         match err_kind {
                             ErrorKind::KeyExpired => {
-                                let mut pool = provider.key_pool.lock().unwrap();
+                                let mut pool = match provider.key_pool.lock() {
+                                    Ok(p) => p,
+                                    Err(_) => break,
+                                };
                                 pool.mark_expired(); // permanently removes it
                                 if pool.has_available() {
                                     attempt = 1;
                                     continue;
                                 } else {
-                                    self.tracker.lock().unwrap().mark_daily(&provider.name);
+                                    if let Ok(mut t) = self.tracker.lock() {
+                                        t.mark_daily(&provider.name);
+                                    }
                                     last_error = Some(e);
                                     self.active_index.store(
                                         (idx + 1) % self.providers.len(),
@@ -396,13 +423,18 @@ impl LLMProvider for LiveProvider {
                                 }
                             }
                             ErrorKind::DailyLimit => {
-                                let mut pool = provider.key_pool.lock().unwrap();
+                                let mut pool = match provider.key_pool.lock() {
+                                    Ok(p) => p,
+                                    Err(_) => break,
+                                };
                                 pool.mark_exhausted();
                                 if pool.has_available() {
                                     attempt = 1; // Reset attempt for new key!
                                     continue;
                                 } else {
-                                    self.tracker.lock().unwrap().mark_daily(&provider.name);
+                                    if let Ok(mut t) = self.tracker.lock() {
+                                        t.mark_daily(&provider.name);
+                                    }
                                     last_error = Some(e);
                                     self.active_index.store(
                                         (idx + 1) % self.providers.len(),
@@ -417,7 +449,9 @@ impl LLMProvider for LiveProvider {
                                 //  3    provider   (  )
                                 if rpm_waits >= 3 {
                                     println!("   ⚠️  RPM limit persists  skipping {} temporarily (key preserved)", provider.name);
-                                    self.tracker.lock().unwrap().mark_rpm(&provider.name, 60);
+                                    if let Ok(mut t) = self.tracker.lock() {
+                                        t.mark_rpm(&provider.name, 60);
+                                    }
                                     last_error = Some(e);
                                     self.active_index.store(
                                         (idx + 1) % self.providers.len(),
@@ -425,7 +459,11 @@ impl LLMProvider for LiveProvider {
                                     );
                                     break; //   provider   mark_exhausted
                                 }
-                                self.tracker.lock().unwrap().mark_rpm(&provider.name, 30);
+                                {
+                                    if let Ok(mut t) = self.tracker.lock() {
+                                        t.mark_rpm(&provider.name, 30);
+                                    }
+                                } // lock dropped before .await
                                 println!("   ⏳ [{}] RPM limit  cooling 30s", provider.name);
                                 tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
                                 continue;
@@ -462,13 +500,17 @@ impl LLMProvider for LiveProvider {
     }
 
     fn get_stats(&self) -> LlmCallStats {
-        self.stats.lock().unwrap().clone()
+        self.stats.lock().map(|s| s.clone()).unwrap_or_default()
     }
 }
 
 impl LiveProvider {
     async fn try_call(&self, provider: &Provider, req: &LLMRequest) -> Result<LLMResponse> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .pool_max_idle_per_host(5)
+            .build()
+            .unwrap_or_default();
 
         let mut messages = vec![Message {
             role: "system".to_string(),
@@ -508,7 +550,10 @@ impl LiveProvider {
         }
 
         let api_key = {
-            let mut pool = provider.key_pool.lock().unwrap();
+            let mut pool = match provider.key_pool.lock() {
+                Ok(p) => p,
+                Err(e) => return Err(anyhow!("key pool lock poisoned: {}", e)),
+            };
             pool.next_available().unwrap_or_default().to_string()
         };
 

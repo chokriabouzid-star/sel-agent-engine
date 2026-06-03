@@ -14,7 +14,7 @@ pub fn sanitize_llm_json(raw: &str) -> String {
 /// The triple-slash is treated as a comment by some parsers.
 /// Fix: convert `///` to `//` inside JSON string values.
 pub fn fix_rust_doc_comments(s: &str) -> String {
-    let re = regex::Regex::new(r#"///[^\n"\\]*"#).unwrap();
+    let re = regex::Regex::new(r#"///[^\n"\\]*"#).expect("valid rust doc comment regex");
     re.replace_all(s, "").to_string()
 }
 

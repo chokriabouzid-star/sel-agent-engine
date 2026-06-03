@@ -53,7 +53,7 @@ impl ProviderStateCache {
     pub fn mark_exhausted(&mut self, provider: &str, key_idx: usize) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         let entry = self.providers.entry(provider.to_string()).or_default();
@@ -81,7 +81,7 @@ impl ProviderStateCache {
     pub fn is_key_exhausted(&self, provider: &str, key_idx: usize) -> bool {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         match self
@@ -146,8 +146,9 @@ mod tests {
         cache.mark_exhausted("groq", 0);
         cache.mark_exhausted("cerebras", 2);
 
-        let json = serde_json::to_string(&cache).unwrap();
-        let loaded: ProviderStateCache = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&cache).expect("serialize ProviderStateCache in test");
+        let loaded: ProviderStateCache =
+            serde_json::from_str(&json).expect("deserialize ProviderStateCache in test");
 
         assert!(loaded.is_key_exhausted("groq", 0));
         assert!(loaded.is_key_exhausted("cerebras", 2));

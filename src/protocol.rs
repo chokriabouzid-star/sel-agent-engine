@@ -289,7 +289,7 @@ mod tests {
     fn test_parse_clean_json() {
         let input =
             r#"{"plan":"fix","commands":[{"action":"write_file","path":"m.go","content":"x"}]}"#;
-        let resp = parse(input).unwrap();
+        let resp = parse(input).expect("test setup/use should succeed");
         assert_eq!(resp.commands.len(), 1);
         assert!(resp.commands[0].is_write_file());
     }
@@ -297,14 +297,14 @@ mod tests {
     #[test]
     fn test_parse_markdown_fenced() {
         let input = "Fix:\n```json\n{\"plan\":\"x\",\"commands\":[{\"action\":\"run\",\"command\":\"go test\"}]}\n```\n";
-        let resp = parse(input).unwrap();
+        let resp = parse(input).expect("test setup/use should succeed");
         assert!(matches!(resp.commands[0], Cmd::Run { .. }));
     }
 
     #[test]
     fn test_parse_run_tests_and_done() {
         let input = r#"{"plan":"x","commands":[{"action":"run_tests","target":"cargo test"},{"action":"done","message":"ok"}]}"#;
-        let resp = parse(input).unwrap();
+        let resp = parse(input).expect("test setup/use should succeed");
         assert!(resp.commands.iter().any(|c| c.is_run_tests()));
         assert!(resp.commands.iter().any(|c| c.is_done()));
     }

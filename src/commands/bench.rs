@@ -155,7 +155,7 @@ pub async fn run_bench(
                         name,
                         eta_str
                     ))
-                    .unwrap(),
+                    .expect("progress bar template"),
             );
             pb.enable_steady_tick(Duration::from_millis(80));
 
@@ -169,7 +169,13 @@ pub async fn run_bench(
                 Box::new(crate::llm::replay::ReplayProvider::new(replay_dir))
             } else {
                 // v7.9.6: clone_shared()  reuses same KeyPools (exhausted keys stay exhausted)
-                let base_llm = Box::new(shared_llm.as_ref().unwrap().clone_shared());
+                let base_llm = match shared_llm.as_ref() {
+                    Some(llm) => Box::new(llm.clone_shared()),
+                    None => {
+                        eprintln!("❌ LLM not initialized");
+                        return Err(anyhow::anyhow!("LLM not initialized"));
+                    }
+                };
                 if record {
                     let record_dir = traj_base.join(name.replace(" ", "_"));
                     Box::new(crate::llm::record::RecorderProvider::new(
@@ -379,7 +385,8 @@ pub async fn run_bench(
     // POST to Observatory
     let model =
         std::env::var("SEL_MODEL").unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string());
-    let version = std::env::var("SEL_VERSION").unwrap_or_else(|_| "v8.5.0".to_string());
+    let version =
+        std::env::var("SEL_VERSION").unwrap_or_else(|_| format!("v{}", env!("CARGO_PKG_VERSION")));
     let body = serde_json::json!({
         "version": version,
         "suite": suite,
@@ -418,7 +425,11 @@ pub async fn run_stress(
     );
     println!(
         "{}",
-        "║   SEL Agent v8.5.0 🔥 Stress Test               ║".cyan()
+        format!(
+            "║   SEL Agent v{} 🔥 Stress Test               ║",
+            env!("CARGO_PKG_VERSION")
+        )
+        .cyan()
     );
     println!(
         "{}",
@@ -477,7 +488,7 @@ pub async fn run_stress(
                     total,
                     name
                 ))
-                .unwrap(),
+                .expect("progress bar template"),
         );
         pb.enable_steady_tick(Duration::from_millis(80));
 
@@ -658,7 +669,7 @@ pub async fn run_integration_bench(api_key: &str, max_repairs: u8) -> Result<()>
         pb.set_style(
             ProgressStyle::default_spinner()
                 .template(&format!("{{spinner:.cyan}} Phase1 [{}]...", name))
-                .unwrap(),
+                .expect("progress bar template"),
         );
         pb.enable_steady_tick(Duration::from_millis(80));
 
@@ -701,7 +712,7 @@ pub async fn run_integration_bench(api_key: &str, max_repairs: u8) -> Result<()>
         pb2.set_style(
             ProgressStyle::default_spinner()
                 .template(&format!("{{spinner:.green}} Phase2 [{}]...", name))
-                .unwrap(),
+                .expect("progress bar template"),
         );
         pb2.enable_steady_tick(Duration::from_millis(80));
 
@@ -786,7 +797,7 @@ pub async fn run_compile_bench(max_repairs: u8) -> Result<()> {
                     total,
                     case.name
                 ))
-                .unwrap(),
+                .expect("progress bar template"),
         );
         pb.enable_steady_tick(Duration::from_millis(80));
 
