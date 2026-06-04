@@ -1,0 +1,56 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master, phase2-safe]
+  pull_request:
+    branches: [main, master, phase2-safe]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo check
+        run: cargo check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: cargo test
+        run: cargo test
+
+      - name: cargo build --release
+        run: cargo build --release
+
+      - name: bench replay
+        run: ./target/release/sel-agent bench --suite all --replay
+
+      - name: bench-swe replay
+        run: ./target/release/sel-agent bench-swe --lang all --replay
