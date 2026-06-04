@@ -13,6 +13,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+fn safe_truncate(s: &str, max_bytes: usize) -> &str {
+    if max_bytes >= s.len() {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Data Structures
 // ─────────────────────────────────────────────────────────────────
@@ -205,11 +216,7 @@ pub async fn run_bench_sel(
                 .err()
                 .map(|e| e.to_string())
                 .unwrap_or_default();
-            let short = if reason.len() > 50 {
-                &reason[..50]
-            } else {
-                &reason
-            };
+            let short = safe_truncate(&reason, 50);
             println!(" → ❌ ({:.1}s) {}", elapsed, short.dimmed());
         }
 
@@ -507,7 +514,7 @@ fn print_results(results: &[SelBenchResult], total: usize) {
     if !failed.is_empty() {
         println!("║  ❌ Failed Cases:{}║", " ".repeat(33));
         for r in &failed {
-            let title_short = &r.title[..r.title.len().min(30)];
+            let title_short = safe_truncate(&r.title, 30);
             println!(
                 "║    {} {}{}║",
                 r.id.bright_red(),
@@ -1875,7 +1882,7 @@ pub async fn run_bench_sel_v11(
                 .err()
                 .map(|e| e.to_string())
                 .unwrap_or_default();
-            let short = &reason[..reason.len().min(50)];
+            let short = safe_truncate(&reason, 50);
             println!(" → ❌ ({:.1}s) {}", elapsed, short.dimmed());
         }
 
@@ -1989,7 +1996,7 @@ fn print_results_v11(results: &[SelBenchResult], core_total: usize, sys_total: u
         );
         println!("║  ❌ Failed:{}║", " ".repeat(39));
         for r in &failed {
-            let t = &r.title[..r.title.len().min(34)];
+            let t = safe_truncate(&r.title, 34);
             println!(
                 "║    {} {}{}║",
                 r.id.bright_red(),

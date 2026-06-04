@@ -9,6 +9,17 @@ use crate::types;
 
 use crate::commands::health::{shorten_provider, ProviderStats};
 
+fn safe_truncate(s: &str, max_bytes: usize) -> &str {
+    if max_bytes >= s.len() {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_bench(
     api_key: &str,
@@ -873,7 +884,11 @@ pub async fn run_compile_bench(max_repairs: u8) -> Result<()> {
             status,
             name,
             repairs,
-            if note.len() > 15 { &note[..15] } else { note }
+            if note.len() > 15 {
+                safe_truncate(note, 15)
+            } else {
+                note
+            }
         );
     }
 

@@ -249,11 +249,35 @@ impl SafeExecutor {
                 autofix_triggered: autofix_active,
             });
         }
-
         // --- PYTHON ---
         if prog.contains("pytest") || target.contains("pytest") {
             let mut final_prog = prog.clone();
             let mut autofix_active = false;
+
+            let wants_workspace_venv = target.contains("venv/bin/pytest")
+                || prog == "venv/bin/pytest"
+                || prog.ends_with("/venv/bin/pytest");
+
+            // Replay must honor the recorded environment.
+            // If a recorded trajectory expects workspace venv, try restoring it
+            // from scaffold cache instead of silently degrading to system pytest.
+            if self.replay_mode
+                && wants_workspace_venv
+                && !self.workspace.join("venv/bin/pytest").exists()
+            {
+                let cached_venv = dirs::cache_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from("~/.cache"))
+                    .join("sel-agent/scaffold/python/venv");
+                if cached_venv.exists() && cached_venv.join("bin/pytest").exists() {
+                    let target_venv = self.workspace.join("venv");
+                    if !target_venv.exists() {
+                        match std::os::unix::fs::symlink(&cached_venv, &target_venv) {
+                            Ok(_) => println!("   ⚡ Replay Env: restored cached Python venv"),
+                            Err(e) => eprintln!("   [TRACE] replay venv symlink failed: {}", e),
+                        }
+                    }
+                }
+            }
 
             if !self.replay_mode && !self.workspace.join("venv").exists() {
                 println!("   ⚡ AutoFix: creating venv and installing pytest...");
@@ -288,6 +312,10 @@ impl SafeExecutor {
                 let mut c = TCmd::new(&py);
                 c.arg("-m").arg("pytest");
                 c
+            } else if self.replay_mode && wants_workspace_venv {
+                return Ok(ExecResult::fail(
+                    "REPLAY_ENV_MISMATCH: recorded target requires venv/bin/pytest but no workspace/cached venv is available".to_string()
+                ));
             } else if final_prog == "pytest" || final_prog == "venv/bin/pytest" {
                 let mut c = TCmd::new("python3");
                 c.arg("-m").arg("pytest");

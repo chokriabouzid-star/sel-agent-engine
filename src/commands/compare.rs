@@ -4,6 +4,17 @@ use std::time::Duration;
 
 use crate::{evaluator, types};
 
+fn safe_truncate_owned(s: &str, max_bytes: usize) -> String {
+    if max_bytes >= s.len() {
+        return s.to_string();
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_string()
+}
+
 pub async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Result<()> {
     println!("\n");
     println!("   SEL Agent v7.6.0  Model Comparison       ");
@@ -109,7 +120,7 @@ pub async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Res
                 println!(
                     "    {:20} FAILED: {}",
                     name,
-                    &e.to_string()[..e.to_string().len().min(80)]
+                    &safe_truncate_owned(&e.to_string(), 80)
                 );
                 let _ = std::fs::remove_dir_all(&workspace);
                 continue;
