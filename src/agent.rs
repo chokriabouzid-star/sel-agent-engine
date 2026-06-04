@@ -3,11 +3,13 @@
 use crate::{
     executor::SafeExecutor,
     protocol::Cmd,
+    report::{stable_goal_hash, ExecutionOutcome, ExecutionReport},
+    report_writer::ReportWriter,
     types::{AgentState, ContextConfig, ExecutionContext},
 };
 use anyhow::Result;
 use std::io::IsTerminal;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct Agent {
     state: AgentState,
@@ -408,8 +410,6 @@ impl Agent {
                         .map(|s| s.elapsed().as_secs())
                         .unwrap_or(0);
                     let ms = self.mutation_score();
-                    let _ = report_run(&self.goal, true, repairs as i64, elapsed, ms).await;
-
                     let stats = self.call_stats();
                     let cost = crate::cost::CostTracker::new();
                     cost.add_usage(stats.tokens_in, stats.tokens_out, stats.successful_calls);
@@ -419,6 +419,25 @@ impl Agent {
                     } else {
                         stats.last_model.clone()
                     };
+
+                    let _ = report_run(ReportRunInput {
+                        workspace: &self.executor.workspace,
+                        goal: &self.goal,
+                        success: true,
+                        repairs: repairs as i64,
+                        duration_secs: elapsed,
+                        mutation_score: ms,
+                        mode: self.llm.mode(),
+                        autofix_count: self.ctx.autofix_count as u64,
+                        tests_passed: self.ctx.tests_passed,
+                        provider_model: &model,
+                        llm_calls: stats.successful_calls as u64,
+                        tokens_in: stats.tokens_in as u64,
+                        tokens_out: stats.tokens_out as u64,
+                        failure_reason: None,
+                    })
+                    .await;
+
                     cost.print_summary(&model);
 
                     return Ok(());
@@ -436,8 +455,6 @@ impl Agent {
                         .map(|s| s.elapsed().as_secs())
                         .unwrap_or(0);
                     let ms = self.mutation_score();
-                    let _ = report_run(&self.goal, false, repairs, elapsed, ms).await;
-
                     let stats = self.call_stats();
                     let cost = crate::cost::CostTracker::new();
                     cost.add_usage(stats.tokens_in, stats.tokens_out, stats.successful_calls);
@@ -447,6 +464,25 @@ impl Agent {
                     } else {
                         stats.last_model.clone()
                     };
+
+                    let _ = report_run(ReportRunInput {
+                        workspace: &self.executor.workspace,
+                        goal: &self.goal,
+                        success: false,
+                        repairs,
+                        duration_secs: elapsed,
+                        mutation_score: ms,
+                        mode: self.llm.mode(),
+                        autofix_count: self.ctx.autofix_count as u64,
+                        tests_passed: self.ctx.tests_passed,
+                        provider_model: &model,
+                        llm_calls: stats.successful_calls as u64,
+                        tokens_in: stats.tokens_in as u64,
+                        tokens_out: stats.tokens_out as u64,
+                        failure_reason: Some(reason.clone()),
+                    })
+                    .await;
+
                     cost.print_summary(&model);
 
                     return Err(anyhow::anyhow!("SEL_FAILED"));
@@ -456,29 +492,78 @@ impl Agent {
     }
 }
 
-async fn report_run(
-    goal: &str,
+struct ReportRunInput<'a> {
+    workspace: &'a Path,
+    goal: &'a str,
     success: bool,
     repairs: i64,
     duration_secs: u64,
     mutation_score: f64,
-) -> Result<()> {
-    let model =
-        std::env::var("SEL_MODEL").unwrap_or_else(|_| "moonshotai/kimi-k2-instruct".to_string());
+    mode: &'a str,
+    autofix_count: u64,
+    tests_passed: bool,
+    provider_model: &'a str,
+    llm_calls: u64,
+    tokens_in: u64,
+    tokens_out: u64,
+    failure_reason: Option<String>,
+}
+
+async fn report_run(input: ReportRunInput<'_>) -> Result<()> {
+    let timestamp_utc = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+
+    let report = ExecutionReport {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        goal: input.goal.chars().take(200).collect::<String>(),
+        goal_hash: stable_goal_hash(input.goal),
+        workspace: input.workspace.display().to_string(),
+        timestamp_utc: timestamp_utc.clone(),
+        duration_secs: input.duration_secs,
+        mode: input.mode.to_string(),
+        outcome: if input.success {
+            ExecutionOutcome::Pass
+        } else {
+            ExecutionOutcome::Fail
+        },
+        repair_attempts: input.repairs,
+        autofix_count: input.autofix_count,
+        tests_passed: input.tests_passed,
+        mutation_score: input.mutation_score,
+        provider_model: input.provider_model.to_string(),
+        llm_calls: input.llm_calls,
+        tokens_in: input.tokens_in,
+        tokens_out: input.tokens_out,
+        failure_reason: input.failure_reason.clone(),
+    };
+
+    if let Err(e) = ReportWriter::default().write(&report) {
+        tracing::debug!(error = %e, "failed to write execution report");
+    }
+
     let body = serde_json::json!({
-        "goal": goal.chars().take(200).collect::<String>(),
-        "success": success,
-        "repairs": repairs,
-        "duration_secs": duration_secs,
-        "mutation_score": mutation_score,
-        "model": model
+        "goal": report.goal,
+        "success": input.success,
+        "repairs": input.repairs,
+        "duration_secs": input.duration_secs,
+        "mutation_score": input.mutation_score,
+        "model": input.provider_model,
+        "mode": input.mode,
+        "failure_reason": input.failure_reason,
+        "goal_hash": report.goal_hash,
+        "timestamp_utc": timestamp_utc
     });
+
+    let base_url =
+        std::env::var("SEL_OBSERVATORY").unwrap_or_else(|_| "http://localhost:8777".to_string());
+    let url = format!("{}/api/runs", base_url.trim_end_matches('/'));
+
     let client = reqwest::Client::new();
     let _ = client
-        .post("http://localhost:8777/api/runs")
+        .post(url)
         .json(&body)
         .timeout(std::time::Duration::from_secs(2))
         .send()
         .await;
+
     Ok(())
 }

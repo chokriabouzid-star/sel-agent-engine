@@ -29,6 +29,8 @@ mod memory;
 mod protocol;
 pub mod provider_state;
 mod repair_strategy;
+mod report;
+mod report_writer;
 mod scaffold_engine;
 mod snapshot;
 mod state_handlers;
