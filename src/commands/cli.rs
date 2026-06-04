@@ -210,6 +210,20 @@ pub enum Commands {
         #[arg(long)]
         rerecord: bool,
     },
+    /// Show execution reports
+    Report {
+        /// Show the latest report
+        #[arg(long)]
+        latest: bool,
+
+        /// Show summary of recent reports
+        #[arg(long)]
+        summary: bool,
+
+        /// Number of reports to include in summary
+        #[arg(long, default_value_t = 20)]
+        count: usize,
+    },
     /// Clear the provider state cache (reset all exhausted/expired flags)
     #[command(name = "reset-providers")]
     ResetProviders,

@@ -210,6 +210,13 @@ async fn main() -> Result<()> {
             )
             .await?;
         }
+        Commands::Report {
+            latest,
+            summary,
+            count,
+        } => {
+            commands::run_report(latest, summary, count)?;
+        }
         Commands::ResetProviders => {
             let path = std::env::current_exe()
                 .ok()
