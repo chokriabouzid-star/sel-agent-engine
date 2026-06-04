@@ -13,6 +13,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+fn truncate_str(s: &str, max_chars: usize) -> String {
+    let mut out: String = s.chars().take(max_chars).collect();
+    if s.chars().count() > max_chars {
+        out.push('…');
+    }
+    out
+}
+
 fn safe_truncate(s: &str, max_bytes: usize) -> &str {
     if max_bytes >= s.len() {
         return s;
