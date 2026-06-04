@@ -82,7 +82,7 @@ src/commands/compare.rs	المقارنة والتقارير المساعدة
 ملفات Rust: 60
 إجمالي السطور: ~19,874
 trajectories directories: ~128
-trajectories JSON files: مئات الملفات
+trajectories JSON files: **386**
 5) الدستور (Constitution)
 الدستور فعّال ومتصّل بمسارات التنفيذ، وليس مجرد prompt.
 
