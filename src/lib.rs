@@ -30,6 +30,7 @@
 //! - [`constitution`]     Agent behavioral rules and constraints
 
 pub mod constitution;
+pub mod dependency_graph;
 pub mod diagnostic;
 pub mod executor;
 pub mod failure;
