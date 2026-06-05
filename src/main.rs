@@ -217,6 +217,12 @@ async fn main() -> Result<()> {
         } => {
             commands::run_report(latest, summary, count)?;
         }
+        Commands::Observatory {
+            refresh_secs,
+            limit,
+        } => {
+            commands::run_observatory(refresh_secs, limit)?;
+        }
         Commands::ResetProviders => {
             let path = std::env::current_exe()
                 .ok()

@@ -2,6 +2,7 @@ pub mod bench;
 pub mod cli;
 pub mod compare;
 pub mod health;
+pub mod observatory;
 pub mod plan;
 pub mod report;
 pub mod scan;
@@ -10,6 +11,7 @@ pub use bench::{run_bench, run_compile_bench, run_integration_bench, run_quick_b
 pub use cli::{Cli, Commands};
 pub use compare::run_compare;
 pub use health::run_health;
+pub use observatory::run_observatory;
 pub use plan::run_plan;
 pub use report::run_report;
 pub use scan::cmd_scan;

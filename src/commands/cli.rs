@@ -224,6 +224,17 @@ pub enum Commands {
         #[arg(long, default_value_t = 20)]
         count: usize,
     },
+
+    /// Interactive TUI for execution reports
+    Observatory {
+        /// Refresh interval in seconds
+        #[arg(long, default_value_t = 5)]
+        refresh_secs: u64,
+
+        /// Maximum number of reports to load
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
     /// Clear the provider state cache (reset all exhausted/expired flags)
     #[command(name = "reset-providers")]
     ResetProviders,
