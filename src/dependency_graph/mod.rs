@@ -1,4 +1,5 @@
 mod model;
+pub mod parsers;
 
 pub use model::{DependencyEdge, DependencyGraph, EdgeKind, FileNode, GraphLanguage, ImportRef};
 
