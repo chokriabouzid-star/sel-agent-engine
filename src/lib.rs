@@ -38,5 +38,6 @@ pub mod json_sanitizer;
 pub mod protocol;
 pub mod provider;
 pub mod repair_strategy;
+pub mod pattern_library;
 pub mod types;
 pub mod workspace_oracle;

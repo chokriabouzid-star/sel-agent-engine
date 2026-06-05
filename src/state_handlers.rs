@@ -735,11 +735,19 @@ pub async fn do_repairing(
     //  Structured Repair Memory v8.0 (Escalating Strategy)
     let display_limit = repair_limit;
     let repair_ctx = crate::repair_strategy::RepairCtx::build(workspace, goal, error_history);
+    let pattern_language = crate::pattern_library::infer_language_from_workspace(workspace);
+    let pattern_lib = crate::pattern_library::PatternLibrary::load();
+    let matched_pattern = pattern_lib.lookup(pattern_language, &all_err);
     let attempt_note = format!(
         "ATTEMPT {}/{}:\n{}",
         ctx.repair_attempts,
         display_limit,
-        crate::repair_strategy::build_prompt(ctx.repair_attempts, &all_err, &repair_ctx)
+        crate::repair_strategy::build_prompt(
+            ctx.repair_attempts,
+            &all_err,
+            &repair_ctx,
+            matched_pattern,
+        )
     );
 
     let loop_warning = if repair_fingerprints.len() > 1

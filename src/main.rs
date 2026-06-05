@@ -30,6 +30,7 @@ mod memory;
 mod protocol;
 pub mod provider_state;
 mod repair_strategy;
+mod pattern_library;
 mod report;
 mod report_writer;
 mod scaffold_engine;

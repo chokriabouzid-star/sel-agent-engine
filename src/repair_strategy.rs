@@ -131,23 +131,50 @@ impl RepairCtx {
 /// Maximum repair attempts before giving up.
 pub const MAX_REPAIR_ATTEMPTS: u8 = 5;
 
+fn build_pattern_hint(matched_pattern: Option<&crate::pattern_library::Pattern>) -> String {
+    match matched_pattern {
+        Some(pattern) => {
+            let hint = pattern.route.hint();
+            if hint.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "Known successful repair pattern: {:?}.\nGuidance: {}\n",
+                    pattern.route, hint
+                )
+            }
+        }
+        None => String::new(),
+    }
+}
+
 /// Build an escalating repair prompt.
 ///
 /// Prompt severity increases with each attempt, and when a loop is detected
 /// (same error repeated), the strategy skips to a more aggressive approach.
-pub fn build_prompt(attempt: u8, error: &str, ctx: &RepairCtx) -> String {
+pub fn build_prompt(
+    attempt: u8,
+    error: &str,
+    ctx: &RepairCtx,
+    matched_pattern: Option<&crate::pattern_library::Pattern>,
+) -> String {
     if attempt > MAX_REPAIR_ATTEMPTS {
         return format!(
-            "GIVING UP after {} attempts. Last error:\n{}",
-            attempt, error
+            "GIVING UP after {} attempts.\n{}Last error:\n{}",
+            attempt,
+            build_pattern_hint(matched_pattern),
+            error
         );
     }
 
+    let pattern_hint = build_pattern_hint(matched_pattern);
+
     if error.contains("CONSTITUTION_VIOLATION:no-modify-tests") {
         return format!(
-            "CRITICAL CONSTRAINT VIOLATION.\n             You attempted to modify a protected test file.\n             NEVER write or patch any test file: [{}].\n             Fix SOURCE files ONLY: [{}].\n             The tests define the contract and are immutable.\n             Read the error carefully and change only implementation files.\n             Error:\n{}",
+            "CRITICAL CONSTRAINT VIOLATION.\n             You attempted to modify a protected test file.\n             NEVER write or patch any test file: [{}].\n             Fix SOURCE files ONLY: [{}].\n             The tests define the contract and are immutable.\n             {}Read the error carefully and change only implementation files.\n             Error:\n{}",
             ctx.test_files.join(", "),
             ctx.source_files.join(", "),
+            pattern_hint,
             error
         );
     }
@@ -158,32 +185,43 @@ pub fn build_prompt(attempt: u8, error: &str, ctx: &RepairCtx) -> String {
         (1, _) => format!(
             "Fix SOURCE FILES only: [{}]\n\
              NEVER touch test files: [{}]\n\
-             Error:\n{}",
+             {}Error:\n{}",
             ctx.source_files.join(", "),
             ctx.test_files.join(", "),
+            pattern_hint,
             error
         ),
         (2, false) => format!(
             "Repair attempt 2. Focus on {}, function `{}`.\n\
-             Error:\n{}",
-            ctx.source_file, ctx.function_name, error
+             {}Error:\n{}",
+            ctx.source_file,
+            ctx.function_name,
+            pattern_hint,
+            error
         ),
         (2, true) => format!(
             "SAME ERROR REPEATED  stop patching tests.\n\
              Which exact line in {} is wrong? Fix ONLY that line.\n\
-             Error:\n{}",
-            ctx.source_file, error
+             {}Error:\n{}",
+            ctx.source_file,
+            pattern_hint,
+            error
         ),
         (_, true) => format!(
             "ALL patches failed. REWRITE `{}` from scratch.\n\
              Implement `{}` correctly. Don't copy the broken version.\n\
-             Error:\n{}",
-            ctx.source_file, ctx.function_name, error
+             {}Error:\n{}",
+            ctx.source_file,
+            ctx.function_name,
+            pattern_hint,
+            error
         ),
         (_, false) => format!(
             "Repair attempt {}. Carefully read the error and fix the root cause.\n\
-             Error:\n{}",
-            attempt, error
+             {}Error:\n{}",
+            attempt,
+            pattern_hint,
+            error
         ),
     }
 }
@@ -287,7 +325,7 @@ mod tests {
             function_name: "Add".into(),
             prev_errors: vec![],
         };
-        let prompt = build_prompt(1, "undefined: Add", &ctx);
+        let prompt = build_prompt(1, "undefined: Add", &ctx, None);
         assert!(prompt.contains("Fix SOURCE FILES only"));
         assert!(prompt.contains("NEVER touch test files"));
     }
@@ -301,7 +339,7 @@ mod tests {
             function_name: "Add".into(),
             prev_errors: vec!["same error".into(), "same error".into()],
         };
-        let prompt = build_prompt(2, "same error", &ctx);
+        let prompt = build_prompt(2, "same error", &ctx, None);
         assert!(prompt.contains("SAME ERROR REPEATED"));
     }
 
@@ -314,7 +352,7 @@ mod tests {
             function_name: "parse".into(),
             prev_errors: vec!["err".into(), "err".into()],
         };
-        let prompt = build_prompt(4, "err", &ctx);
+        let prompt = build_prompt(4, "err", &ctx, None);
         assert!(prompt.contains("REWRITE"));
     }
 
@@ -327,7 +365,7 @@ mod tests {
             function_name: "f".into(),
             prev_errors: vec![],
         };
-        let prompt = build_prompt(MAX_REPAIR_ATTEMPTS + 1, "fatal", &ctx);
+        let prompt = build_prompt(MAX_REPAIR_ATTEMPTS + 1, "fatal", &ctx, None);
         assert!(prompt.contains("GIVING UP"));
     }
 
@@ -353,6 +391,31 @@ mod tests {
             prev_errors: vec!["a".into(), "b".into()],
         };
         assert!(!detect_error_loop(&ctx, 2));
+    }
+
+    #[test]
+    fn test_build_prompt_includes_pattern_hint() {
+        let ctx = RepairCtx {
+            source_files: vec!["main.py".into()],
+            test_files: vec!["test_main.py".into()],
+            source_file: "main.py".into(),
+            function_name: "load".into(),
+            prev_errors: vec![],
+        };
+        let pattern = crate::pattern_library::Pattern {
+            id: "python:abc".into(),
+            language: "python".into(),
+            error_signature: "ImportError".into(),
+            route: crate::pattern_library::RepairRoute::CircularImport,
+            success_count: 2,
+            failure_count: 0,
+            usage_count: 2,
+            last_seen_utc: "2026-01-01T00:00:00Z".into(),
+            example_fix: None,
+        };
+        let prompt = build_prompt(1, "ImportError", &ctx, Some(&pattern));
+        assert!(prompt.contains("Known successful repair pattern"));
+        assert!(prompt.contains("CircularImport"));
     }
 
     #[test]

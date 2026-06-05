@@ -420,6 +420,15 @@ impl Agent {
                         stats.last_model.clone()
                     };
 
+                    record_pattern_outcome(
+                        &self.executor.workspace,
+                        &self.ctx,
+                        &self.error_history,
+                        &self.plan,
+                        true,
+                        None,
+                    );
+
                     let _ = report_run(ReportRunInput {
                         workspace: &self.executor.workspace,
                         goal: &self.goal,
@@ -465,6 +474,15 @@ impl Agent {
                         stats.last_model.clone()
                     };
 
+                    record_pattern_outcome(
+                        &self.executor.workspace,
+                        &self.ctx,
+                        &self.error_history,
+                        &self.plan,
+                        false,
+                        Some(&reason),
+                    );
+
                     let _ = report_run(ReportRunInput {
                         workspace: &self.executor.workspace,
                         goal: &self.goal,
@@ -490,6 +508,145 @@ impl Agent {
             }
         }
     }
+}
+
+fn latest_pattern_error(
+    ctx: &crate::types::ExecutionContext,
+    error_history: &[String],
+    failure_reason: Option<&str>,
+) -> String {
+    if let Some(err) = ctx
+        .failed_steps
+        .iter()
+        .rev()
+        .find_map(|f| {
+            let s = f.stderr.trim();
+            if s.is_empty() {
+                None
+            } else {
+                Some(s.to_string())
+            }
+        })
+    {
+        return err;
+    }
+
+    if let Some(err) = error_history.iter().rev().find_map(|e| {
+        let s = e.trim();
+        if s.is_empty() {
+            None
+        } else {
+            Some(s.to_string())
+        }
+    }) {
+        return err;
+    }
+
+    if let Some(reason) = failure_reason {
+        let reason = reason.trim();
+        if !reason.is_empty() {
+            return reason.to_string();
+        }
+    }
+
+    String::new()
+}
+
+fn infer_pattern_route(stderr: &str) -> crate::pattern_library::RepairRoute {
+    let s = stderr.to_lowercase();
+
+    if s.contains("constitution_violation:no-modify-tests") {
+        crate::pattern_library::RepairRoute::ForceSourceOnly
+    } else if s.contains("circular import") {
+        crate::pattern_library::RepairRoute::CircularImport
+    } else if s.contains("cannot find module")
+        || s.contains("no module named")
+        || s.contains("module not found")
+        || s.contains("cannot find package")
+    {
+        crate::pattern_library::RepairRoute::MissingDependency
+    } else if s.contains("cannot borrow")
+        || s.contains("does not live long enough")
+        || s.contains("borrowed value")
+    {
+        crate::pattern_library::RepairRoute::RustOwnership
+    } else if s.contains("nil pointer")
+        || s.contains("nullreference")
+        || s.contains("nonetype")
+    {
+        crate::pattern_library::RepairRoute::NullGuard
+    } else if s.contains("mismatched types")
+        || s.contains("typeerror")
+        || s.contains("type error")
+    {
+        crate::pattern_library::RepairRoute::TypeMismatch
+    } else {
+        crate::pattern_library::RepairRoute::Generic
+    }
+}
+
+fn summarize_fix_plan(plan: &[crate::protocol::Cmd]) -> Option<String> {
+    let mut parts = Vec::new();
+
+    for cmd in plan.iter().take(6) {
+        match cmd {
+            crate::protocol::Cmd::PatchFile { path, .. } => {
+                parts.push(format!("patch_file:{}", path));
+            }
+            crate::protocol::Cmd::WriteFile { path, .. } => {
+                parts.push(format!("write_file:{}", path));
+            }
+            crate::protocol::Cmd::AppendFile { path, .. } => {
+                parts.push(format!("append_file:{}", path));
+            }
+            crate::protocol::Cmd::Run { command } => {
+                let short: String = command.chars().take(40).collect();
+                parts.push(format!("run:{}", short));
+            }
+            crate::protocol::Cmd::RunTests { target } => {
+                parts.push(format!("run_tests:{}", target));
+            }
+            crate::protocol::Cmd::DeleteFile { path } => {
+                parts.push(format!("delete_file:{}", path));
+            }
+            crate::protocol::Cmd::ReadFile { .. }
+            | crate::protocol::Cmd::Mkdir { .. }
+            | crate::protocol::Cmd::Done { .. } => {}
+        }
+    }
+
+    if parts.is_empty() {
+        None
+    } else {
+        let joined = parts.join(" | ");
+        Some(joined.chars().take(240).collect())
+    }
+}
+
+fn record_pattern_outcome(
+    workspace: &Path,
+    ctx: &crate::types::ExecutionContext,
+    error_history: &[String],
+    plan: &[crate::protocol::Cmd],
+    success: bool,
+    failure_reason: Option<&str>,
+) {
+    let stderr = latest_pattern_error(ctx, error_history, failure_reason);
+    if stderr.trim().is_empty() {
+        return;
+    }
+
+    let language = crate::pattern_library::infer_language_from_workspace(workspace);
+    let route = infer_pattern_route(&stderr);
+    let example_fix = if success {
+        summarize_fix_plan(plan)
+    } else {
+        None
+    };
+
+    let mut lib = crate::pattern_library::PatternLibrary::load();
+    lib.record_outcome(language, &stderr, route, success, example_fix);
+    lib.save();
 }
 
 struct ReportRunInput<'a> {
