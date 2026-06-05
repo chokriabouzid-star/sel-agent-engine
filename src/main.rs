@@ -23,6 +23,7 @@ pub mod cache;
 mod constitution;
 pub mod cost;
 mod decision;
+mod dependency_graph;
 pub mod diagnostic;
 mod manifest;
 mod memory;

@@ -1,3 +1,4 @@
+pub mod builder;
 mod model;
 pub mod parsers;
 

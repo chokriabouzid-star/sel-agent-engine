@@ -2,6 +2,7 @@
 use crate::chunker::{
     extract_error_locations, get_file_content_smart, SmartContent, MAX_FILE_LINES,
 };
+use crate::dependency_graph;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -26,6 +27,7 @@ pub struct RepairContext {
     pub force_include: Vec<PathBuf>,
     pub culprit_files: Vec<String>,
     pub context_config: Option<crate::types::ContextConfig>,
+    pub workspace: Option<PathBuf>,
 }
 
 impl Default for RepairContext {
@@ -37,6 +39,7 @@ impl Default for RepairContext {
             force_include: vec![],
             culprit_files: vec![],
             context_config: None,
+            workspace: None,
         }
     }
 }
@@ -199,6 +202,50 @@ fn compute_score(path: &Path, content: &str, ctx: &RepairContext) -> (u8, Vec<St
     if content.lines().count() < SMALL_FILE_LINES {
         score += 1;
         reasons.push("small file".to_string());
+    }
+
+    // Graph-aware scoring (best-effort, never blocks)
+    if let Some(ref ws) = ctx.workspace {
+        let graph = dependency_graph::builder::build_for_workspace(ws);
+        if graph.node_count() > 0 {
+            // Is this file a direct dependency of a culprit?
+            for culprit_name in &ctx.culprit_files {
+                let culprit_candidates: Vec<_> = graph
+                    .nodes
+                    .keys()
+                    .filter(|p| {
+                        p.file_name()
+                            .and_then(|n| n.to_str())
+                            .map(|n| n == culprit_name.as_str())
+                            .unwrap_or(false)
+                    })
+                    .collect();
+
+                for culprit_path in &culprit_candidates {
+                    let deps = graph.dependencies_of(culprit_path);
+                    if deps.iter().any(|d| d == path) {
+                        score += 4;
+                        reasons.push("graph: dependency of culprit".to_string());
+                    }
+
+                    let impacted = graph.impacted_by(path);
+                    if impacted.iter().any(|i| i == *culprit_path) {
+                        score += 3;
+                        reasons.push("graph: impacts culprit".to_string());
+                    }
+                }
+            }
+
+            // Cycle detection bonus
+            let cycles = graph.detect_cycles();
+            for cycle in &cycles {
+                if cycle.iter().any(|c| c == path) {
+                    score += 2;
+                    reasons.push("graph: in dependency cycle".to_string());
+                    break;
+                }
+            }
+        }
     }
 
     (score, reasons)
