@@ -73,3 +73,99 @@ impl LanguageParser for RustParser {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn setup(files: &[(&str, &str)]) -> TempDir {
+        let dir = TempDir::new().unwrap();
+        for (name, content) in files {
+            let path = dir.path().join(name);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(path, content).unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn parses_mod_declaration() {
+        let dir = setup(&[
+            ("src/main.rs", "mod utils;\nmod config;\n"),
+            ("src/utils.rs", "pub fn helper() {}"),
+            ("src/config.rs", "pub fn load() {}"),
+        ]);
+        let parser = RustParser;
+        let node = parser
+            .parse_file(&dir.path().join("src/main.rs"), dir.path())
+            .unwrap();
+        let raws: Vec<&str> = node.imports.iter().map(|i| i.raw.as_str()).collect();
+        assert!(raws.contains(&"mod:utils"));
+        assert!(raws.contains(&"mod:config"));
+    }
+
+    #[test]
+    fn parses_use_crate() {
+        let dir = setup(&[("src/agent.rs", "use crate::executor::SafeExecutor;\n")]);
+        let parser = RustParser;
+        let node = parser
+            .parse_file(&dir.path().join("src/agent.rs"), dir.path())
+            .unwrap();
+        assert_eq!(node.imports.len(), 1);
+        assert_eq!(node.imports[0].raw, "crate::executor::SafeExecutor");
+    }
+
+    #[test]
+    fn parses_use_super() {
+        let dir = setup(&[("src/sub/mod.rs", "use super::helper;\n")]);
+        let parser = RustParser;
+        let node = parser
+            .parse_file(&dir.path().join("src/sub/mod.rs"), dir.path())
+            .unwrap();
+        assert_eq!(node.imports.len(), 1);
+        assert_eq!(node.imports[0].raw, "super::helper");
+    }
+
+    #[test]
+    fn ignores_inline_mod_block() {
+        let dir = setup(&[("src/main.rs", "mod tests {\n    use super::*;\n}\n")]);
+        let parser = RustParser;
+        let node = parser
+            .parse_file(&dir.path().join("src/main.rs"), dir.path())
+            .unwrap();
+        let mod_imports: Vec<_> = node
+            .imports
+            .iter()
+            .filter(|i| i.raw.starts_with("mod:"))
+            .collect();
+        assert!(mod_imports.is_empty());
+    }
+
+    #[test]
+    fn resolves_mod_to_sibling_file() {
+        let dir = setup(&[
+            ("src/main.rs", "mod utils;\n"),
+            ("src/utils.rs", "pub fn helper() {}"),
+        ]);
+        let parser = RustParser;
+        let resolved =
+            parser.resolve_import("mod:utils", &dir.path().join("src/main.rs"), dir.path());
+        assert_eq!(resolved, Some(dir.path().join("src/utils.rs")));
+    }
+
+    #[test]
+    fn resolves_mod_to_directory_mod_rs() {
+        let dir = setup(&[
+            ("src/main.rs", "mod utils;\n"),
+            ("src/utils/mod.rs", "pub fn helper() {}"),
+        ]);
+        let parser = RustParser;
+        let resolved =
+            parser.resolve_import("mod:utils", &dir.path().join("src/main.rs"), dir.path());
+        assert_eq!(resolved, Some(dir.path().join("src/utils/mod.rs")));
+    }
+}

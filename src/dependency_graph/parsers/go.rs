@@ -88,3 +88,97 @@ fn extract_go_import(line: &str) -> Option<String> {
     }
     Some(cleaned.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn setup(files: &[(&str, &str)]) -> TempDir {
+        let dir = TempDir::new().unwrap();
+        for (name, content) in files {
+            let path = dir.path().join(name);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(path, content).unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn parses_single_import() {
+        let dir = setup(&[
+            ("go.mod", "module myapp\n\ngo 1.21\n"),
+            ("main.go", "package main\n\nimport \"myapp/utils\"\n"),
+            ("utils/utils.go", "package utils\n"),
+        ]);
+        let parser = GoParser;
+        let node = parser
+            .parse_file(&dir.path().join("main.go"), dir.path())
+            .unwrap();
+        assert_eq!(node.imports.len(), 1);
+        assert_eq!(node.imports[0].raw, "myapp/utils");
+    }
+
+    #[test]
+    fn parses_import_block() {
+        let dir = setup(&[
+            ("go.mod", "module myapp\n\ngo 1.21\n"),
+            (
+                "main.go",
+                "package main\n\nimport (\n\t\"myapp/utils\"\n\t\"myapp/config\"\n)\n",
+            ),
+            ("utils/utils.go", "package utils\n"),
+            ("config/config.go", "package config\n"),
+        ]);
+        let parser = GoParser;
+        let node = parser
+            .parse_file(&dir.path().join("main.go"), dir.path())
+            .unwrap();
+        assert_eq!(node.imports.len(), 2);
+        let raws: Vec<&str> = node.imports.iter().map(|i| i.raw.as_str()).collect();
+        assert!(raws.contains(&"myapp/utils"));
+        assert!(raws.contains(&"myapp/config"));
+    }
+
+    #[test]
+    fn ignores_stdlib_imports() {
+        let dir = setup(&[
+            ("go.mod", "module myapp\n\ngo 1.21\n"),
+            (
+                "main.go",
+                "package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n\t\"myapp/utils\"\n)\n",
+            ),
+        ]);
+        let parser = GoParser;
+        let node = parser
+            .parse_file(&dir.path().join("main.go"), dir.path())
+            .unwrap();
+        assert_eq!(node.imports.len(), 1);
+        assert_eq!(node.imports[0].raw, "myapp/utils");
+    }
+
+    #[test]
+    fn resolves_package_to_go_file() {
+        let dir = setup(&[
+            ("go.mod", "module myapp\n\ngo 1.21\n"),
+            ("utils/helper.go", "package utils\n"),
+        ]);
+        let parser = GoParser;
+        let resolved =
+            parser.resolve_import("myapp/utils", &dir.path().join("main.go"), dir.path());
+        assert_eq!(resolved, Some(dir.path().join("utils/helper.go")));
+    }
+
+    #[test]
+    fn returns_none_without_go_mod() {
+        let dir = setup(&[("main.go", "package main\n\nimport \"myapp/utils\"\n")]);
+        let parser = GoParser;
+        let node = parser
+            .parse_file(&dir.path().join("main.go"), dir.path())
+            .unwrap();
+        assert_eq!(node.imports.len(), 0);
+    }
+}
