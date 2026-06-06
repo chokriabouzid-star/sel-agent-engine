@@ -1,5 +1,33 @@
 # Changelog
 
+## v8.9.0 — Pattern Library (2026-06-06)
+
+### Verified state
+- cargo check: pass
+- cargo clippy --all-targets --all-features -- -D warnings: pass
+- cargo test: 272/272
+- bench --suite all --replay: 36/36
+- bench-swe --lang all --replay: 30/30
+- bench-sel-v11 --replay: 18/18
+- bench-real-world --replay: 14/14
+- smoke --replay: 12/12
+- scripts/regression_gate.sh full: pass
+
+### Wave 3 — Pattern Library
+- Added src/pattern_library.rs with PatternLibrary, Pattern, PatternStore, RepairRoute
+- Patterns stored in ~/.sel-agent/patterns.json
+- Pattern lookup integrated into repair prompt construction
+- Pattern outcomes recorded on success and failure
+- example_fix extracted from successful plans
+- build_pattern_hint: route + guidance + example_fix
+- truncate_pattern_example: UTF-8 safe
+- infer_language_from_workspace: language detection
+- normalize_signature: strips line numbers and paths
+- Hardened scripts/regression_gate.sh: sanitize_log + need_match_regex
+
+### Next
+- v9.0.0: Adaptive Repair Routing
+
 ## v8.8.0 — observability + dependency graph (2026-06-04)
 
 ### Verified state
