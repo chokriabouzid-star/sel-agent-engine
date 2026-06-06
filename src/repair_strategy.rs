@@ -131,18 +131,40 @@ impl RepairCtx {
 /// Maximum repair attempts before giving up.
 pub const MAX_REPAIR_ATTEMPTS: u8 = 5;
 
+fn truncate_pattern_example(s: &str, max_chars: usize) -> String {
+    let mut out: String = s.chars().take(max_chars).collect();
+    if s.chars().count() > max_chars {
+        out.push('…');
+    }
+    out
+}
+
 fn build_pattern_hint(matched_pattern: Option<&crate::pattern_library::Pattern>) -> String {
     match matched_pattern {
         Some(pattern) => {
+            let mut lines = vec![format!(
+                "Known successful repair pattern: {:?}.",
+                pattern.route
+            )];
+
             let hint = pattern.route.hint();
-            if hint.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    "Known successful repair pattern: {:?}.\nGuidance: {}\n",
-                    pattern.route, hint
-                )
+            if !hint.is_empty() {
+                lines.push(format!("Guidance: {}", hint));
             }
+
+            if let Some(example_fix) = pattern
+                .example_fix
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                lines.push(format!(
+                    "Example successful fix: {}",
+                    truncate_pattern_example(example_fix, 160)
+                ));
+            }
+
+            lines.join("\n") + "\n"
         }
         None => String::new(),
     }
@@ -416,6 +438,42 @@ mod tests {
         let prompt = build_prompt(1, "ImportError", &ctx, Some(&pattern));
         assert!(prompt.contains("Known successful repair pattern"));
         assert!(prompt.contains("CircularImport"));
+        assert!(prompt.contains("Guidance:"));
+    }
+
+    #[test]
+    fn test_build_prompt_includes_example_fix() {
+        let ctx = RepairCtx {
+            source_files: vec!["src/apiClient.ts".into()],
+            test_files: vec!["src/apiClient.test.ts".into()],
+            source_file: "src/apiClient.ts".into(),
+            function_name: "fetchWithRetry".into(),
+            prev_errors: vec![],
+        };
+        let pattern = crate::pattern_library::Pattern {
+            id: "typescript:def".into(),
+            language: "typescript".into(),
+            error_signature: "Cannot find module".into(),
+            route: crate::pattern_library::RepairRoute::MissingDependency,
+            success_count: 3,
+            failure_count: 0,
+            usage_count: 3,
+            last_seen_utc: "2026-01-01T00:00:00Z".into(),
+            example_fix: Some(
+                "patch_file:src/apiClient.ts | run_tests:npm test".into(),
+            ),
+        };
+        let prompt = build_prompt(1, "Cannot find module", &ctx, Some(&pattern));
+        assert!(prompt.contains("Example successful fix:"));
+        assert!(prompt.contains("patch_file:src/apiClient.ts"));
+    }
+
+    #[test]
+    fn test_truncate_pattern_example_adds_ellipsis() {
+        let long = "x".repeat(200);
+        let out = truncate_pattern_example(&long, 20);
+        assert_eq!(out.chars().count(), 21);
+        assert!(out.ends_with('…'));
     }
 
     #[test]
