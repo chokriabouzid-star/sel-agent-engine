@@ -579,6 +579,34 @@ async fn run_mutation_check(
     None
 }
 
+fn error_fingerprint(stderr: &str) -> u64 {
+    stderr
+        .bytes()
+        .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64))
+}
+
+fn trailing_same_fingerprint_count(history: &[u64], current: u64) -> usize {
+    history
+        .iter()
+        .rev()
+        .take_while(|&&fp| fp == current)
+        .count()
+}
+
+fn recent_constitution_violation_count(error_history: &[String], current_error: &str) -> usize {
+    let current = usize::from(
+        current_error.contains("CONSTITUTION_VIOLATION:no-modify-tests"),
+    );
+
+    current
+        + error_history
+            .iter()
+            .rev()
+            .take(4)
+            .filter(|e| e.contains("CONSTITUTION_VIOLATION:no-modify-tests"))
+            .count()
+}
+
 //
 // REPAIRING
 //
@@ -734,13 +762,41 @@ pub async fn do_repairing(
 
     //  Structured Repair Memory v8.0 (Escalating Strategy)
     let display_limit = repair_limit;
+
+    let fingerprint = error_fingerprint(&all_err);
+    let previous_same_error_streak =
+        trailing_same_fingerprint_count(repair_fingerprints, fingerprint);
+    let same_error_streak = previous_same_error_streak + 1;
+    repair_fingerprints.push(fingerprint);
+    if repair_fingerprints.len() > 32 {
+        let overflow = repair_fingerprints.len() - 32;
+        repair_fingerprints.drain(0..overflow);
+    }
+    if same_error_streak >= 2 {
+        println!(
+            "   🔄 Repair loop escalation: same error streak = {}",
+            same_error_streak
+        );
+    }
+
+    let constitution_violation_count =
+        recent_constitution_violation_count(error_history, &all_err);
+
     let repair_ctx = crate::repair_strategy::RepairCtx::build(workspace, goal, error_history);
     let pattern_language = crate::pattern_library::infer_language_from_workspace(workspace);
     let pattern_lib = crate::pattern_library::PatternLibrary::load();
     let matched_pattern = pattern_lib.lookup(pattern_language, &all_err);
-    let effective_route = matched_pattern
+    let mut effective_route = matched_pattern
         .map(|p| p.route.clone())
         .unwrap_or_else(|| crate::pattern_library::infer_route_from_stderr(&all_err));
+
+    if constitution_violation_count >= 2 {
+        println!(
+            "   🚫 Repeated constitution violation detected  forcing ForceSourceOnly route."
+        );
+        effective_route = crate::pattern_library::RepairRoute::ForceSourceOnly;
+    }
+
     let attempt_note = format!(
         "ATTEMPT {}/{}:\n{}",
         ctx.repair_attempts,
@@ -754,27 +810,18 @@ pub async fn do_repairing(
         )
     );
 
-    let loop_warning = if repair_fingerprints.len() > 1
-        && repair_fingerprints.last()
-            == repair_fingerprints.get(repair_fingerprints.len().saturating_sub(2))
-    {
-        "\n\nWARNING: You are repeating the same fix. This approach failed before. Try something completely different."
+    let loop_warning = if same_error_streak >= 3 {
+        format!(
+            "\n\nLOOP ESCALATION: The same error signature repeated {} times. You MUST choose a materially different repair strategy. Do not repeat the previous patch. Rewrite the smallest failing implementation unit if needed.",
+            same_error_streak
+        )
+    } else if same_error_streak == 2 {
+        "\n\nWARNING: The same error repeated twice. Do not repeat the same patch. Try a materially different fix strategy.".to_string()
     } else {
-        ""
+        String::new()
     };
 
-    //
     error_history.push(all_err.chars().take(800).collect());
-
-    // Repair History Guard v1.2
-    let fingerprint: u64 = all_err
-        .bytes()
-        .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
-    if repair_fingerprints.contains(&fingerprint) {
-        println!("   🔄 Repair loop detected  same error repeated. Forcing different strategy.");
-    } else {
-        repair_fingerprints.push(fingerprint);
-    }
 
     // v5.8: Failure Memory hints
     let memory_hint = crate::memory::FailureMemory::load().get_hints(
@@ -792,7 +839,36 @@ pub async fn do_repairing(
 
     let combined_hints = format!("{}{}", memory_hint, diagnostic_hint);
 
-    let files_context = crate::decision::build_workspace_context(workspace);
+    let culprit_files: Vec<String> = ctx
+        .failed_steps
+        .iter()
+        .filter_map(|step| step.culprit_file.clone())
+        .collect();
+
+    let force_include: Vec<std::path::PathBuf> = culprit_files
+        .iter()
+        .map(|rel| workspace.join(rel))
+        .filter(|path| path.exists())
+        .collect();
+
+    let smart_files_context = crate::context::builder::build_repair_context_block(
+        workspace,
+        &crate::context::builder::RepairContext {
+            stderr: all_err.clone(),
+            recent_edits: vec![],
+            max_tokens: crate::context::builder::MAX_REPAIR_TOKENS,
+            force_include,
+            culprit_files: culprit_files.clone(),
+            context_config: Some(config.clone()),
+            workspace: Some(workspace.to_path_buf()),
+        },
+    );
+
+    let files_context = if smart_files_context.trim().is_empty() {
+        crate::decision::build_workspace_context(workspace)
+    } else {
+        smart_files_context
+    };
 
     // v8.1: File Content in every Repair Prompt for culprit files
     let mut culprit_contents = String::new();
@@ -827,9 +903,11 @@ pub async fn do_repairing(
 
     let ref_context = crate::decision::build_ref_context(config);
 
+    let attempt_bundle = format!("{}{}", attempt_note, loop_warning);
+
     let prompt = crate::constitution::CONSTITUTION.to_string() + &format!(
         "Goal: {}\n\nATTEMPT INFO: {}\n\nHINTS: {}{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}{}{}\nFix ALL issues.",
-        goal, &(attempt_note + loop_warning), combined_hints, mutation_note, all_err, files_context, ref_context, culprit_contents
+        goal, &attempt_bundle, combined_hints, mutation_note, all_err, files_context, ref_context, culprit_contents
     );
 
     match plan_with_resilience(llm, prompt, ctx.bench_mode).await {
@@ -838,5 +916,42 @@ pub async fn do_repairing(
             Ok((commands, AgentState::Executing))
         }
         Err(e) => Ok((Vec::new(), AgentState::Failed(e))),
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_fingerprint_is_stable() {
+        let a = error_fingerprint("same error");
+        let b = error_fingerprint("same error");
+        let c = error_fingerprint("different error");
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn test_trailing_same_fingerprint_count_counts_tail_only() {
+        let a = error_fingerprint("a");
+        let b = error_fingerprint("b");
+        let history = vec![a, b, b, b];
+        assert_eq!(trailing_same_fingerprint_count(&history, b), 3);
+        assert_eq!(trailing_same_fingerprint_count(&history, a), 0);
+    }
+
+    #[test]
+    fn test_recent_constitution_violation_count_includes_current_error() {
+        let history = vec![
+            "some other error".to_string(),
+            "CONSTITUTION_VIOLATION:no-modify-tests".to_string(),
+        ];
+        let count = recent_constitution_violation_count(
+            &history,
+            "CONSTITUTION_VIOLATION:no-modify-tests",
+        );
+        assert_eq!(count, 2);
     }
 }
