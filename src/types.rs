@@ -46,6 +46,7 @@ pub struct ExecutionContext {
     pub autofix_count: u32,  // v7.9.9 P5: Track system-driven fixes
     pub mutation_survival_counts: std::collections::HashMap<String, u8>, // v8.1: Equivalent mutant tracking
     pub bench_mode: bool, // v8.1: Differentiate run mode and bench mode for test augmentation
+    pub recent_edits: Vec<PathBuf>, // v9.0: recent file edits for smart repair context
 }
 
 impl ExecutionContext {
@@ -70,6 +71,22 @@ impl ExecutionContext {
     }
     pub fn has_failures(&self) -> bool {
         !self.failed_steps.is_empty()
+    }
+
+    pub fn record_recent_edit(&mut self, workspace: &std::path::Path, rel_path: &str) {
+        if rel_path.trim().is_empty() {
+            return;
+        }
+
+        let full = workspace.join(rel_path);
+        self.recent_edits.retain(|p| p != &full);
+        self.recent_edits.push(full);
+
+        const MAX_RECENT_EDITS: usize = 16;
+        if self.recent_edits.len() > MAX_RECENT_EDITS {
+            let overflow = self.recent_edits.len() - MAX_RECENT_EDITS;
+            self.recent_edits.drain(0..overflow);
+        }
     }
 }
 
@@ -320,5 +337,39 @@ impl Default for ContextConfig {
             focus_paths: vec![],
             max_context_files: 50, //   20  50
         }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_record_recent_edit_dedups_and_keeps_latest_order() {
+        let workspace = PathBuf::from("/tmp/ws");
+        let mut ctx = ExecutionContext::new(3);
+
+        ctx.record_recent_edit(&workspace, "src/lib.rs");
+        ctx.record_recent_edit(&workspace, "src/main.rs");
+        ctx.record_recent_edit(&workspace, "src/lib.rs");
+
+        assert_eq!(ctx.recent_edits.len(), 2);
+        assert_eq!(ctx.recent_edits[0], workspace.join("src/main.rs"));
+        assert_eq!(ctx.recent_edits[1], workspace.join("src/lib.rs"));
+    }
+
+    #[test]
+    fn test_record_recent_edit_caps_history() {
+        let workspace = PathBuf::from("/tmp/ws");
+        let mut ctx = ExecutionContext::new(3);
+
+        for i in 0..20 {
+            ctx.record_recent_edit(&workspace, &format!("src/file{}.rs", i));
+        }
+
+        assert_eq!(ctx.recent_edits.len(), 16);
+        assert_eq!(ctx.recent_edits.first(), Some(&workspace.join("src/file4.rs")));
+        assert_eq!(ctx.recent_edits.last(), Some(&workspace.join("src/file19.rs")));
     }
 }

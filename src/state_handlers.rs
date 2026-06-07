@@ -313,6 +313,16 @@ fn replan_with_feedback<'a>(
     })
 }
 
+fn edited_path_from_cmd(cmd: &Cmd) -> Option<&str> {
+    match cmd {
+        Cmd::WriteFile { path, .. }
+        | Cmd::AppendFile { path, .. }
+        | Cmd::PatchFile { path, .. }
+        | Cmd::DeleteFile { path } => Some(path.as_str()),
+        _ => None,
+    }
+}
+
 //
 // EXECUTING
 //
@@ -450,6 +460,9 @@ pub async fn do_executing(
                 }
                 if r.autofix_triggered {
                     ctx.autofix_count += 1;
+                }
+                if let Some(path) = edited_path_from_cmd(cmd) {
+                    ctx.record_recent_edit(&executor.workspace, path);
                 }
                 ctx.successful_hashes.insert(cmd_hash.to_string());
             }
@@ -855,7 +868,7 @@ pub async fn do_repairing(
         workspace,
         &crate::context::builder::RepairContext {
             stderr: all_err.clone(),
-            recent_edits: vec![],
+            recent_edits: ctx.recent_edits.clone(),
             max_tokens: crate::context::builder::MAX_REPAIR_TOKENS,
             force_include,
             culprit_files: culprit_files.clone(),
@@ -953,5 +966,30 @@ mod tests {
             "CONSTITUTION_VIOLATION:no-modify-tests",
         );
         assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_edited_path_from_cmd_returns_file_ops_only() {
+        assert_eq!(
+            edited_path_from_cmd(&Cmd::WriteFile {
+                path: "src/lib.rs".into(),
+                content: "x".into(),
+            }),
+            Some("src/lib.rs")
+        );
+        assert_eq!(
+            edited_path_from_cmd(&Cmd::PatchFile {
+                path: "src/main.rs".into(),
+                search: "a".into(),
+                replace: "b".into(),
+            }),
+            Some("src/main.rs")
+        );
+        assert_eq!(
+            edited_path_from_cmd(&Cmd::RunTests {
+                target: "cargo test".into(),
+            }),
+            None
+        );
     }
 }
