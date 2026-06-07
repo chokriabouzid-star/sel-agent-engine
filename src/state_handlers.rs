@@ -738,6 +738,9 @@ pub async fn do_repairing(
     let pattern_language = crate::pattern_library::infer_language_from_workspace(workspace);
     let pattern_lib = crate::pattern_library::PatternLibrary::load();
     let matched_pattern = pattern_lib.lookup(pattern_language, &all_err);
+    let effective_route = matched_pattern
+        .map(|p| p.route.clone())
+        .unwrap_or_else(|| crate::pattern_library::infer_route_from_stderr(&all_err));
     let attempt_note = format!(
         "ATTEMPT {}/{}:\n{}",
         ctx.repair_attempts,
@@ -747,6 +750,7 @@ pub async fn do_repairing(
             &all_err,
             &repair_ctx,
             matched_pattern,
+            &effective_route,
         )
     );
 

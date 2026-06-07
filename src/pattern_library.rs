@@ -368,6 +368,51 @@ pub fn infer_language_from_workspace(workspace: &std::path::Path) -> &'static st
     }
 }
 
+pub fn infer_route_from_stderr(stderr: &str) -> RepairRoute {
+    let s = stderr.to_lowercase();
+
+    if s.contains("constitution_violation:no-modify-tests") {
+        RepairRoute::ForceSourceOnly
+    } else if s.contains("circular import") {
+        RepairRoute::CircularImport
+    } else if s.contains("cannot find module")
+        || s.contains("no module named")
+        || s.contains("module not found")
+        || s.contains("cannot find package")
+    {
+        RepairRoute::MissingDependency
+    } else if s.contains("undefined:")
+        || s.contains("is not defined")
+        || s.contains("cannot find function")
+        || s.contains("cannot find value")
+        || s.contains("cannot find type")
+    {
+        RepairRoute::FunctionDeleted
+    } else if s.contains("cannot borrow")
+        || s.contains("does not live long enough")
+        || s.contains("borrowed value")
+    {
+        RepairRoute::RustOwnership
+    } else if s.contains("nil pointer")
+        || s.contains("nullreference")
+        || s.contains("nonetype")
+        || s.contains("attempt to index a nil value")
+        || s.contains("cannot read properties of null")
+        || s.contains("cannot read properties of undefined")
+    {
+        RepairRoute::NullGuard
+    } else if s.contains("mismatched types")
+        || s.contains("typeerror")
+        || s.contains("type error")
+        || s.contains("expected type")
+    {
+        RepairRoute::TypeMismatch
+    } else {
+        RepairRoute::Generic
+    }
+}
+
+
 // ─────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────
@@ -542,6 +587,24 @@ mod tests {
         assert!(!RepairRoute::RustOwnership.hint().is_empty());
         // Generic لا hint
         assert!(RepairRoute::Generic.hint().is_empty());
+    }
+
+    #[test]
+    fn test_infer_route_missing_dependency() {
+        let route = infer_route_from_stderr("ModuleNotFoundError: No module named 'requests'");
+        assert_eq!(route, RepairRoute::MissingDependency);
+    }
+
+    #[test]
+    fn test_infer_route_force_source_only() {
+        let route = infer_route_from_stderr("CONSTITUTION_VIOLATION:no-modify-tests");
+        assert_eq!(route, RepairRoute::ForceSourceOnly);
+    }
+
+    #[test]
+    fn test_infer_route_rust_ownership() {
+        let route = infer_route_from_stderr("error[E0502]: cannot borrow `x` as mutable");
+        assert_eq!(route, RepairRoute::RustOwnership);
     }
 }
 

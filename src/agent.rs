@@ -553,36 +553,7 @@ fn latest_pattern_error(
 }
 
 fn infer_pattern_route(stderr: &str) -> crate::pattern_library::RepairRoute {
-    let s = stderr.to_lowercase();
-
-    if s.contains("constitution_violation:no-modify-tests") {
-        crate::pattern_library::RepairRoute::ForceSourceOnly
-    } else if s.contains("circular import") {
-        crate::pattern_library::RepairRoute::CircularImport
-    } else if s.contains("cannot find module")
-        || s.contains("no module named")
-        || s.contains("module not found")
-        || s.contains("cannot find package")
-    {
-        crate::pattern_library::RepairRoute::MissingDependency
-    } else if s.contains("cannot borrow")
-        || s.contains("does not live long enough")
-        || s.contains("borrowed value")
-    {
-        crate::pattern_library::RepairRoute::RustOwnership
-    } else if s.contains("nil pointer")
-        || s.contains("nullreference")
-        || s.contains("nonetype")
-    {
-        crate::pattern_library::RepairRoute::NullGuard
-    } else if s.contains("mismatched types")
-        || s.contains("typeerror")
-        || s.contains("type error")
-    {
-        crate::pattern_library::RepairRoute::TypeMismatch
-    } else {
-        crate::pattern_library::RepairRoute::Generic
-    }
+    crate::pattern_library::infer_route_from_stderr(stderr)
 }
 
 fn summarize_fix_plan(plan: &[crate::protocol::Cmd]) -> Option<String> {

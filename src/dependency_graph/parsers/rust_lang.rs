@@ -16,32 +16,18 @@ impl LanguageParser for RustParser {
         for line in content.lines() {
             let line = line.trim();
 
-            if line.starts_with("//") {
+            if line.is_empty() || line.starts_with("//") {
                 continue;
             }
 
-            // mod declarations
-            if let Some(rest) = line.strip_prefix("mod ") {
-                let name = rest
-                    .trim_end_matches(';')
-                    .trim_end_matches(&['{', ' '][..])
-                    .trim();
-                if !name.is_empty() && !line.contains('{') {
-                    node.imports
-                        .push(ImportRef::new(format!("mod:{}", name), vec![]));
-                }
+            // mod / pub mod declarations
+            if let Some(name) = parse_mod_declaration(line) {
+                node.imports
+                    .push(ImportRef::new(format!("mod:{}", name), vec![]));
             }
 
-            // use crate::x or use super::x
-            if line.starts_with("use crate::") || line.starts_with("use super::") {
-                let path_str = line
-                    .trim_start_matches("use ")
-                    .trim_end_matches(';')
-                    .split('{')
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
+            // use / pub use paths
+            if let Some(path_str) = parse_use_path(line) {
                 node.imports.push(ImportRef::new(path_str, vec![]));
             }
         }
@@ -50,28 +36,138 @@ impl LanguageParser for RustParser {
     }
 
     fn resolve_import(&self, raw: &str, from_file: &Path, workspace: &Path) -> Option<PathBuf> {
-        let from_dir = from_file.parent()?;
-
         if let Some(name) = raw.strip_prefix("mod:") {
-            // Try same dir: name.rs
-            let as_file = from_dir.join(format!("{}.rs", name));
-            if as_file.exists() {
-                return Some(as_file);
+            return resolve_mod_name(name, from_file, workspace);
+        }
+
+        if let Some(rest) = raw.strip_prefix("crate::") {
+            let src_root = workspace.join("src");
+            let segments: Vec<&str> = rest.split("::").filter(|s| !s.is_empty()).collect();
+            return resolve_from_base(&src_root, &segments);
+        }
+
+        if let Some(rest) = raw.strip_prefix("self::") {
+            let base = current_module_dir(from_file)?;
+            let segments: Vec<&str> = rest.split("::").filter(|s| !s.is_empty()).collect();
+            return resolve_from_base(&base, &segments);
+        }
+
+        if raw.starts_with("super::") {
+            let mut rest = raw;
+            let mut base = current_module_dir(from_file)?;
+
+            while let Some(stripped) = rest.strip_prefix("super::") {
+                base = base.parent()?.to_path_buf();
+                rest = stripped;
             }
-            // Try name/mod.rs
-            let as_mod = from_dir.join(name).join("mod.rs");
-            if as_mod.exists() {
-                return Some(as_mod);
-            }
-            // Try src/name.rs
-            let src_file = workspace.join("src").join(format!("{}.rs", name));
-            if src_file.exists() {
-                return Some(src_file);
-            }
+
+            let segments: Vec<&str> = rest.split("::").filter(|s| !s.is_empty()).collect();
+            return resolve_from_base(&base, &segments);
         }
 
         None
     }
+}
+
+fn parse_mod_declaration(line: &str) -> Option<String> {
+    let rest = line
+        .strip_prefix("pub mod ")
+        .or_else(|| line.strip_prefix("mod "))?;
+
+    // Ignore inline module blocks: mod tests { ... }
+    if line.contains('{') {
+        return None;
+    }
+
+    let name = rest.trim_end_matches(';').trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+fn parse_use_path(line: &str) -> Option<String> {
+    let rest = line
+        .strip_prefix("pub use ")
+        .or_else(|| line.strip_prefix("use "))?;
+
+    let raw = rest
+        .trim_end_matches(';')
+        .split(" as ")
+        .next()
+        .unwrap_or("")
+        .split('{')
+        .next()
+        .unwrap_or("")
+        .trim();
+
+    if raw.is_empty() || raw.ends_with("::") {
+        return None;
+    }
+
+    if raw.starts_with("crate::") || raw.starts_with("super::") || raw.starts_with("self::") {
+        Some(raw.to_string())
+    } else {
+        None
+    }
+}
+
+fn current_module_dir(from_file: &Path) -> Option<PathBuf> {
+    let parent = from_file.parent()?;
+    let filename = from_file.file_name()?.to_str()?;
+
+    match filename {
+        "main.rs" | "lib.rs" | "mod.rs" => Some(parent.to_path_buf()),
+        _ => {
+            let stem = from_file.file_stem()?.to_str()?;
+            Some(parent.join(stem))
+        }
+    }
+}
+
+fn resolve_mod_name(name: &str, from_file: &Path, workspace: &Path) -> Option<PathBuf> {
+    let from_dir = from_file.parent()?;
+
+    for base in [from_dir.to_path_buf(), workspace.join("src")] {
+        let as_file = base.join(format!("{}.rs", name));
+        if as_file.exists() {
+            return Some(as_file);
+        }
+
+        let as_mod = base.join(name).join("mod.rs");
+        if as_mod.exists() {
+            return Some(as_mod);
+        }
+    }
+
+    None
+}
+
+fn resolve_from_base(base: &Path, segments: &[&str]) -> Option<PathBuf> {
+    if segments.is_empty() {
+        return None;
+    }
+
+    // Try the longest plausible module prefix first, then shorten.
+    for len in (1..=segments.len()).rev() {
+        let mut candidate = base.to_path_buf();
+        for seg in &segments[..len] {
+            candidate.push(seg);
+        }
+
+        let as_file = candidate.with_extension("rs");
+        if as_file.exists() {
+            return Some(as_file);
+        }
+
+        let as_mod = candidate.join("mod.rs");
+        if as_mod.exists() {
+            return Some(as_mod);
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -109,6 +205,18 @@ mod tests {
     }
 
     #[test]
+    fn parses_pub_mod_declaration() {
+        let dir = setup(&[("src/lib.rs", "pub mod builder;\npub mod parsers;\n")]);
+        let parser = RustParser;
+        let node = parser
+            .parse_file(&dir.path().join("src/lib.rs"), dir.path())
+            .unwrap();
+        let raws: Vec<&str> = node.imports.iter().map(|i| i.raw.as_str()).collect();
+        assert!(raws.contains(&"mod:builder"));
+        assert!(raws.contains(&"mod:parsers"));
+    }
+
+    #[test]
     fn parses_use_crate() {
         let dir = setup(&[("src/agent.rs", "use crate::executor::SafeExecutor;\n")]);
         let parser = RustParser;
@@ -128,6 +236,17 @@ mod tests {
             .unwrap();
         assert_eq!(node.imports.len(), 1);
         assert_eq!(node.imports[0].raw, "super::helper");
+    }
+
+    #[test]
+    fn parses_pub_use_self() {
+        let dir = setup(&[("src/executor/mod.rs", "pub use self::core::SafeExecutor;\n")]);
+        let parser = RustParser;
+        let node = parser
+            .parse_file(&dir.path().join("src/executor/mod.rs"), dir.path())
+            .unwrap();
+        assert_eq!(node.imports.len(), 1);
+        assert_eq!(node.imports[0].raw, "self::core::SafeExecutor");
     }
 
     #[test]
@@ -167,5 +286,73 @@ mod tests {
         let resolved =
             parser.resolve_import("mod:utils", &dir.path().join("src/main.rs"), dir.path());
         assert_eq!(resolved, Some(dir.path().join("src/utils/mod.rs")));
+    }
+
+    #[test]
+    fn resolves_crate_to_mod_rs() {
+        let dir = setup(&[
+            ("src/agent.rs", "use crate::executor::SafeExecutor;\n"),
+            ("src/executor/mod.rs", "pub use self::core::SafeExecutor;\n"),
+            ("src/executor/core.rs", "pub struct SafeExecutor;\n"),
+        ]);
+        let parser = RustParser;
+        let resolved = parser.resolve_import(
+            "crate::executor::SafeExecutor",
+            &dir.path().join("src/agent.rs"),
+            dir.path(),
+        );
+        assert_eq!(resolved, Some(dir.path().join("src/executor/mod.rs")));
+    }
+
+    #[test]
+    fn resolves_crate_to_nested_file() {
+        let dir = setup(&[
+            (
+                "src/agent.rs",
+                "use crate::dependency_graph::builder::build_for_workspace;\n",
+            ),
+            ("src/dependency_graph/mod.rs", "pub mod builder;\n"),
+            ("src/dependency_graph/builder.rs", "pub fn build_for_workspace() {}\n"),
+        ]);
+        let parser = RustParser;
+        let resolved = parser.resolve_import(
+            "crate::dependency_graph::builder::build_for_workspace",
+            &dir.path().join("src/agent.rs"),
+            dir.path(),
+        );
+        assert_eq!(
+            resolved,
+            Some(dir.path().join("src/dependency_graph/builder.rs"))
+        );
+    }
+
+    #[test]
+    fn resolves_self_to_sibling_file() {
+        let dir = setup(&[
+            ("src/executor/mod.rs", "pub use self::core::SafeExecutor;\n"),
+            ("src/executor/core.rs", "pub struct SafeExecutor;\n"),
+        ]);
+        let parser = RustParser;
+        let resolved = parser.resolve_import(
+            "self::core::SafeExecutor",
+            &dir.path().join("src/executor/mod.rs"),
+            dir.path(),
+        );
+        assert_eq!(resolved, Some(dir.path().join("src/executor/core.rs")));
+    }
+
+    #[test]
+    fn resolves_super_from_nested_rs() {
+        let dir = setup(&[
+            ("src/sub/nested.rs", "use super::helper;\n"),
+            ("src/sub/helper.rs", "pub fn helper() {}\n"),
+        ]);
+        let parser = RustParser;
+        let resolved = parser.resolve_import(
+            "super::helper",
+            &dir.path().join("src/sub/nested.rs"),
+            dir.path(),
+        );
+        assert_eq!(resolved, Some(dir.path().join("src/sub/helper.rs")));
     }
 }

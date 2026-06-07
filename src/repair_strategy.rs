@@ -29,30 +29,45 @@ impl RepairCtx {
         let mut source_files = Vec::new();
         let mut test_files = Vec::new();
 
-        if let Ok(entries) = std::fs::read_dir(workspace) {
-            for entry in entries.flatten() {
-                let ft = match entry.file_type() {
-                    Ok(ft) => ft,
-                    Err(_) => continue,
-                };
-                if !ft.is_file() {
-                    continue;
-                }
-                let name = entry.file_name().to_string_lossy().to_string();
-                let ext = Path::new(&name)
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("");
+        for entry in walkdir::WalkDir::new(workspace)
+            .max_depth(3)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+        {
+            let path = entry.path();
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
 
-                if !SUPPORTED_EXTENSIONS.contains(&ext) {
-                    continue;
-                }
+            if !SUPPORTED_EXTENSIONS.contains(&ext) {
+                continue;
+            }
 
-                if Self::is_test_file(&name) {
-                    test_files.push(name);
-                } else {
-                    source_files.push(name);
-                }
+            // skip venv / node_modules / target / .git
+            let path_str = path.to_string_lossy();
+            if path_str.contains("/venv/")
+                || path_str.contains("/node_modules/")
+                || path_str.contains("/target/")
+                || path_str.contains("/.git/")
+            {
+                continue;
+            }
+
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            if name.is_empty() {
+                continue;
+            }
+
+            if Self::is_test_file(&name) {
+                test_files.push(name);
+            } else {
+                source_files.push(name);
             }
         }
 
@@ -170,6 +185,34 @@ fn build_pattern_hint(matched_pattern: Option<&crate::pattern_library::Pattern>)
     }
 }
 
+fn build_route_instruction(route: &crate::pattern_library::RepairRoute) -> String {
+    match route {
+        crate::pattern_library::RepairRoute::Generic => String::new(),
+        crate::pattern_library::RepairRoute::ForceSourceOnly => {
+            "REPAIR ROUTE: ForceSourceOnly\nHARD CONSTRAINT: Modify implementation files only. Test files are immutable. Restore behavior by editing source files, not tests.\n".to_string()
+        }
+        crate::pattern_library::RepairRoute::MissingDependency => {
+            "REPAIR ROUTE: MissingDependency\nFocus first on missing imports, missing modules, and dependency declarations. Prefer the smallest dependency/import fix before changing logic.\n".to_string()
+        }
+        crate::pattern_library::RepairRoute::FunctionDeleted => {
+            "REPAIR ROUTE: FunctionDeleted\nA required function or symbol is missing or renamed. Restore the expected symbol and contract before broader refactors.\n".to_string()
+        }
+        crate::pattern_library::RepairRoute::NullGuard => {
+            "REPAIR ROUTE: NullGuard\nAdd a nil/null/None guard before the failing access, then keep existing behavior unchanged.\n".to_string()
+        }
+        crate::pattern_library::RepairRoute::RustOwnership => {
+            "REPAIR ROUTE: RustOwnership\nFix the borrow or ownership conflict with references, clone(), lifetimes, or by reducing overlapping borrows.\n".to_string()
+        }
+        crate::pattern_library::RepairRoute::CircularImport => {
+            "REPAIR ROUTE: CircularImport\nBreak the import cycle with a smaller dependency boundary, lazy import, or interface extraction. Do not duplicate business logic.\n".to_string()
+        }
+        crate::pattern_library::RepairRoute::TypeMismatch => {
+            "REPAIR ROUTE: TypeMismatch\nAlign actual and expected types. Check function signatures, return types, and call-site arguments before changing behavior.\n".to_string()
+        }
+    }
+}
+
+
 /// Build an escalating repair prompt.
 ///
 /// Prompt severity increases with each attempt, and when a loop is detected
@@ -179,23 +222,27 @@ pub fn build_prompt(
     error: &str,
     ctx: &RepairCtx,
     matched_pattern: Option<&crate::pattern_library::Pattern>,
+    effective_route: &crate::pattern_library::RepairRoute,
 ) -> String {
+    let pattern_hint = build_pattern_hint(matched_pattern);
+    let route_instruction = build_route_instruction(effective_route);
+
     if attempt > MAX_REPAIR_ATTEMPTS {
         return format!(
-            "GIVING UP after {} attempts.\n{}Last error:\n{}",
+            "GIVING UP after {} attempts.\n{}{}Last error:\n{}",
             attempt,
-            build_pattern_hint(matched_pattern),
+            route_instruction,
+            pattern_hint,
             error
         );
     }
 
-    let pattern_hint = build_pattern_hint(matched_pattern);
-
     if error.contains("CONSTITUTION_VIOLATION:no-modify-tests") {
         return format!(
-            "CRITICAL CONSTRAINT VIOLATION.\n             You attempted to modify a protected test file.\n             NEVER write or patch any test file: [{}].\n             Fix SOURCE files ONLY: [{}].\n             The tests define the contract and are immutable.\n             {}Read the error carefully and change only implementation files.\n             Error:\n{}",
+            "CRITICAL CONSTRAINT VIOLATION.\n             You attempted to modify a protected test file.\n             NEVER write or patch any test file: [{}].\n             Fix SOURCE files ONLY: [{}].\n             The tests define the contract and are immutable.\n             {}{}Read the error carefully and change only implementation files.\n             Error:\n{}",
             ctx.test_files.join(", "),
             ctx.source_files.join(", "),
+            route_instruction,
             pattern_hint,
             error
         );
@@ -207,41 +254,46 @@ pub fn build_prompt(
         (1, _) => format!(
             "Fix SOURCE FILES only: [{}]\n\
              NEVER touch test files: [{}]\n\
-             {}Error:\n{}",
+             {}{}Error:\n{}",
             ctx.source_files.join(", "),
             ctx.test_files.join(", "),
+            route_instruction,
             pattern_hint,
             error
         ),
         (2, false) => format!(
             "Repair attempt 2. Focus on {}, function `{}`.\n\
-             {}Error:\n{}",
+             {}{}Error:\n{}",
             ctx.source_file,
             ctx.function_name,
+            route_instruction,
             pattern_hint,
             error
         ),
         (2, true) => format!(
             "SAME ERROR REPEATED  stop patching tests.\n\
              Which exact line in {} is wrong? Fix ONLY that line.\n\
-             {}Error:\n{}",
+             {}{}Error:\n{}",
             ctx.source_file,
+            route_instruction,
             pattern_hint,
             error
         ),
         (_, true) => format!(
             "ALL patches failed. REWRITE `{}` from scratch.\n\
              Implement `{}` correctly. Don't copy the broken version.\n\
-             {}Error:\n{}",
+             {}{}Error:\n{}",
             ctx.source_file,
             ctx.function_name,
+            route_instruction,
             pattern_hint,
             error
         ),
         (_, false) => format!(
             "Repair attempt {}. Carefully read the error and fix the root cause.\n\
-             {}Error:\n{}",
+             {}{}Error:\n{}",
             attempt,
+            route_instruction,
             pattern_hint,
             error
         ),
@@ -347,7 +399,7 @@ mod tests {
             function_name: "Add".into(),
             prev_errors: vec![],
         };
-        let prompt = build_prompt(1, "undefined: Add", &ctx, None);
+        let prompt = build_prompt(1, "undefined: Add", &ctx, None, &crate::pattern_library::RepairRoute::Generic);
         assert!(prompt.contains("Fix SOURCE FILES only"));
         assert!(prompt.contains("NEVER touch test files"));
     }
@@ -361,7 +413,7 @@ mod tests {
             function_name: "Add".into(),
             prev_errors: vec!["same error".into(), "same error".into()],
         };
-        let prompt = build_prompt(2, "same error", &ctx, None);
+        let prompt = build_prompt(2, "same error", &ctx, None, &crate::pattern_library::RepairRoute::Generic);
         assert!(prompt.contains("SAME ERROR REPEATED"));
     }
 
@@ -374,7 +426,7 @@ mod tests {
             function_name: "parse".into(),
             prev_errors: vec!["err".into(), "err".into()],
         };
-        let prompt = build_prompt(4, "err", &ctx, None);
+        let prompt = build_prompt(4, "err", &ctx, None, &crate::pattern_library::RepairRoute::Generic);
         assert!(prompt.contains("REWRITE"));
     }
 
@@ -387,7 +439,7 @@ mod tests {
             function_name: "f".into(),
             prev_errors: vec![],
         };
-        let prompt = build_prompt(MAX_REPAIR_ATTEMPTS + 1, "fatal", &ctx, None);
+        let prompt = build_prompt(MAX_REPAIR_ATTEMPTS + 1, "fatal", &ctx, None, &crate::pattern_library::RepairRoute::Generic);
         assert!(prompt.contains("GIVING UP"));
     }
 
@@ -435,7 +487,7 @@ mod tests {
             last_seen_utc: "2026-01-01T00:00:00Z".into(),
             example_fix: None,
         };
-        let prompt = build_prompt(1, "ImportError", &ctx, Some(&pattern));
+        let prompt = build_prompt(1, "ImportError", &ctx, Some(&pattern), &pattern.route);
         assert!(prompt.contains("Known successful repair pattern"));
         assert!(prompt.contains("CircularImport"));
         assert!(prompt.contains("Guidance:"));
@@ -463,9 +515,29 @@ mod tests {
                 "patch_file:src/apiClient.ts | run_tests:npm test".into(),
             ),
         };
-        let prompt = build_prompt(1, "Cannot find module", &ctx, Some(&pattern));
+        let prompt = build_prompt(1, "Cannot find module", &ctx, Some(&pattern), &pattern.route);
         assert!(prompt.contains("Example successful fix:"));
         assert!(prompt.contains("patch_file:src/apiClient.ts"));
+    }
+
+    #[test]
+    fn test_build_prompt_includes_effective_route_without_pattern() {
+        let ctx = RepairCtx {
+            source_files: vec!["main.py".into()],
+            test_files: vec!["test_main.py".into()],
+            source_file: "main.py".into(),
+            function_name: "load".into(),
+            prev_errors: vec![],
+        };
+        let prompt = build_prompt(
+            1,
+            "ModuleNotFoundError: No module named 'requests'",
+            &ctx,
+            None,
+            &crate::pattern_library::RepairRoute::MissingDependency,
+        );
+        assert!(prompt.contains("REPAIR ROUTE: MissingDependency"));
+        assert!(prompt.contains("Focus first on missing imports"));
     }
 
     #[test]
