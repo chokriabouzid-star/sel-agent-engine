@@ -119,6 +119,8 @@ fn build_planning_prompt(
 ) -> String {
     let env_context = ecm.to_planning_context();
     let constraints = ecm.derive_constraints();
+    let goal_clarity = crate::decision::GoalClarity::analyze(goal);
+    let clarity_instruction = goal_clarity.planning_hint();
     let lang_hint = crate::decision::build_lang_hint(workspace);
     let ws_ctx = crate::decision::build_workspace_context(workspace);
     let existing_files = if !ws_ctx.is_empty() {
@@ -143,6 +145,12 @@ fn build_planning_prompt(
         ""
     };
 
+    let clarity_hint_block = if clarity_instruction.is_empty() {
+        String::new()
+    } else {
+        format!("\nGOAL CLARITY HINT:\n{}\n", clarity_instruction)
+    };
+
     let thinking_prompt = format!(
         "\n\n## Required Analysis\n\
 Before writing the JSON plan, think step-by-step inside <think>...</think> tags:\n\
@@ -158,8 +166,9 @@ CRITICAL PROTOCOL REMINDER:\n\
 - Every plan MUST contain run_tests BEFORE done (non-negotiable)\n\
 - pip install: use venv/bin/pip install <pkg>\n\
 - Cargo.toml: use write_file with complete content when adding dependencies\n\
-{}",
-        repair_instruction
+{}{}",
+        repair_instruction,
+        clarity_hint_block
     );
 
     crate::constitution::CONSTITUTION.to_string()
@@ -621,6 +630,120 @@ fn recent_constitution_violation_count(error_history: &[String], current_error: 
             .count()
 }
 
+const MAX_REPAIR_PROMPT_CHARS: usize = 24_000;
+const MAX_ATTEMPT_INFO_CHARS: usize = 3_000;
+const MAX_HINTS_CHARS: usize = 1_600;
+const MAX_MUTATION_NOTE_CHARS: usize = 1_200;
+const MAX_FAILED_STEPS_CHARS: usize = 4_000;
+const MAX_FILES_CONTEXT_CHARS: usize = 14_000;
+const MAX_REF_CONTEXT_CHARS: usize = 2_000;
+const MAX_CULPRIT_CONTENT_CHARS: usize = 4_000;
+
+fn truncate_for_prompt(s: &str, max_chars: usize) -> String {
+    let count = s.chars().count();
+    if count <= max_chars {
+        return s.to_string();
+    }
+    if max_chars == 0 {
+        return String::new();
+    }
+    let take_n = max_chars.saturating_sub(1);
+    let mut out: String = s.chars().take(take_n).collect();
+    out.push('…');
+    out
+}
+
+fn shrink_section_to_fit(section: &mut String, overflow: &mut usize, min_keep: usize) {
+    if *overflow == 0 {
+        return;
+    }
+
+    let current = section.chars().count();
+    if current <= min_keep {
+        return;
+    }
+
+    let reducible = current - min_keep;
+    let reduce = reducible.min(*overflow);
+    let new_len = current.saturating_sub(reduce);
+    *section = truncate_for_prompt(section, new_len);
+    *overflow = overflow.saturating_sub(reduce);
+}
+
+struct RepairPromptSections<'a> {
+    goal: &'a str,
+    attempt_bundle: &'a str,
+    combined_hints: &'a str,
+    mutation_note: &'a str,
+    failed_steps: &'a str,
+    files_context: &'a str,
+    ref_context: &'a str,
+    culprit_contents: &'a str,
+}
+
+fn assemble_repair_prompt(sections: &RepairPromptSections<'_>) -> String {
+    crate::constitution::CONSTITUTION.to_string()
+        + &format!(
+            "Goal: {}\n\nATTEMPT INFO: {}\n\nHINTS: {}{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}{}{}\nFix ALL issues.",
+            sections.goal,
+            sections.attempt_bundle,
+            sections.combined_hints,
+            sections.mutation_note,
+            sections.failed_steps,
+            sections.files_context,
+            sections.ref_context,
+            sections.culprit_contents
+        )
+}
+
+fn build_budgeted_repair_prompt(sections: &RepairPromptSections<'_>) -> String {
+    let mut attempt_bundle = truncate_for_prompt(sections.attempt_bundle, MAX_ATTEMPT_INFO_CHARS);
+    let mut combined_hints = truncate_for_prompt(sections.combined_hints, MAX_HINTS_CHARS);
+    let mut mutation_note = truncate_for_prompt(sections.mutation_note, MAX_MUTATION_NOTE_CHARS);
+    let mut failed_steps = truncate_for_prompt(sections.failed_steps, MAX_FAILED_STEPS_CHARS);
+    let mut files_context = truncate_for_prompt(sections.files_context, MAX_FILES_CONTEXT_CHARS);
+    let mut ref_context = truncate_for_prompt(sections.ref_context, MAX_REF_CONTEXT_CHARS);
+    let mut culprit_contents =
+        truncate_for_prompt(sections.culprit_contents, MAX_CULPRIT_CONTENT_CHARS);
+
+    let mut prompt = assemble_repair_prompt(&RepairPromptSections {
+        goal: sections.goal,
+        attempt_bundle: &attempt_bundle,
+        combined_hints: &combined_hints,
+        mutation_note: &mutation_note,
+        failed_steps: &failed_steps,
+        files_context: &files_context,
+        ref_context: &ref_context,
+        culprit_contents: &culprit_contents,
+    });
+
+    let mut overflow = prompt.chars().count().saturating_sub(MAX_REPAIR_PROMPT_CHARS);
+    if overflow == 0 {
+        return prompt;
+    }
+
+    shrink_section_to_fit(&mut ref_context, &mut overflow, 0);
+    shrink_section_to_fit(&mut culprit_contents, &mut overflow, 0);
+    shrink_section_to_fit(&mut combined_hints, &mut overflow, 300);
+    shrink_section_to_fit(&mut mutation_note, &mut overflow, 0);
+    shrink_section_to_fit(&mut failed_steps, &mut overflow, 800);
+    shrink_section_to_fit(&mut files_context, &mut overflow, 1_500);
+    shrink_section_to_fit(&mut attempt_bundle, &mut overflow, 500);
+
+    prompt = assemble_repair_prompt(&RepairPromptSections {
+        goal: sections.goal,
+        attempt_bundle: &attempt_bundle,
+        combined_hints: &combined_hints,
+        mutation_note: &mutation_note,
+        failed_steps: &failed_steps,
+        files_context: &files_context,
+        ref_context: &ref_context,
+        culprit_contents: &culprit_contents,
+    });
+
+    prompt
+}
+
 //
 // REPAIRING
 //
@@ -929,10 +1052,18 @@ pub async fn do_repairing(
 
     let attempt_bundle = format!("{}{}", attempt_note, loop_warning);
 
-    let prompt = crate::constitution::CONSTITUTION.to_string() + &format!(
-        "Goal: {}\n\nATTEMPT INFO: {}\n\nHINTS: {}{}\n\nFAILED STEPS:\n{}\n\nCURRENT FILES:\n{}{}{}\nFix ALL issues.",
-        goal, &attempt_bundle, combined_hints, mutation_note, all_err, files_context, ref_context, culprit_contents
-    );
+    let prompt_sections = RepairPromptSections {
+        goal,
+        attempt_bundle: &attempt_bundle,
+        combined_hints: &combined_hints,
+        mutation_note: &mutation_note,
+        failed_steps: &all_err,
+        files_context: &files_context,
+        ref_context: &ref_context,
+        culprit_contents: &culprit_contents,
+    };
+
+    let prompt = build_budgeted_repair_prompt(&prompt_sections);
 
     match plan_with_resilience(llm, prompt, ctx.bench_mode).await {
         Ok(commands) => {
@@ -1002,5 +1133,32 @@ mod tests {
             }),
             None
         );
+    }
+
+    #[test]
+    fn test_truncate_for_prompt_respects_limit() {
+        let out = truncate_for_prompt(&"x".repeat(20), 8);
+        assert_eq!(out.chars().count(), 8);
+        assert!(out.ends_with('…'));
+    }
+
+    #[test]
+    fn test_build_budgeted_repair_prompt_respects_global_cap() {
+        let long = "x".repeat(60_000);
+        let sections = RepairPromptSections {
+            goal: "goal",
+            attempt_bundle: &long,
+            combined_hints: &long,
+            mutation_note: &long,
+            failed_steps: &long,
+            files_context: &long,
+            ref_context: &long,
+            culprit_contents: &long,
+        };
+
+        let prompt = build_budgeted_repair_prompt(&sections);
+        assert!(prompt.chars().count() <= MAX_REPAIR_PROMPT_CHARS);
+        assert!(prompt.contains("Goal: goal"));
+        assert!(prompt.contains("Fix ALL issues."));
     }
 }
