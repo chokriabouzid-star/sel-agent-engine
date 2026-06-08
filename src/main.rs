@@ -7,7 +7,7 @@ mod failure;
 pub mod llm;
 mod trajectory_index;
 mod workspace_oracle;
-// src/main.rs  SEL Agent v8.9.0
+// src/main.rs — SEL Agent entrypoint
 mod agent;
 mod chunker;
 mod constraint_engine;

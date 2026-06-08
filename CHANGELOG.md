@@ -1,3 +1,34 @@
+# CHANGELOG
+
+## [9.0.0] - 2026-06-08
+
+### Added
+- Adaptive repair routing wired into the live runtime path
+- Smart repair context wired into `do_repairing()`
+- Recent edit tracking for smart repair context scoring
+- Dependency graph caching across repair attempts
+- Expanded Rust dependency parser support for `pub mod`, `use crate::`, `use self::`, and `use super::`
+
+### Changed
+- Repair loop escalation now detects same-error streaks and injects stronger guidance
+- Repeated constitution violations now force `ForceSourceOnly`
+- `RepairCtx::build()` now scans recursively instead of top-level only
+- Version consistency uses `Cargo.toml` as single source of truth
+
+### Repository Hygiene
+- Removed tracked `.bak*` source snapshots
+- Removed ad-hoc patch scripts used to mutate source files directly
+- Added maintainer notes for source-of-truth and cleanup policy
+
+### Verified
+- `cargo check`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test` → 304/304
+- `bash scripts/regression_gate.sh core` → PASS
+  - bench all replay: 36/36
+  - bench-swe replay: 30/30
+  - bench-sel-v11 replay: 18/18
+
 # Changelog
 
 ## v8.9.0 — Pattern Library (2026-06-06)
