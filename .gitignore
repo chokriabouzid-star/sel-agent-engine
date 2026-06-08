@@ -54,3 +54,7 @@ test_ws_corrupt/
 complex_bug_demo/
 bench_results/
 swe *.txt
+
+# local/manual patch backups
+*.bak
+*.bak*
