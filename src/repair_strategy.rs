@@ -485,6 +485,7 @@ mod tests {
             failure_count: 0,
             usage_count: 2,
             last_seen_utc: "2026-01-01T00:00:00Z".into(),
+            failed_contexts: vec![],
             example_fix: None,
         };
         let prompt = build_prompt(1, "ImportError", &ctx, Some(&pattern), &pattern.route);
@@ -511,6 +512,7 @@ mod tests {
             failure_count: 0,
             usage_count: 3,
             last_seen_utc: "2026-01-01T00:00:00Z".into(),
+            failed_contexts: vec![],
             example_fix: Some(
                 "patch_file:src/apiClient.ts | run_tests:npm test".into(),
             ),

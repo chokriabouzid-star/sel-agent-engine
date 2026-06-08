@@ -79,6 +79,9 @@ pub struct Pattern {
     pub last_seen_utc: String,
     /// مثال على fix ناجح (أول واحد فقط)
     pub example_fix: Option<String>,
+    /// سياقات فشل معروفة لهذا النمط (مختصرة ومحدودة)
+    #[serde(default)]
+    pub failed_contexts: Vec<String>,
 }
 
 impl Pattern {
@@ -220,6 +223,7 @@ impl PatternLibrary {
                 p.success_count += 1;
             } else {
                 p.failure_count += 1;
+                remember_failed_context(&mut p.failed_contexts, stderr);
             }
             p.usage_count += 1;
             p.last_seen_utc = now;
@@ -228,6 +232,11 @@ impl PatternLibrary {
             }
         } else {
             // pattern جديد
+            let mut failed_contexts = Vec::new();
+            if !success {
+                remember_failed_context(&mut failed_contexts, stderr);
+            }
+
             self.store.patterns.push(Pattern {
                 id,
                 language: language.to_string(),
@@ -238,6 +247,7 @@ impl PatternLibrary {
                 usage_count: 1,
                 last_seen_utc: now,
                 example_fix: if success { fix } else { None },
+                failed_contexts,
             });
         }
     }
@@ -351,6 +361,37 @@ impl PatternLibrary {
     }
 }
 
+fn compact_failed_context(stderr: &str) -> Option<String> {
+    let lines: Vec<&str> = stderr
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .take(3)
+        .collect();
+
+    if lines.is_empty() {
+        return None;
+    }
+
+    let joined = lines.join(" | ");
+    Some(joined.chars().take(240).collect())
+}
+
+fn remember_failed_context(failed_contexts: &mut Vec<String>, stderr: &str) {
+    let Some(ctx) = compact_failed_context(stderr) else {
+        return;
+    };
+
+    failed_contexts.retain(|existing| existing != &ctx);
+    failed_contexts.push(ctx);
+
+    const MAX_FAILED_CONTEXTS: usize = 5;
+    if failed_contexts.len() > MAX_FAILED_CONTEXTS {
+        let overflow = failed_contexts.len() - MAX_FAILED_CONTEXTS;
+        failed_contexts.drain(0..overflow);
+    }
+}
+
 pub fn infer_language_from_workspace(workspace: &std::path::Path) -> &'static str {
     if workspace.join("Cargo.toml").exists() {
         "rust"
@@ -461,6 +502,7 @@ mod tests {
             failure_count: 5,
             usage_count: 5,
             last_seen_utc: "2026-01-01T00:00:00Z".to_string(),
+            failed_contexts: vec![],
             example_fix: None,
         };
         assert!(!p.is_strong());
@@ -478,6 +520,7 @@ mod tests {
             failure_count: 1,
             usage_count: 4,
             last_seen_utc: "2026-01-01T00:00:00Z".to_string(),
+            failed_contexts: vec![],
             example_fix: None,
         };
         assert!(p.is_strong());
@@ -587,6 +630,52 @@ mod tests {
         assert!(!RepairRoute::RustOwnership.hint().is_empty());
         // Generic لا hint
         assert!(RepairRoute::Generic.hint().is_empty());
+    }
+
+    #[test]
+    fn test_record_failure_adds_failed_context() {
+        let dir = TempDir::new().unwrap();
+        let mut lib = make_lib(&dir);
+
+        lib.record_outcome(
+            "python",
+            "Traceback\nValueError: bad input\nline 42",
+            RepairRoute::Generic,
+            false,
+            None,
+        );
+
+        let p = &lib.store.patterns[0];
+        assert_eq!(p.failed_contexts.len(), 1);
+        assert!(p.failed_contexts[0].contains("Traceback") || p.failed_contexts[0].contains("ValueError"));
+    }
+
+    #[test]
+    fn test_load_old_pattern_without_failed_contexts_defaults_empty() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("patterns.json");
+
+        let raw = r#"{
+  "schema_version": 1,
+  "patterns": [
+    {
+      "id": "python:abc123",
+      "language": "python",
+      "error_signature": "ValueError",
+      "route": "Generic",
+      "success_count": 1,
+      "failure_count": 1,
+      "usage_count": 2,
+      "last_seen_utc": "2026-01-01T00:00:00Z",
+      "example_fix": null
+    }
+  ]
+}"#;
+        std::fs::write(&path, raw).unwrap();
+
+        let lib = PatternLibrary::load_from(path);
+        assert_eq!(lib.pattern_count(), 1);
+        assert!(lib.store.patterns[0].failed_contexts.is_empty());
     }
 
     #[test]
