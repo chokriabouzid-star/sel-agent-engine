@@ -47,6 +47,8 @@ pub struct ExecutionContext {
     pub mutation_survival_counts: std::collections::HashMap<String, u8>, // v8.1: Equivalent mutant tracking
     pub bench_mode: bool, // v8.1: Differentiate run mode and bench mode for test augmentation
     pub recent_edits: Vec<PathBuf>, // v9.0: recent file edits for smart repair context
+    pub cached_dependency_graph: Option<crate::dependency_graph::DependencyGraph>, // v9.0: cached graph for smart repair context
+    pub cached_dependency_graph_workspace: Option<PathBuf>, // v9.0: cache key
 }
 
 impl ExecutionContext {
@@ -87,6 +89,33 @@ impl ExecutionContext {
             let overflow = self.recent_edits.len() - MAX_RECENT_EDITS;
             self.recent_edits.drain(0..overflow);
         }
+    }
+
+    pub fn cached_dependency_graph_for(
+        &self,
+        workspace: &std::path::Path,
+    ) -> Option<&crate::dependency_graph::DependencyGraph> {
+        match (
+            self.cached_dependency_graph_workspace.as_ref(),
+            self.cached_dependency_graph.as_ref(),
+        ) {
+            (Some(cached_ws), Some(graph)) if cached_ws == workspace => Some(graph),
+            _ => None,
+        }
+    }
+
+    pub fn cache_dependency_graph(
+        &mut self,
+        workspace: &std::path::Path,
+        graph: crate::dependency_graph::DependencyGraph,
+    ) {
+        self.cached_dependency_graph_workspace = Some(workspace.to_path_buf());
+        self.cached_dependency_graph = Some(graph);
+    }
+
+    pub fn invalidate_dependency_graph_cache(&mut self) {
+        self.cached_dependency_graph = None;
+        self.cached_dependency_graph_workspace = None;
     }
 }
 
@@ -371,5 +400,24 @@ mod tests {
         assert_eq!(ctx.recent_edits.len(), 16);
         assert_eq!(ctx.recent_edits.first(), Some(&workspace.join("src/file4.rs")));
         assert_eq!(ctx.recent_edits.last(), Some(&workspace.join("src/file19.rs")));
+    }
+
+    #[test]
+    fn test_dependency_graph_cache_roundtrip_and_invalidate() {
+        let workspace = PathBuf::from("/tmp/ws");
+        let mut ctx = ExecutionContext::new(3);
+
+        assert!(ctx.cached_dependency_graph_for(&workspace).is_none());
+
+        let mut graph = crate::dependency_graph::DependencyGraph::new();
+        graph.add_edge("a.py", "b.py", crate::dependency_graph::EdgeKind::Import);
+
+        ctx.cache_dependency_graph(&workspace, graph);
+
+        let cached = ctx.cached_dependency_graph_for(&workspace).unwrap();
+        assert_eq!(cached.edge_count(), 1);
+
+        ctx.invalidate_dependency_graph_cache();
+        assert!(ctx.cached_dependency_graph_for(&workspace).is_none());
     }
 }

@@ -463,6 +463,7 @@ pub async fn do_executing(
                 }
                 if let Some(path) = edited_path_from_cmd(cmd) {
                     ctx.record_recent_edit(&executor.workspace, path);
+                    ctx.invalidate_dependency_graph_cache();
                 }
                 ctx.successful_hashes.insert(cmd_hash.to_string());
             }
@@ -864,6 +865,15 @@ pub async fn do_repairing(
         .filter(|path| path.exists())
         .collect();
 
+    let dependency_graph = ctx
+        .cached_dependency_graph_for(workspace)
+        .cloned()
+        .or_else(|| {
+            let graph = crate::dependency_graph::builder::build_for_workspace(workspace);
+            ctx.cache_dependency_graph(workspace, graph.clone());
+            Some(graph)
+        });
+
     let smart_files_context = crate::context::builder::build_repair_context_block(
         workspace,
         &crate::context::builder::RepairContext {
@@ -874,6 +884,7 @@ pub async fn do_repairing(
             culprit_files: culprit_files.clone(),
             context_config: Some(config.clone()),
             workspace: Some(workspace.to_path_buf()),
+            dependency_graph,
         },
     );
 

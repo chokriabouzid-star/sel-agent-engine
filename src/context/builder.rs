@@ -28,6 +28,7 @@ pub struct RepairContext {
     pub culprit_files: Vec<String>,
     pub context_config: Option<crate::types::ContextConfig>,
     pub workspace: Option<PathBuf>,
+    pub dependency_graph: Option<crate::dependency_graph::DependencyGraph>,
 }
 
 impl Default for RepairContext {
@@ -40,6 +41,7 @@ impl Default for RepairContext {
             culprit_files: vec![],
             context_config: None,
             workspace: None,
+            dependency_graph: None,
         }
     }
 }
@@ -153,10 +155,11 @@ pub fn select_repair_files(
     workspace_files: &[PathBuf],
     ctx: &RepairContext,
 ) -> (Vec<ScoredFile>, BudgetReport) {
-    let graph = ctx
-        .workspace
-        .as_ref()
-        .map(|ws| dependency_graph::builder::build_for_workspace(ws));
+    let graph = ctx.dependency_graph.clone().or_else(|| {
+        ctx.workspace
+            .as_ref()
+            .map(|ws| dependency_graph::builder::build_for_workspace(ws))
+    });
     let cycles = graph
         .as_ref()
         .map(|g| g.detect_cycles())
