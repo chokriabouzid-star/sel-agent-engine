@@ -55,6 +55,11 @@ pub async fn do_planning(
             let patch_issues = crate::decision::validate_patch_uniqueness(workspace, &commands);
             issues.extend(patch_issues);
 
+            let plan_risk = crate::decision::evaluate_plan_risk(workspace, &commands);
+            if plan_risk.should_replan() {
+                issues.extend(plan_risk.feedback_lines());
+            }
+
             if !issues.is_empty() {
                 match replan_with_feedback(ctx, llm, goal, workspace, config, commands, issues)
                     .await
