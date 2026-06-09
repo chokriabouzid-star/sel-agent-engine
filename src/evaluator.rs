@@ -52,7 +52,13 @@ fn compute_correctness(m: &RawMetrics) -> f64 {
     } else {
         0.0
     };
-    (test_ratio + m.mutation_score) / 2.0
+    // mutation_score = -1.0 means not tested — fall back to test_ratio
+    let mutation = if m.mutation_score < 0.0 {
+        test_ratio
+    } else {
+        m.mutation_score
+    };
+    (test_ratio + mutation) / 2.0
 }
 
 fn compute_reliability(m: &RawMetrics) -> f64 {
