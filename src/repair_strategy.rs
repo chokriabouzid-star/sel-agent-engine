@@ -114,8 +114,8 @@ impl RepairCtx {
         if name.ends_with("_test.py") {
             return true;
         }
-        // Rust convention: file in tests/ already handled by dir; also catch inline
-        if name.contains("test") {
+        // Rust convention: specific suffixes only — avoid false positives
+        if name.ends_with("_test.rs") || name.ends_with("_tests.rs") {
             return true;
         }
         false
