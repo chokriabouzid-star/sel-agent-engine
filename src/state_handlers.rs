@@ -948,6 +948,7 @@ pub async fn do_repairing(
     let pattern_lib = crate::pattern_library::PatternLibrary::load();
     let matched_pattern = pattern_lib.lookup(pattern_language, &all_err);
     let mut effective_route = matched_pattern
+        .as_ref()
         .map(|p| p.route.clone())
         .unwrap_or_else(|| crate::pattern_library::infer_route_from_stderr(&all_err));
 
