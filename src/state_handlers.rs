@@ -6,6 +6,28 @@ use crate::types::{AgentState, ContextConfig, ExecutionContext, FailedStep, Fail
 use anyhow::Result;
 use std::path::Path;
 
+fn plan_risk_feedback(workspace: &Path, commands: &[Cmd]) -> Vec<String> {
+    let enabled = std::env::var_os("SEL_DISABLE_PLAN_RISK").is_none();
+    plan_risk_feedback_with_flag(workspace, commands, enabled)
+}
+
+fn plan_risk_feedback_with_flag(
+    workspace: &Path,
+    commands: &[Cmd],
+    enabled: bool,
+) -> Vec<String> {
+    if !enabled {
+        return Vec::new();
+    }
+
+    let plan_risk = crate::decision::evaluate_plan_risk(workspace, commands);
+    if plan_risk.should_replan() {
+        plan_risk.feedback_lines()
+    } else {
+        Vec::new()
+    }
+}
+
 //
 // PLANNING
 //
@@ -55,10 +77,7 @@ pub async fn do_planning(
             let patch_issues = crate::decision::validate_patch_uniqueness(workspace, &commands);
             issues.extend(patch_issues);
 
-            let plan_risk = crate::decision::evaluate_plan_risk(workspace, &commands);
-            if plan_risk.should_replan() {
-                issues.extend(plan_risk.feedback_lines());
-            }
+            issues.extend(plan_risk_feedback(workspace, &commands));
 
             if !issues.is_empty() {
                 match replan_with_feedback(ctx, llm, goal, workspace, config, commands, issues)
@@ -1165,5 +1184,50 @@ mod tests {
         assert!(prompt.chars().count() <= MAX_REPAIR_PROMPT_CHARS);
         assert!(prompt.contains("Goal: goal"));
         assert!(prompt.contains("Fix ALL issues."));
+    }
+
+    #[test]
+    fn test_plan_risk_feedback_respects_toggle() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/lib.rs"), "pub fn a() {}
+").unwrap();
+
+        let risky_plan = vec![Cmd::WriteFile {
+            path: "src/lib.rs".into(),
+            content: "pub fn b() {}
+".into(),
+        }];
+
+        let enabled_feedback = plan_risk_feedback_with_flag(dir.path(), &risky_plan, true);
+        let disabled_feedback = plan_risk_feedback_with_flag(dir.path(), &risky_plan, false);
+
+        assert!(!enabled_feedback.is_empty());
+        assert!(disabled_feedback.is_empty());
+    }
+
+    #[test]
+    fn test_plan_risk_feedback_keeps_safe_plan_clear() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/lib.rs"), "pub fn a() {}
+").unwrap();
+
+        let safe_plan = vec![
+            Cmd::PatchFile {
+                path: "src/lib.rs".into(),
+                search: "a".into(),
+                replace: "b".into(),
+            },
+            Cmd::RunTests {
+                target: "cargo test".into(),
+            },
+            Cmd::Done {
+                message: "ok".into(),
+            },
+        ];
+
+        let feedback = plan_risk_feedback_with_flag(dir.path(), &safe_plan, true);
+        assert!(feedback.is_empty());
     }
 }
