@@ -21,12 +21,19 @@ impl SafeExecutor {
         // --- RUST ---
         if prog == "cargo" || prog.ends_with("/cargo") {
             let rust_ws = find_cargo_workspace(&self.workspace);
+            let mut cmd = TCmd::new("cargo");
+            cmd.args(["test", "--", "--nocapture"])
+                .current_dir(&rust_ws);
+
+            if self.replay_mode {
+                cmd.env("CARGO_NET_OFFLINE", "true")
+                    .env("CARGO_NET_RETRY", "0");
+                eprintln!("[TRACE] Rust replay: forcing cargo offline mode");
+            }
+
             let out = tokio::time::timeout(
                 std::time::Duration::from_secs(self.timeout_secs),
-                TCmd::new("cargo")
-                    .args(["test", "--", "--nocapture"])
-                    .current_dir(&rust_ws)
-                    .output(),
+                cmd.output(),
             )
             .await
             .map_err(|_| anyhow!("cargo test timeout"))??;
