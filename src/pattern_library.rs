@@ -290,10 +290,29 @@ impl PatternLibrary {
     /// - يأخذ أول 120 byte
     pub fn normalize_signature(stderr: &str) -> String {
         // خذ السطر الأول غير الفارغ فقط
+        let noise_prefixes = [
+            "=== RUN",
+            "--- PASS",
+            "--- FAIL",
+            "test session starts",
+            "Compiling ",
+            "Finished ",
+            "Updating crates.io",
+            "test result:",
+            "FAIL	",
+            "ok  	",
+            "running ",
+            "Downloading ",
+            "Downloaded ",
+        ];
+
         let first_line = stderr
             .lines()
             .map(|l| l.trim())
-            .find(|l| !l.is_empty())
+            .find(|l| {
+                !l.is_empty()
+                    && !noise_prefixes.iter().any(|p| l.starts_with(p))
+            })
             .unwrap_or("");
 
         // احذف أرقام الأسطر مثل ":42:" أو "line 42"

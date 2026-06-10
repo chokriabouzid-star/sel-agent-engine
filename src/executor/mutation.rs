@@ -96,6 +96,12 @@ pub fn apply_all_mutations(code: &str) -> Vec<(String, String, String)> {
 
 impl SafeExecutor {
     pub async fn mutation_check(&self, source_file: &str) -> MutationResult {
+        // في replay mode: mutation check يشغّل tests حقيقية خارج trajectory
+        // هذا يكسر determinism ويسبب flakiness — نتجاوزه في replay
+        if self.replay_mode {
+            return MutationResult::Skipped("replay mode — skipped for determinism".into());
+        }
+
         let source_path = self.workspace.join(source_file);
         if !source_path.exists() {
             return MutationResult::Skipped("Path not found".into());

@@ -5,6 +5,25 @@ use crate::types::ExecResult;
 use anyhow::{anyhow, Result};
 use tokio::process::Command as TCmd;
 
+
+fn capture_stderr(combined: &str, max_chars: usize) -> String {
+    if combined.len() <= max_chars {
+        return combined.to_string();
+    }
+    let head_size = max_chars * 2 / 3;
+    let tail_size = max_chars - head_size;
+    let head: String = combined.chars().take(head_size).collect();
+    let tail_start = combined
+        .char_indices()
+        .rev()
+        .nth(tail_size.saturating_sub(1))
+        .map(|(i, _)| i)
+        .unwrap_or(combined.len().saturating_sub(tail_size));
+    format!("{}
+...[truncated]...
+{}", head, &combined[tail_start..])
+}
+
 impl SafeExecutor {
     pub async fn run_tests(&self, target: &str) -> Result<ExecResult> {
         let (prog, args) = self.oracle.resolve_test_command(target);
@@ -80,8 +99,7 @@ impl SafeExecutor {
                 stderr: if success {
                     String::new()
                 } else {
-                    let s = combined.len().saturating_sub(2000);
-                    combined[s..].to_string()
+                    capture_stderr(&combined, 3000)
                 },
                 duration_ms: start.elapsed().as_millis() as u64,
                 autofix_triggered: false,
@@ -169,8 +187,7 @@ impl SafeExecutor {
                 stderr: if success {
                     String::new()
                 } else {
-                    let s = combined.len().saturating_sub(2000);
-                    combined[s..].to_string()
+                    capture_stderr(&combined, 3000)
                 },
                 duration_ms: start.elapsed().as_millis() as u64,
                 autofix_triggered: autofix_active,
@@ -249,8 +266,7 @@ impl SafeExecutor {
                 stderr: if success {
                     String::new()
                 } else {
-                    let s = combined.len().saturating_sub(2000);
-                    combined[s..].to_string()
+                    capture_stderr(&combined, 3000)
                 },
                 duration_ms: start.elapsed().as_millis() as u64,
                 autofix_triggered: autofix_active,
@@ -370,8 +386,7 @@ impl SafeExecutor {
                 stderr: if success {
                     String::new()
                 } else {
-                    let s = combined.len().saturating_sub(2000);
-                    combined[s..].to_string()
+                    capture_stderr(&combined, 3000)
                 },
                 duration_ms: start.elapsed().as_millis() as u64,
                 autofix_triggered: autofix_active,
