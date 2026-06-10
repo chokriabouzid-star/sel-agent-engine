@@ -57,7 +57,7 @@ SEL Agent هو **وكيل هندسة برمجيات مستقل** مكتوب بل
 
 ## 4) سجل الإصدارات
 
-### v9.1.0 — Quality Fixes
+### v9.2.0 — Quality Fixes
 
 #### الإصلاحات السبعة المؤكدة
 
@@ -305,7 +305,7 @@ Pattern
 16) الملخص التنفيذي
 text
 
-SEL Agent v9.1.0 — Verified
+SEL Agent v9.2.0 — Verified
 
 cargo check:    ✅
 cargo clippy:   ✅ 0 warnings
@@ -332,7 +332,7 @@ Active runtime features:
 - replay mutation safety
 - feature impact evaluation protocol
 
-Fixed in v9.1.0:
+Fixed in v9.2.0:
 - matched_pattern hint loss (as_ref fix)
 - stderr tail-only capture
 - is_test_file false positives
