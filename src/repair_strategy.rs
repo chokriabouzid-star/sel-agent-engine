@@ -36,10 +36,7 @@ impl RepairCtx {
             .filter(|e| e.file_type().is_file())
         {
             let path = entry.path();
-            let ext = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("");
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
             if !SUPPORTED_EXTENSIONS.contains(&ext) {
                 continue;
@@ -212,7 +209,6 @@ fn build_route_instruction(route: &crate::pattern_library::RepairRoute) -> Strin
     }
 }
 
-
 /// Build an escalating repair prompt.
 ///
 /// Prompt severity increases with each attempt, and when a loop is detected
@@ -230,10 +226,7 @@ pub fn build_prompt(
     if attempt > MAX_REPAIR_ATTEMPTS {
         return format!(
             "GIVING UP after {} attempts.\n{}{}Last error:\n{}",
-            attempt,
-            route_instruction,
-            pattern_hint,
-            error
+            attempt, route_instruction, pattern_hint, error
         );
     }
 
@@ -264,38 +257,24 @@ pub fn build_prompt(
         (2, false) => format!(
             "Repair attempt 2. Focus on {}, function `{}`.\n\
              {}{}Error:\n{}",
-            ctx.source_file,
-            ctx.function_name,
-            route_instruction,
-            pattern_hint,
-            error
+            ctx.source_file, ctx.function_name, route_instruction, pattern_hint, error
         ),
         (2, true) => format!(
             "SAME ERROR REPEATED  stop patching tests.\n\
              Which exact line in {} is wrong? Fix ONLY that line.\n\
              {}{}Error:\n{}",
-            ctx.source_file,
-            route_instruction,
-            pattern_hint,
-            error
+            ctx.source_file, route_instruction, pattern_hint, error
         ),
         (_, true) => format!(
             "ALL patches failed. REWRITE `{}` from scratch.\n\
              Implement `{}` correctly. Don't copy the broken version.\n\
              {}{}Error:\n{}",
-            ctx.source_file,
-            ctx.function_name,
-            route_instruction,
-            pattern_hint,
-            error
+            ctx.source_file, ctx.function_name, route_instruction, pattern_hint, error
         ),
         (_, false) => format!(
             "Repair attempt {}. Carefully read the error and fix the root cause.\n\
              {}{}Error:\n{}",
-            attempt,
-            route_instruction,
-            pattern_hint,
-            error
+            attempt, route_instruction, pattern_hint, error
         ),
     }
 }
@@ -399,7 +378,13 @@ mod tests {
             function_name: "Add".into(),
             prev_errors: vec![],
         };
-        let prompt = build_prompt(1, "undefined: Add", &ctx, None, &crate::pattern_library::RepairRoute::Generic);
+        let prompt = build_prompt(
+            1,
+            "undefined: Add",
+            &ctx,
+            None,
+            &crate::pattern_library::RepairRoute::Generic,
+        );
         assert!(prompt.contains("Fix SOURCE FILES only"));
         assert!(prompt.contains("NEVER touch test files"));
     }
@@ -413,7 +398,13 @@ mod tests {
             function_name: "Add".into(),
             prev_errors: vec!["same error".into(), "same error".into()],
         };
-        let prompt = build_prompt(2, "same error", &ctx, None, &crate::pattern_library::RepairRoute::Generic);
+        let prompt = build_prompt(
+            2,
+            "same error",
+            &ctx,
+            None,
+            &crate::pattern_library::RepairRoute::Generic,
+        );
         assert!(prompt.contains("SAME ERROR REPEATED"));
     }
 
@@ -426,7 +417,13 @@ mod tests {
             function_name: "parse".into(),
             prev_errors: vec!["err".into(), "err".into()],
         };
-        let prompt = build_prompt(4, "err", &ctx, None, &crate::pattern_library::RepairRoute::Generic);
+        let prompt = build_prompt(
+            4,
+            "err",
+            &ctx,
+            None,
+            &crate::pattern_library::RepairRoute::Generic,
+        );
         assert!(prompt.contains("REWRITE"));
     }
 
@@ -439,7 +436,13 @@ mod tests {
             function_name: "f".into(),
             prev_errors: vec![],
         };
-        let prompt = build_prompt(MAX_REPAIR_ATTEMPTS + 1, "fatal", &ctx, None, &crate::pattern_library::RepairRoute::Generic);
+        let prompt = build_prompt(
+            MAX_REPAIR_ATTEMPTS + 1,
+            "fatal",
+            &ctx,
+            None,
+            &crate::pattern_library::RepairRoute::Generic,
+        );
         assert!(prompt.contains("GIVING UP"));
     }
 
@@ -513,11 +516,15 @@ mod tests {
             usage_count: 3,
             last_seen_utc: "2026-01-01T00:00:00Z".into(),
             failed_contexts: vec![],
-            example_fix: Some(
-                "patch_file:src/apiClient.ts | run_tests:npm test".into(),
-            ),
+            example_fix: Some("patch_file:src/apiClient.ts | run_tests:npm test".into()),
         };
-        let prompt = build_prompt(1, "Cannot find module", &ctx, Some(&pattern), &pattern.route);
+        let prompt = build_prompt(
+            1,
+            "Cannot find module",
+            &ctx,
+            Some(&pattern),
+            &pattern.route,
+        );
         assert!(prompt.contains("Example successful fix:"));
         assert!(prompt.contains("patch_file:src/apiClient.ts"));
     }

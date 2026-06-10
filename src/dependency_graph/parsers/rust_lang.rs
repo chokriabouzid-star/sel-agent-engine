@@ -312,7 +312,10 @@ mod tests {
                 "use crate::dependency_graph::builder::build_for_workspace;\n",
             ),
             ("src/dependency_graph/mod.rs", "pub mod builder;\n"),
-            ("src/dependency_graph/builder.rs", "pub fn build_for_workspace() {}\n"),
+            (
+                "src/dependency_graph/builder.rs",
+                "pub fn build_for_workspace() {}\n",
+            ),
         ]);
         let parser = RustParser;
         let resolved = parser.resolve_import(

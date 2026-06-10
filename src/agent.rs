@@ -516,28 +516,26 @@ fn latest_pattern_error(
     failure_reason: Option<&str>,
 ) -> String {
     // Priority 1: failed_steps الحالية
-    if let Some(err) = ctx
-        .failed_steps
-        .iter()
-        .rev()
-        .find_map(|f| {
-            let s = f.stderr.trim();
-            if s.is_empty() { None } else { Some(s.to_string()) }
-        })
-    {
+    if let Some(err) = ctx.failed_steps.iter().rev().find_map(|f| {
+        let s = f.stderr.trim();
+        if s.is_empty() {
+            None
+        } else {
+            Some(s.to_string())
+        }
+    }) {
         return err;
     }
 
     // Priority 2: last_failed_steps من الجولة السابقة
-    if let Some(err) = ctx
-        .last_failed_steps
-        .iter()
-        .rev()
-        .find_map(|f| {
-            let s = f.stderr.trim();
-            if s.is_empty() { None } else { Some(s.to_string()) }
-        })
-    {
+    if let Some(err) = ctx.last_failed_steps.iter().rev().find_map(|f| {
+        let s = f.stderr.trim();
+        if s.is_empty() {
+            None
+        } else {
+            Some(s.to_string())
+        }
+    }) {
         return err;
     }
 

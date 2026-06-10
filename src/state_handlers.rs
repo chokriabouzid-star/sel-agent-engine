@@ -11,11 +11,7 @@ fn plan_risk_feedback(workspace: &Path, commands: &[Cmd]) -> Vec<String> {
     plan_risk_feedback_with_flag(workspace, commands, enabled)
 }
 
-fn plan_risk_feedback_with_flag(
-    workspace: &Path,
-    commands: &[Cmd],
-    enabled: bool,
-) -> Vec<String> {
+fn plan_risk_feedback_with_flag(workspace: &Path, commands: &[Cmd], enabled: bool) -> Vec<String> {
     if !enabled {
         return Vec::new();
     }
@@ -145,6 +141,7 @@ fn build_planning_prompt(
     let constraints = ecm.derive_constraints();
     let goal_clarity = crate::decision::GoalClarity::analyze(goal);
     let clarity_instruction = goal_clarity.planning_hint();
+    let advisory_hints = crate::decision::goal_advisory_hints(goal);
     let lang_hint = crate::decision::build_lang_hint(workspace);
     let ws_ctx = crate::decision::build_workspace_context(workspace);
     let existing_files = if !ws_ctx.is_empty() {
@@ -175,6 +172,15 @@ fn build_planning_prompt(
         format!("\nGOAL CLARITY HINT:\n{}\n", clarity_instruction)
     };
 
+    let advisory_hint_block = if advisory_hints.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nGOAL ADVISORY HINTS:\n- {}\n",
+            advisory_hints.join("\n- ")
+        )
+    };
+
     let thinking_prompt = format!(
         "\n\n## Required Analysis\n\
 Before writing the JSON plan, think step-by-step inside <think>...</think> tags:\n\
@@ -190,9 +196,8 @@ CRITICAL PROTOCOL REMINDER:\n\
 - Every plan MUST contain run_tests BEFORE done (non-negotiable)\n\
 - pip install: use venv/bin/pip install <pkg>\n\
 - Cargo.toml: use write_file with complete content when adding dependencies\n\
-{}{}",
-        repair_instruction,
-        clarity_hint_block
+{}{}{}",
+        repair_instruction, clarity_hint_block, advisory_hint_block
     );
 
     crate::constitution::CONSTITUTION.to_string()
@@ -295,33 +300,69 @@ fn replan_with_feedback<'a>(
     Box::pin(async move {
         ctx.replan_attempts += 1;
         if ctx.replan_attempts > 2 {
-            println!("   ⚠️  Max replan attempts (2) reached  proceeding with original plan");
+            println!("   ⚠️  Max replan attempts (2) reached - proceeding with original plan");
             return Ok(original_plan);
         }
-        println!(
-            "\n   🔧 v5.6 Replan {}/2  patch uniqueness issues:",
-            ctx.replan_attempts
-        );
+
+        println!("\n   🔧 Replan {}/2 - plan issues:", ctx.replan_attempts);
         for issue in &issues {
             println!("       {}", issue);
         }
 
+        let plan_risk_issues: Vec<&str> = issues
+            .iter()
+            .filter(|i| i.starts_with("PLAN RISK:"))
+            .map(|i| i.as_str())
+            .collect();
+
+        let other_issues: Vec<&str> = issues
+            .iter()
+            .filter(|i| !i.starts_with("PLAN RISK:"))
+            .map(|i| i.as_str())
+            .collect();
+
+        let plan_risk_block = if plan_risk_issues.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "PLAN RISK VIOLATIONS (fix these first):\n{}\n\
+                 - Do NOT use write_file on existing source files; prefer patch_file for surgical fixes.\n\
+                 - Do NOT modify existing test files; fix implementation files instead.\n\
+                 - Do NOT use delete_file unless it is strictly unavoidable and justified.\n\n",
+                plan_risk_issues.join("\n")
+            )
+        };
+
+        let other_issues_block = if other_issues.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "PLAN VALIDATION ISSUES:\n{}\n\
+                 - Each patch_file search block must appear EXACTLY ONCE in the target file.\n\
+                 - If search block is not found and the file does not exist yet, use write_file instead.\n\
+                 - If search block appears multiple times, add more surrounding context lines.\n\
+                 - Copy patch_file search text VERBATIM from the file (case-sensitive, exact whitespace).\n\n",
+                other_issues.join("\n")
+            )
+        };
+
         let feedback = format!(
-            "PLAN REJECTED  patch_file uniqueness issues:\n{}\n\n\
-             MANDATORY RULES:\n\
-             1. Each patch_file search block must appear EXACTLY ONCE in the target file.\n\
-             2. If search block not found  file does not exist yet, use write_file instead.\n\
-             3. If found multiple times  add more surrounding context lines to make it unique.\n\
-             4. Copy search text VERBATIM from the file (case-sensitive, exact whitespace).\n\n\
-             Provide corrected execution plan.",
-            issues.join("\n")
+            "PLAN REJECTED - fix the following issues before execution.\n\n{}{}Provide corrected execution plan.",
+            plan_risk_block,
+            other_issues_block,
         );
 
-        let existing_files = if config.ref_file.is_some() {
-            crate::decision::build_skeleton_context(workspace)
-        } else {
-            String::new()
+        let existing_files = {
+            let ws_ctx = crate::decision::build_workspace_context(workspace);
+            if !ws_ctx.is_empty() {
+                ws_ctx
+            } else if config.ref_file.is_some() {
+                crate::decision::build_skeleton_context(workspace)
+            } else {
+                String::new()
+            }
         };
+
         let ref_context = crate::decision::build_ref_context(config);
         let lang_hint = crate::decision::build_lang_hint(workspace);
         let prompt = crate::constitution::CONSTITUTION.to_string()
@@ -331,14 +372,48 @@ fn replan_with_feedback<'a>(
             );
 
         match plan_with_resilience(llm, prompt, ctx.bench_mode).await {
-            Ok(new_plan) => {
-                let new_issues = crate::decision::validate_patch_uniqueness(workspace, &new_plan);
+            Ok(candidate_plan) => {
+                let commands_count = candidate_plan.len();
+                let env = crate::constraint_engine::ProjectEnv::detect(workspace);
+                let project_state = crate::constraint_engine::ProjectState::scan(workspace);
+
+                let candidate_plan =
+                    match crate::constraint_engine::apply(candidate_plan, &env, &project_state) {
+                        crate::constraint_engine::ConstraintResult::Ok(filtered) => {
+                            if filtered.len() < commands_count {
+                                println!(
+                                    "   ⚙️  Constraint Engine: filtered {} commands",
+                                    commands_count - filtered.len()
+                                );
+                            }
+                            filtered
+                        }
+                        crate::constraint_engine::ConstraintResult::Fatal(reason) => {
+                            return Err(reason);
+                        }
+                    };
+
+                let mut new_issues = crate::decision::validate_plan_integrity(&candidate_plan);
+                new_issues.extend(crate::decision::validate_patch_uniqueness(
+                    workspace,
+                    &candidate_plan,
+                ));
+                new_issues.extend(plan_risk_feedback(workspace, &candidate_plan));
+
                 if new_issues.is_empty() {
-                    println!("   ✅ v5.6 Replan successful  all patches unique");
-                    Ok(new_plan)
+                    println!("   ✅ Replan successful - plan issues resolved");
+                    Ok(candidate_plan)
                 } else {
-                    replan_with_feedback(ctx, llm, goal, workspace, config, new_plan, new_issues)
-                        .await
+                    replan_with_feedback(
+                        ctx,
+                        llm,
+                        goal,
+                        workspace,
+                        config,
+                        candidate_plan,
+                        new_issues,
+                    )
+                    .await
                 }
             }
             Err(e) => Err(e),
@@ -641,9 +716,7 @@ fn trailing_same_fingerprint_count(history: &[u64], current: u64) -> usize {
 }
 
 fn recent_constitution_violation_count(error_history: &[String], current_error: &str) -> usize {
-    let current = usize::from(
-        current_error.contains("CONSTITUTION_VIOLATION:no-modify-tests"),
-    );
+    let current = usize::from(current_error.contains("CONSTITUTION_VIOLATION:no-modify-tests"));
 
     current
         + error_history
@@ -741,7 +814,10 @@ fn build_budgeted_repair_prompt(sections: &RepairPromptSections<'_>) -> String {
         culprit_contents: &culprit_contents,
     });
 
-    let mut overflow = prompt.chars().count().saturating_sub(MAX_REPAIR_PROMPT_CHARS);
+    let mut overflow = prompt
+        .chars()
+        .count()
+        .saturating_sub(MAX_REPAIR_PROMPT_CHARS);
     if overflow == 0 {
         return prompt;
     }
@@ -940,8 +1016,7 @@ pub async fn do_repairing(
         );
     }
 
-    let constitution_violation_count =
-        recent_constitution_violation_count(error_history, &all_err);
+    let constitution_violation_count = recent_constitution_violation_count(error_history, &all_err);
 
     let repair_ctx = crate::repair_strategy::RepairCtx::build(workspace, goal, error_history);
     let pattern_language = crate::pattern_library::infer_language_from_workspace(workspace);
@@ -953,9 +1028,7 @@ pub async fn do_repairing(
         .unwrap_or_else(|| crate::pattern_library::infer_route_from_stderr(&all_err));
 
     if constitution_violation_count >= 2 {
-        println!(
-            "   🚫 Repeated constitution violation detected  forcing ForceSourceOnly route."
-        );
+        println!("   🚫 Repeated constitution violation detected  forcing ForceSourceOnly route.");
         effective_route = crate::pattern_library::RepairRoute::ForceSourceOnly;
     }
 
@@ -1099,7 +1172,6 @@ pub async fn do_repairing(
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1128,10 +1200,8 @@ mod tests {
             "some other error".to_string(),
             "CONSTITUTION_VIOLATION:no-modify-tests".to_string(),
         ];
-        let count = recent_constitution_violation_count(
-            &history,
-            "CONSTITUTION_VIOLATION:no-modify-tests",
-        );
+        let count =
+            recent_constitution_violation_count(&history, "CONSTITUTION_VIOLATION:no-modify-tests");
         assert_eq!(count, 2);
     }
 
@@ -1191,13 +1261,18 @@ mod tests {
     fn test_plan_risk_feedback_respects_toggle() {
         let dir = tempfile::TempDir::new().unwrap();
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
-        std::fs::write(dir.path().join("src/lib.rs"), "pub fn a() {}
-").unwrap();
+        std::fs::write(
+            dir.path().join("src/lib.rs"),
+            "pub fn a() {}
+",
+        )
+        .unwrap();
 
         let risky_plan = vec![Cmd::WriteFile {
             path: "src/lib.rs".into(),
             content: "pub fn b() {}
-".into(),
+"
+            .into(),
         }];
 
         let enabled_feedback = plan_risk_feedback_with_flag(dir.path(), &risky_plan, true);
@@ -1211,8 +1286,12 @@ mod tests {
     fn test_plan_risk_feedback_keeps_safe_plan_clear() {
         let dir = tempfile::TempDir::new().unwrap();
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
-        std::fs::write(dir.path().join("src/lib.rs"), "pub fn a() {}
-").unwrap();
+        std::fs::write(
+            dir.path().join("src/lib.rs"),
+            "pub fn a() {}
+",
+        )
+        .unwrap();
 
         let safe_plan = vec![
             Cmd::PatchFile {

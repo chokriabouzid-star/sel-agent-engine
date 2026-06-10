@@ -369,7 +369,6 @@ impl Default for ContextConfig {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -398,8 +397,14 @@ mod tests {
         }
 
         assert_eq!(ctx.recent_edits.len(), 16);
-        assert_eq!(ctx.recent_edits.first(), Some(&workspace.join("src/file4.rs")));
-        assert_eq!(ctx.recent_edits.last(), Some(&workspace.join("src/file19.rs")));
+        assert_eq!(
+            ctx.recent_edits.first(),
+            Some(&workspace.join("src/file4.rs"))
+        );
+        assert_eq!(
+            ctx.recent_edits.last(),
+            Some(&workspace.join("src/file19.rs"))
+        );
     }
 
     #[test]

@@ -30,27 +30,15 @@ impl RepairRoute {
     pub fn hint(&self) -> &'static str {
         match self {
             Self::Generic => "",
-            Self::ForceSourceOnly => {
-                "Fix source files only — never touch test files."
-            }
-            Self::MissingDependency => {
-                "Add the missing import or install the missing dependency."
-            }
+            Self::ForceSourceOnly => "Fix source files only — never touch test files.",
+            Self::MissingDependency => "Add the missing import or install the missing dependency.",
             Self::FunctionDeleted => {
                 "The function was deleted — restore it from context or rewrite it."
             }
-            Self::NullGuard => {
-                "Add a nil/null check before using the value."
-            }
-            Self::RustOwnership => {
-                "Use clone() or a reference to fix the ownership issue."
-            }
-            Self::CircularImport => {
-                "Restructure imports to break the circular dependency."
-            }
-            Self::TypeMismatch => {
-                "Verify the types match — check return type and argument types."
-            }
+            Self::NullGuard => "Add a nil/null check before using the value.",
+            Self::RustOwnership => "Use clone() or a reference to fix the ownership issue.",
+            Self::CircularImport => "Restructure imports to break the circular dependency.",
+            Self::TypeMismatch => "Verify the types match — check return type and argument types.",
         }
     }
 }
@@ -309,10 +297,7 @@ impl PatternLibrary {
         let first_line = stderr
             .lines()
             .map(|l| l.trim())
-            .find(|l| {
-                !l.is_empty()
-                    && !noise_prefixes.iter().any(|p| l.starts_with(p))
-            })
+            .find(|l| !l.is_empty() && !noise_prefixes.iter().any(|p| l.starts_with(p)))
             .unwrap_or("");
 
         // احذف أرقام الأسطر مثل ":42:" أو "line 42"
@@ -472,7 +457,6 @@ pub fn infer_route_from_stderr(stderr: &str) -> RepairRoute {
     }
 }
 
-
 // ─────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────
@@ -490,7 +474,9 @@ mod tests {
     fn test_lookup_returns_none_when_empty() {
         let dir = TempDir::new().unwrap();
         let lib = make_lib(&dir);
-        assert!(lib.lookup("python", "ModuleNotFoundError: No module named 'utils'").is_none());
+        assert!(lib
+            .lookup("python", "ModuleNotFoundError: No module named 'utils'")
+            .is_none());
     }
 
     #[test]
@@ -570,7 +556,12 @@ mod tests {
         lib.record_outcome("go", stderr, RepairRoute::FunctionDeleted, false, None);
         lib.record_outcome("go", stderr, RepairRoute::FunctionDeleted, true, None);
 
-        let p = lib.store.patterns.iter().find(|p| p.language == "go").unwrap();
+        let p = lib
+            .store
+            .patterns
+            .iter()
+            .find(|p| p.language == "go")
+            .unwrap();
         assert_eq!(p.success_count, 2);
         assert_eq!(p.failure_count, 1);
         assert_eq!(p.usage_count, 3);
@@ -611,7 +602,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("patterns.json");
         let mut lib = PatternLibrary::load_from(path.clone());
-        lib.record_outcome("python", "SyntaxError: invalid syntax", RepairRoute::Generic, false, None);
+        lib.record_outcome(
+            "python",
+            "SyntaxError: invalid syntax",
+            RepairRoute::Generic,
+            false,
+            None,
+        );
         lib.save();
         let lib2 = PatternLibrary::load_from(path);
         assert_eq!(lib2.store.schema_version, 1);
@@ -619,7 +616,8 @@ mod tests {
 
     #[test]
     fn test_match_score_exact() {
-        let score = PatternLibrary::match_score("cannot borrow as mutable", "cannot borrow as mutable");
+        let score =
+            PatternLibrary::match_score("cannot borrow as mutable", "cannot borrow as mutable");
         assert_eq!(score, 100);
     }
 
@@ -666,7 +664,10 @@ mod tests {
 
         let p = &lib.store.patterns[0];
         assert_eq!(p.failed_contexts.len(), 1);
-        assert!(p.failed_contexts[0].contains("Traceback") || p.failed_contexts[0].contains("ValueError"));
+        assert!(
+            p.failed_contexts[0].contains("Traceback")
+                || p.failed_contexts[0].contains("ValueError")
+        );
     }
 
     #[test]
@@ -715,4 +716,3 @@ mod tests {
         assert_eq!(route, RepairRoute::RustOwnership);
     }
 }
-

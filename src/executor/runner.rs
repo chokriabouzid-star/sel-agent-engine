@@ -5,7 +5,6 @@ use crate::types::ExecResult;
 use anyhow::{anyhow, Result};
 use tokio::process::Command as TCmd;
 
-
 fn capture_stderr(combined: &str, max_chars: usize) -> String {
     if combined.len() <= max_chars {
         return combined.to_string();
@@ -19,9 +18,13 @@ fn capture_stderr(combined: &str, max_chars: usize) -> String {
         .nth(tail_size.saturating_sub(1))
         .map(|(i, _)| i)
         .unwrap_or(combined.len().saturating_sub(tail_size));
-    format!("{}
+    format!(
+        "{}
 ...[truncated]...
-{}", head, &combined[tail_start..])
+{}",
+        head,
+        &combined[tail_start..]
+    )
 }
 
 impl SafeExecutor {

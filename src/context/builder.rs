@@ -181,39 +181,98 @@ pub fn select_repair_files(
         .unwrap_or(MAX_CONTEXT_FILES)
         .min(MAX_CONTEXT_FILES);
 
-    let mut selected = vec![];
+    // Force-include files must NEVER be dropped silently.
+    // If budget is tight, we truncate them rather than omit them.
+    const FORCE_INCLUDE_MAX_CHARS: usize = 4_000;
+
+    let truncate_force_include = |content: &str| -> String {
+        if content.chars().count() <= FORCE_INCLUDE_MAX_CHARS {
+            return content.to_string();
+        }
+        let mut out: String = content.chars().take(FORCE_INCLUDE_MAX_CHARS).collect();
+        out.push_str("\n... [truncated: force_include file too large for repair budget]");
+        out
+    };
+
+    let force_paths: std::collections::HashSet<PathBuf> =
+        ctx.force_include.iter().cloned().collect();
+
+    let mut selected: Vec<ScoredFile> = Vec::new();
+    let mut deferred: Vec<ScoredFile> = Vec::new();
     let mut tokens_after = 0usize;
 
-    for file in scored {
+    // Phase 1: reserve force_include files first, using scored/chunked content when available.
+    for mut file in scored {
+        if force_paths.contains(&file.path) {
+            if !file.reasons.iter().any(|r| r == "force_include") {
+                file.reasons.insert(0, "force_include".to_string());
+            }
+
+            let original_chars = file.content.chars().count();
+            if original_chars > FORCE_INCLUDE_MAX_CHARS {
+                file.content = truncate_force_include(&file.content);
+                eprintln!(
+                    "[TRACE] force_include truncated: {} ({} chars -> {} chars)",
+                    file.path.display(),
+                    original_chars,
+                    file.content.chars().count()
+                );
+            }
+
+            tokens_after += estimate_tokens(&file.content);
+            selected.push(file);
+        } else {
+            deferred.push(file);
+        }
+    }
+
+    // Phase 1b: if a force_include file was not in workspace_files/scored set,
+    // still include it directly from disk.
+    for path in &ctx.force_include {
+        if selected.iter().any(|s| &s.path == path) {
+            continue;
+        }
+        if let Ok(content) = std::fs::read_to_string(path) {
+            let content = truncate_force_include(&content);
+            tokens_after += estimate_tokens(&content);
+            selected.push(ScoredFile {
+                path: path.clone(),
+                content,
+                score: u8::MAX,
+                reasons: vec!["force_include".to_string()],
+            });
+            eprintln!(
+                "[TRACE] force_include added from disk fallback: {}",
+                path.display()
+            );
+        }
+    }
+
+    if tokens_after > ctx.max_tokens {
+        eprintln!(
+            "[TRACE] force_include files exceed repair token budget: reserved={} budget={}",
+            tokens_after, ctx.max_tokens
+        );
+    }
+
+    let force_tokens = tokens_after;
+    let remaining_tokens = ctx.max_tokens.saturating_sub(force_tokens);
+    let extra_file_slots = max_files.saturating_sub(selected.len());
+
+    // Phase 2: fill remaining budget with best scored files.
+    for (extra_selected, file) in deferred.into_iter().enumerate() {
         if file.score < MIN_SCORE {
             break;
         }
-        if selected.len() >= max_files {
+        if extra_selected >= extra_file_slots {
             break;
         }
         let file_tokens = estimate_tokens(&file.content);
-        if tokens_after + file_tokens > ctx.max_tokens {
+        if tokens_after.saturating_sub(force_tokens) + file_tokens > remaining_tokens {
             break;
         }
         tokens_after += file_tokens;
         selected.push(file);
-    }
-
-    for path in &ctx.force_include {
-        if !selected.iter().any(|s| &s.path == path) {
-            if let Ok(content) = std::fs::read_to_string(path) {
-                let tokens = estimate_tokens(&content);
-                if tokens_after + tokens <= ctx.max_tokens {
-                    tokens_after += tokens;
-                    selected.push(ScoredFile {
-                        path: path.clone(),
-                        content,
-                        score: 0,
-                        reasons: vec!["force_include".to_string()],
-                    });
-                }
-            }
-        }
     }
 
     let selected_files = selected.len();
@@ -459,5 +518,35 @@ mod tests {
 
         let (selected, _) = select_repair_files(&files, &ctx);
         assert_eq!(selected.len(), 1);
+    }
+
+    #[test]
+    fn test_select_repair_files_force_include_survives_budget() {
+        let dir = setup(&[
+            ("big.py", &"x".repeat(6_000)),
+            ("small.py", "print('ok')\n"),
+        ]);
+
+        let files = collect_workspace_files(dir.path());
+        let ctx = RepairContext {
+            stderr: "Error in big.py".to_string(),
+            force_include: vec![dir.path().join("big.py")],
+            culprit_files: vec!["big.py".to_string()],
+            max_tokens: 10,
+            context_config: Some(crate::types::ContextConfig {
+                ref_file: None,
+                focus_paths: vec![],
+                max_context_files: 1,
+            }),
+            workspace: Some(dir.path().to_path_buf()),
+            ..Default::default()
+        };
+
+        let (selected, budget) = select_repair_files(&files, &ctx);
+        assert!(selected.iter().any(|f| f.path.ends_with("big.py")));
+        assert!(selected
+            .iter()
+            .any(|f| f.reasons.iter().any(|r| r == "force_include")));
+        assert!(budget.selected_files >= 1);
     }
 }
