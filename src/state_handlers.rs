@@ -24,6 +24,23 @@ fn plan_risk_feedback_with_flag(workspace: &Path, commands: &[Cmd], enabled: boo
     }
 }
 
+fn record_plan_risk_telemetry(
+    ctx: &mut ExecutionContext,
+    commands: &[Cmd],
+    plan_risk_issues: &[String],
+) {
+    if plan_risk_issues.is_empty() {
+        return;
+    }
+
+    ctx.plan_risk_triggered = true;
+    ctx.plan_risk_reasons = plan_risk_issues.to_vec();
+
+    if ctx.commands_before_replan == 0 {
+        ctx.commands_before_replan = commands.len();
+    }
+}
+
 //
 // PLANNING
 //
@@ -38,6 +55,12 @@ pub async fn do_planning(
     if let Some(reason) = crate::decision::validate_goal(goal) {
         return Ok((Vec::new(), AgentState::Failed(reason.to_string())));
     }
+
+    // v9.2.1: reset plan risk telemetry for this planning session
+    ctx.plan_risk_triggered = false;
+    ctx.plan_risk_reasons.clear();
+    ctx.replan_count = 0;
+    ctx.commands_before_replan = 0;
 
     let elapsed = ctx
         .start_time
@@ -73,7 +96,9 @@ pub async fn do_planning(
             let patch_issues = crate::decision::validate_patch_uniqueness(workspace, &commands);
             issues.extend(patch_issues);
 
-            issues.extend(plan_risk_feedback(workspace, &commands));
+            let plan_risk_issues = plan_risk_feedback(workspace, &commands);
+            record_plan_risk_telemetry(ctx, &commands, &plan_risk_issues);
+            issues.extend(plan_risk_issues);
 
             if !issues.is_empty() {
                 match replan_with_feedback(ctx, llm, goal, workspace, config, commands, issues)
@@ -299,6 +324,11 @@ fn replan_with_feedback<'a>(
 > {
     Box::pin(async move {
         ctx.replan_attempts += 1;
+        ctx.replan_count += 1;
+        if ctx.commands_before_replan == 0 {
+            ctx.commands_before_replan = original_plan.len();
+        }
+
         if ctx.replan_attempts > 2 {
             println!("   ⚠️  Max replan attempts (2) reached - proceeding with original plan");
             return Ok(original_plan);
@@ -399,6 +429,12 @@ fn replan_with_feedback<'a>(
                     &candidate_plan,
                 ));
                 new_issues.extend(plan_risk_feedback(workspace, &candidate_plan));
+                let new_plan_risk_issues: Vec<String> = new_issues
+                    .iter()
+                    .filter(|i| i.starts_with("PLAN RISK:"))
+                    .cloned()
+                    .collect();
+                record_plan_risk_telemetry(ctx, &candidate_plan, &new_plan_risk_issues);
 
                 if new_issues.is_empty() {
                     println!("   ✅ Replan successful - plan issues resolved");
@@ -1309,5 +1345,84 @@ mod tests {
 
         let feedback = plan_risk_feedback_with_flag(dir.path(), &safe_plan, true);
         assert!(feedback.is_empty());
+    }
+
+    #[test]
+    fn test_record_plan_risk_telemetry_sets_fields() {
+        let mut ctx = ExecutionContext::new(3);
+        let commands = vec![
+            Cmd::WriteFile {
+                path: "src/lib.rs".into(),
+                content: "pub fn b() {}\n".into(),
+            },
+            Cmd::RunTests {
+                target: "cargo test".into(),
+            },
+        ];
+        let issues = vec![
+            "PLAN RISK: write_file targets existing source file 'src/lib.rs'".to_string(),
+            "PLAN RISK: plan has 8 commands".to_string(),
+        ];
+
+        record_plan_risk_telemetry(&mut ctx, &commands, &issues);
+
+        assert!(ctx.plan_risk_triggered);
+        assert_eq!(ctx.plan_risk_reasons, issues);
+        assert_eq!(ctx.commands_before_replan, 2);
+    }
+
+    #[test]
+    fn test_record_plan_risk_telemetry_ignores_empty_issues() {
+        let mut ctx = ExecutionContext::new(3);
+        let commands = vec![Cmd::Done {
+            message: "ok".into(),
+        }];
+
+        record_plan_risk_telemetry(&mut ctx, &commands, &[]);
+
+        assert!(!ctx.plan_risk_triggered);
+        assert!(ctx.plan_risk_reasons.is_empty());
+        assert_eq!(ctx.commands_before_replan, 0);
+    }
+
+    #[test]
+    fn test_record_plan_risk_telemetry_updates_reasons_but_keeps_first_command_count() {
+        let mut ctx = ExecutionContext::new(3);
+
+        let first_commands = vec![
+            Cmd::WriteFile {
+                path: "src/lib.rs".into(),
+                content: "pub fn a() {}\n".into(),
+            },
+            Cmd::RunTests {
+                target: "cargo test".into(),
+            },
+        ];
+        let first_issues =
+            vec!["PLAN RISK: write_file targets existing source file 'src/lib.rs'".to_string()];
+
+        record_plan_risk_telemetry(&mut ctx, &first_commands, &first_issues);
+
+        let second_commands = vec![
+            Cmd::WriteFile {
+                path: "src/lib.rs".into(),
+                content: "pub fn b() {}\n".into(),
+            },
+            Cmd::RunTests {
+                target: "cargo test".into(),
+            },
+            Cmd::Done {
+                message: "ok".into(),
+            },
+        ];
+        let second_issues = vec![
+            "PLAN RISK: delete_file on 'src/lib.rs' is destructive and should be avoided unless strictly necessary.".to_string(),
+        ];
+
+        record_plan_risk_telemetry(&mut ctx, &second_commands, &second_issues);
+
+        assert!(ctx.plan_risk_triggered);
+        assert_eq!(ctx.plan_risk_reasons, second_issues);
+        assert_eq!(ctx.commands_before_replan, 2);
     }
 }

@@ -49,6 +49,12 @@ pub struct ExecutionContext {
     pub recent_edits: Vec<PathBuf>, // v9.0: recent file edits for smart repair context
     pub cached_dependency_graph: Option<crate::dependency_graph::DependencyGraph>, // v9.0: cached graph for smart repair context
     pub cached_dependency_graph_workspace: Option<PathBuf>, // v9.0: cache key
+
+    // v9.2.1: Plan Risk Telemetry
+    pub plan_risk_triggered: bool,
+    pub plan_risk_reasons: Vec<String>,
+    pub replan_count: u32,
+    pub commands_before_replan: usize,
 }
 
 impl ExecutionContext {

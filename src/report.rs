@@ -19,6 +19,11 @@ pub struct ExecutionReport {
     pub tokens_in: u64,
     pub tokens_out: u64,
     pub failure_reason: Option<String>,
+
+    // v9.2.1: Plan Risk Telemetry
+    pub plan_risk_triggered: bool,
+    pub replan_count: u64,
+    pub plan_risk_reasons: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

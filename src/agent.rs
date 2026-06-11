@@ -444,6 +444,9 @@ impl Agent {
                         tokens_in: stats.tokens_in as u64,
                         tokens_out: stats.tokens_out as u64,
                         failure_reason: None,
+                        plan_risk_triggered: self.ctx.plan_risk_triggered,
+                        replan_count: self.ctx.replan_count as u64,
+                        plan_risk_reasons: self.ctx.plan_risk_reasons.clone(),
                     })
                     .await;
 
@@ -498,6 +501,9 @@ impl Agent {
                         tokens_in: stats.tokens_in as u64,
                         tokens_out: stats.tokens_out as u64,
                         failure_reason: Some(reason.clone()),
+                        plan_risk_triggered: self.ctx.plan_risk_triggered,
+                        replan_count: self.ctx.replan_count as u64,
+                        plan_risk_reasons: self.ctx.plan_risk_reasons.clone(),
                     })
                     .await;
 
@@ -644,6 +650,11 @@ struct ReportRunInput<'a> {
     tokens_in: u64,
     tokens_out: u64,
     failure_reason: Option<String>,
+
+    // v9.2.1: Plan Risk Telemetry
+    plan_risk_triggered: bool,
+    replan_count: u64,
+    plan_risk_reasons: Vec<String>,
 }
 
 async fn report_run(input: ReportRunInput<'_>) -> Result<()> {
@@ -671,6 +682,9 @@ async fn report_run(input: ReportRunInput<'_>) -> Result<()> {
         tokens_in: input.tokens_in,
         tokens_out: input.tokens_out,
         failure_reason: input.failure_reason.clone(),
+        plan_risk_triggered: input.plan_risk_triggered,
+        replan_count: input.replan_count,
+        plan_risk_reasons: input.plan_risk_reasons.clone(),
     };
 
     if let Err(e) = ReportWriter::default().write(&report) {
