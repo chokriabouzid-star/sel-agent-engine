@@ -144,6 +144,30 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
                 .into(),
         });
     }
+    // E0422: struct/enum not found — often caused by missing `pub` on type definition
+    if error_text.contains("E0422") || (error_text.contains("cannot find struct") && error_text.contains("in this scope")) {
+        let sym = extract_after(error_text, "cannot find struct, variant or union type `", 40);
+        let sym = sym.split('`').next().unwrap_or("").trim();
+        hints.push(Hint {
+            severity: Severity::Error,
+            category: "rust/E0422-not-pub",
+            message: format!("E0422: `{}` not found in scope — likely missing `pub` visibility", sym),
+            suggestion: "Add `pub` to the struct/enum definition in lib.rs: `pub struct Name { ... }`. Also ensure the integration test imports it correctly: `use crate_name::Name;`".into(),
+        });
+    }
+    if error_text.contains("E0422")
+        || (error_text.contains("cannot find struct, variant or union type")
+            && error_text.contains("in this scope"))
+    {
+        let sym = extract_after(error_text, "cannot find struct, variant or union type `", 40);
+        let sym = sym.split('`').next().unwrap_or("").trim();
+        hints.push(Hint {
+            severity: Severity::Error,
+            category: "rust/E0422-visibility",
+            message: format!("type not visible from integration test: {}", sym),
+            suggestion: "Fix SOURCE only: add `pub` to the struct/enum definition in lib.rs if the type is intended to be imported from tests".into(),
+        });
+    }
     if error_text.contains("unused import") || error_text.contains("unused variable") {
         hints.push(Hint {
             severity: Severity::Warning,
@@ -207,6 +231,38 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
     }
 
     // --- TypeScript patterns ---
+
+    if error_text.contains("TS2339")
+        && (error_text.contains("mockResolvedValue") || error_text.contains("mockRejectedValue"))
+    {
+        hints.push(Hint {
+            severity: Severity::Error,
+            category: "ts/jest-types",
+            message: "Jest mock helpers not visible on the mocked symbol".into(),
+            suggestion: "Fix project setup and source imports: ensure tsconfig.json includes `types: [\"jest\", \"node\"]`, keep `jest.mock('axios')`, and use a correctly mocked symbol such as `const mockedGet = jest.mocked(axios.get)`".into(),
+        });
+    }
+
+    if error_text.contains("TS2552") && error_text.contains("ApiClient") {
+        hints.push(Hint {
+            severity: Severity::Error,
+            category: "ts/missing-import",
+            message: "ApiClient referenced but not in scope".into(),
+            suggestion: "Fix imports/exports, not tests-forcing: export `ApiClient` from api.ts and ensure the consumer imports `{ ApiClient }` from './api'".into(),
+        });
+    }
+
+    if error_text.contains("PromiseRejectionHandledWarning")
+        && error_text.contains("mockRejectedValue")
+    {
+        hints.push(Hint {
+            severity: Severity::Error,
+            category: "ts/retry-unhandled-rejection",
+            message: "async retry path leaks an unhandled rejection under fake timers".into(),
+            suggestion: "Fix retry.ts only: ensure the returned promise path does not surface an unhandled rejection before the caller awaits it".into(),
+        });
+    }
+
     if error_text.contains("TS2304") {
         let sym = extract_after(error_text, "TS2304:", 50);
         hints.push(Hint {

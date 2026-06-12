@@ -95,6 +95,7 @@ pub async fn do_planning(
             let mut issues = crate::decision::validate_plan_integrity(&commands);
             let patch_issues = crate::decision::validate_patch_uniqueness(workspace, &commands);
             issues.extend(patch_issues);
+            issues.extend(crate::decision::validate_protected_writes(&commands));
 
             let plan_risk_issues = plan_risk_feedback(workspace, &commands);
             record_plan_risk_telemetry(ctx, &commands, &plan_risk_issues);
@@ -428,6 +429,7 @@ fn replan_with_feedback<'a>(
                     workspace,
                     &candidate_plan,
                 ));
+                new_issues.extend(crate::decision::validate_protected_writes(&candidate_plan));
                 new_issues.extend(plan_risk_feedback(workspace, &candidate_plan));
                 let new_plan_risk_issues: Vec<String> = new_issues
                     .iter()

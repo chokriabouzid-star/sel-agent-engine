@@ -56,7 +56,8 @@ const TSCONFIG_JSON: &str = r#"{
     "strict": true,
     "esModuleInterop": true,
     "outDir": "./dist",
-    "rootDir": "./"
+    "rootDir": "./",
+    "types": ["jest", "node"]
   },
   "include": ["**/*.ts"],
   "exclude": ["node_modules", "dist"]
