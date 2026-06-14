@@ -1,111 +1,130 @@
-# CHANGELOG
-
-## [9.0.0] - 2026-06-08
-
-### Added
-- Adaptive repair routing wired into the live runtime path
-- Smart repair context wired into `do_repairing()`
-- Recent edit tracking for smart repair context scoring
-- Dependency graph caching across repair attempts
-- Expanded Rust dependency parser support for `pub mod`, `use crate::`, `use self::`, and `use super::`
-
-### Changed
-- Repair loop escalation now detects same-error streaks and injects stronger guidance
-- Repeated constitution violations now force `ForceSourceOnly`
-- `RepairCtx::build()` now scans recursively instead of top-level only
-- Version consistency uses `Cargo.toml` as single source of truth
-
-### Repository Hygiene
-- Removed tracked `.bak*` source snapshots
-- Removed ad-hoc patch scripts used to mutate source files directly
-- Added maintainer notes for source-of-truth and cleanup policy
-
-### Verified
-- `cargo check`
-- `cargo clippy --all-targets --all-features -- -D warnings`
-- `cargo test` → 304/304
-- `bash scripts/regression_gate.sh core` → PASS
-  - bench all replay: 36/36
-  - bench-swe replay: 30/30
-  - bench-sel-v11 replay: 18/18
-
 # Changelog
 
-## v8.9.0 — Pattern Library (2026-06-06)
+All notable changes to SEL Agent are documented in this file.
 
-### Verified state
-- cargo check: pass
-- cargo clippy --all-targets --all-features -- -D warnings: pass
-- cargo test: 272/272
-- bench --suite all --replay: 36/36
-- bench-swe --lang all --replay: 30/30
-- bench-sel-v11 --replay: 18/18
-- bench-real-world --replay: 14/14
-- smoke --replay: 12/12
-- scripts/regression_gate.sh full: pass
+Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-### Wave 3 — Pattern Library
-- Added src/pattern_library.rs with PatternLibrary, Pattern, PatternStore, RepairRoute
-- Patterns stored in ~/.sel-agent/patterns.json
-- Pattern lookup integrated into repair prompt construction
-- Pattern outcomes recorded on success and failure
-- example_fix extracted from successful plans
-- build_pattern_hint: route + guidance + example_fix
-- truncate_pattern_example: UTF-8 safe
-- infer_language_from_workspace: language detection
-- normalize_signature: strips line numbers and paths
-- Hardened scripts/regression_gate.sh: sanitize_log + need_match_regex
+---
 
-### Next
-- v9.0.0: Adaptive Repair Routing
+## [v9.2.6] — 2026-06-14
 
-## v8.8.0 — observability + dependency graph (2026-06-04)
+### Added
+- `ExecutionContext.tokens_used: u64` — cumulative token usage per run
+- `ExecutionContext.plan_confidence: Option<f32>` — reserved for v11.0 calibration
+- `ExecutionReport.total_tokens: u64` — `tokens_in + tokens_out`
+- `ExecutionReport.avg_tokens_per_task: u64` — `total_tokens / llm_calls`
+- `#[serde(default)]` on new report fields for backward-compatible JSON deserialization
+- `evals/feature_impact/plan_risk/RESULTS.md` — impact eval documentation
 
-### Verified state
-- cargo check: pass
-- cargo clippy --all-targets --all-features -- -D warnings: pass
-- cargo test: 240/240
-- scripts/regression_gate.sh full: pass
-- bench --suite all --replay: 36/36
-- bench-swe --lang all --replay: 30/30
-- bench-sel-v11 --replay: 18/18
-- bench-real-world --replay: 14/14
-- smoke --replay: 12/12
+### Changed
+- `agent.rs`: compute and wire `total_tokens` / `avg_tokens_per_task` in both success and failure paths
+- `ReportRunInput`: extended with `total_tokens` and `avg_tokens_per_task`
 
-### Wave 1 — Observability
-- Added ExecutionReport backend
-- Added report writer to ~/.sel-agent/reports/
-- Added report --latest and --summary CLI commands
-- Added observatory TUI
-- Added local regression gate script
+### Gate Results
+- `regression_gate.sh full`: ✅ PASS
+- `smoke --replay`: 12/12 ✅
+- `bench all --replay`: 36/36 ✅
+- `bench-swe --replay`: 30/30 ✅
+- `bench-sel-v11 --replay`: 18/18 ✅
+- `bench-real-world --replay`: 14/14 ✅
 
-### Wave 2 — Dependency Graph
-- Added dependency graph core model (DependencyGraph, FileNode, DependencyEdge)
-- Added Python / TypeScript / Go / Rust parsers
-- Added workspace graph builder
-- Added graph-aware context scoring in context/builder.rs
+---
 
-### Next
-- v8.9.0: Pattern Library
+## [v9.2.5] — 2026-06-12
 
-## v8.5.2 — stabilized working tree (2026-06-04)
+### Changed
+- **decision.rs structural refactor**: split 1400+ line monolith into facade + 5 submodules
+  - `decision/checklist.rs` — `pre_repair_checklist` + semantic shortcuts
+  - `decision/context_builders.rs` — `build_lang_hint`, `build_ref_context`, `build_workspace_context`
+  - `decision/goal.rs` — `GoalClarity`, `validate_goal`, `goal_advisory_hints`
+  - `decision/plan_risk.rs` — `evaluate_plan_risk`, `plan_risk_feedback`
+  - `decision/validators.rs` — `validate_patch_uniqueness`, `validate_plan_integrity`, `validate_protected_writes`
 
-### Verified state
-- cargo check: pass
-- cargo clippy --all-targets --all-features -- -D warnings: pass
-- bench --suite all --replay: 36/36
-- bench-swe --lang all --replay: 30/30
-- bench-sel-v11 --replay: 18/18
-- bench-real-world --replay: 14/14
-- smoke --replay: 12/12
+### Fixed
+- Planning guard for `go.mod` — `validate_protected_writes()` rejects `write_file go.mod` early
+- tsconfig scaffold — added `"types": ["jest", "node"]` for TS smoke tests
+- TS semantic triggers tightened — reduced false repair loops
+- Rust E0422 visibility fix — autofix adds `pub` on source only
+- `retry.ts` — checklist writes `new Promise` constructor correctly
+- `py_dataclass` trajectory — clean trajectory using `run_tests:` not `run:`
+- Improved diagnostic messages
 
-### Recent fixes
-- Fixed Python replay environment mismatch in `src/executor/runner.rs`
-- Replay now restores cached Python venv when trajectory requires `venv/bin/pytest`
-- Fixed UTF-8 safe truncation in benchmark output (`src/bench_sel.rs`)
-- Stabilized replay behavior for real-world Python benchmark cases
+### Gate Results
+- `smoke --replay`: 12/12 ✅
 
-### Next planned milestones
-- v8.6.0: Unified Reports + Observatory
-- v8.6.1: Stability Layer + trajectory manifest
-- v8.8.0: Dependency Graph
+---
+
+## [v9.2.1] — 2026-06-10
+
+### Added
+- Plan Risk Telemetry fields in `ExecutionContext`:
+  - `plan_risk_triggered: bool`
+  - `plan_risk_reasons: Vec<String>`
+  - `replan_count: u32`
+  - `commands_before_replan: usize`
+- Plan Risk Telemetry fields in `ExecutionReport`:
+  - `tokens_in: u64`
+  - `tokens_out: u64`
+  - `plan_risk_triggered: bool`
+  - `replan_count: u64`
+  - `plan_risk_reasons: Vec<String>`
+
+### Fixed
+- Structural fixes P1/P2/P3
+
+---
+
+## [v9.2.0] — 2026-06-09
+
+### Added
+- Plan Risk Telemetry (partial)
+- Cost tracking fields
+
+---
+
+## [v9.1.0] — 2026-06-07
+
+### Added
+- 7 quality fixes
+- Plan Risk connected to planning pipeline
+- Prompt quality improvements
+- `goal_advisory_hints()`
+- `validate_goal()` — hard-fail only for `len < 10`
+
+---
+
+## [v9.0.0] — 2026-06-04
+
+### Added
+- Adaptive Repair Routing (8 routes)
+- Smart Repair Context (scored file selection + dependency graph)
+- Plan Risk Evaluation (`evaluate_plan_risk`)
+- Pattern Library (`PatternLibrary` + `RepairRoute` + inference)
+- `force_include` guarantee in context builder
+- Dependency graph caching in `ExecutionContext`
+- Head+tail stderr capture
+- Replay mutation safety
+- `bench_mode` gate on semantic shortcuts
+- Global prompt budget (24k chars)
+
+---
+
+## [v8.9.0] — 2026-06-01
+
+### Added
+- Wave 3 Phase 1: Pattern Library
+
+---
+
+## [v8.8.0] — 2026-05-28
+
+### Added
+- Wave 1: Reports + Observatory + Regression Gate
+- Wave 2: Dependency Graph (Python/TS/Go/Rust)
+
+---
+
+## [v8.5.2] — 2026-05-20
+
+### Fixed
+- Stable core + replay environment fix
