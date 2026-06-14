@@ -22,6 +22,12 @@ pub struct ExecutionReport {
     pub total_tokens: u64,
     #[serde(default)]
     pub avg_tokens_per_task: u64,
+    #[serde(default)]
+    pub avg_context_tokens: u64,
+    #[serde(default)]
+    pub avg_selected_files: u64,
+    #[serde(default)]
+    pub context_reduction_pct: u8,
     pub failure_reason: Option<String>,
 
     // v9.2.1: Plan Risk Telemetry

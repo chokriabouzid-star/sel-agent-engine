@@ -108,15 +108,23 @@ pub fn collect_workspace_files(workspace: &Path) -> Vec<PathBuf> {
     files
 }
 
-pub fn build_repair_context_block(workspace: &Path, ctx: &RepairContext) -> String {
+pub fn build_repair_context_block(workspace: &Path, ctx: &RepairContext) -> (String, BudgetReport) {
     let workspace_files = collect_workspace_files(workspace);
     if workspace_files.is_empty() {
-        return String::new();
+        return (
+            String::new(),
+            BudgetReport {
+                total_files: 0,
+                selected_files: 0,
+                tokens_before: 0,
+                tokens_after: 0,
+            },
+        );
     }
 
     let (selected, budget) = select_repair_files(&workspace_files, ctx);
     if selected.is_empty() {
-        return String::new();
+        return (String::new(), budget);
     }
 
     let mut out = String::new();
@@ -148,7 +156,7 @@ pub fn build_repair_context_block(workspace: &Path, ctx: &RepairContext) -> Stri
     }
 
     out.push_str("=== END SELECTED REPAIR CONTEXT FILES ===\n\n");
-    out
+    (out, budget)
 }
 
 pub fn select_repair_files(
@@ -492,7 +500,7 @@ mod tests {
             ..Default::default()
         };
 
-        let out = build_repair_context_block(dir.path(), &ctx);
+        let (out, _budget) = build_repair_context_block(dir.path(), &ctx);
         assert!(out.contains("main.py"));
         assert!(out.contains("culprit file") || out.contains("force_include"));
     }

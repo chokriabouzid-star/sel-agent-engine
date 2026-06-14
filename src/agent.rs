@@ -428,6 +428,38 @@ impl Agent {
 
                     self.ctx.tokens_used = total_tokens;
 
+                    let avg_context_tokens = if self.ctx.context_budget_samples > 0 {
+                        {
+                            self.ctx.context_tokens_total / self.ctx.context_budget_samples as u64
+                        }
+                    } else {
+                        {
+                            0
+                        }
+                    };
+                    let avg_selected_files = if self.ctx.context_budget_samples > 0 {
+                        {
+                            self.ctx.context_files_total / self.ctx.context_budget_samples as u64
+                        }
+                    } else {
+                        {
+                            0
+                        }
+                    };
+                    let context_reduction_pct = if self.ctx.context_tokens_before_total > 0 {
+                        {
+                            let saved = self
+                                .ctx
+                                .context_tokens_before_total
+                                .saturating_sub(self.ctx.context_tokens_total);
+                            ((saved * 100) / self.ctx.context_tokens_before_total) as u8
+                        }
+                    } else {
+                        {
+                            0
+                        }
+                    };
+
                     record_pattern_outcome(
                         &self.executor.workspace,
                         &self.ctx,
@@ -453,6 +485,9 @@ impl Agent {
                         tokens_out: stats.tokens_out as u64,
                         total_tokens,
                         avg_tokens_per_task,
+                        avg_context_tokens,
+                        avg_selected_files,
+                        context_reduction_pct,
                         failure_reason: None,
                         plan_risk_triggered: self.ctx.plan_risk_triggered,
                         replan_count: self.ctx.replan_count as u64,
@@ -495,6 +530,38 @@ impl Agent {
 
                     self.ctx.tokens_used = total_tokens;
 
+                    let avg_context_tokens = if self.ctx.context_budget_samples > 0 {
+                        {
+                            self.ctx.context_tokens_total / self.ctx.context_budget_samples as u64
+                        }
+                    } else {
+                        {
+                            0
+                        }
+                    };
+                    let avg_selected_files = if self.ctx.context_budget_samples > 0 {
+                        {
+                            self.ctx.context_files_total / self.ctx.context_budget_samples as u64
+                        }
+                    } else {
+                        {
+                            0
+                        }
+                    };
+                    let context_reduction_pct = if self.ctx.context_tokens_before_total > 0 {
+                        {
+                            let saved = self
+                                .ctx
+                                .context_tokens_before_total
+                                .saturating_sub(self.ctx.context_tokens_total);
+                            ((saved * 100) / self.ctx.context_tokens_before_total) as u8
+                        }
+                    } else {
+                        {
+                            0
+                        }
+                    };
+
                     record_pattern_outcome(
                         &self.executor.workspace,
                         &self.ctx,
@@ -520,6 +587,9 @@ impl Agent {
                         tokens_out: stats.tokens_out as u64,
                         total_tokens,
                         avg_tokens_per_task,
+                        avg_context_tokens,
+                        avg_selected_files,
+                        context_reduction_pct,
                         failure_reason: Some(reason.clone()),
                         plan_risk_triggered: self.ctx.plan_risk_triggered,
                         replan_count: self.ctx.replan_count as u64,
@@ -671,6 +741,9 @@ struct ReportRunInput<'a> {
     tokens_out: u64,
     total_tokens: u64,
     avg_tokens_per_task: u64,
+    avg_context_tokens: u64,
+    avg_selected_files: u64,
+    context_reduction_pct: u8,
     failure_reason: Option<String>,
 
     // v9.2.1: Plan Risk Telemetry
@@ -705,6 +778,9 @@ async fn report_run(input: ReportRunInput<'_>) -> Result<()> {
         tokens_out: input.tokens_out,
         total_tokens: input.total_tokens,
         avg_tokens_per_task: input.avg_tokens_per_task,
+        avg_context_tokens: input.avg_context_tokens,
+        avg_selected_files: input.avg_selected_files,
+        context_reduction_pct: input.context_reduction_pct,
         failure_reason: input.failure_reason.clone(),
         plan_risk_triggered: input.plan_risk_triggered,
         replan_count: input.replan_count,

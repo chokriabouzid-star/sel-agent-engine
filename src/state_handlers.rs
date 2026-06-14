@@ -1133,7 +1133,7 @@ pub async fn do_repairing(
             Some(graph)
         });
 
-    let smart_files_context = crate::context::builder::build_repair_context_block(
+    let (smart_files_context, repair_budget) = crate::context::builder::build_repair_context_block(
         workspace,
         &crate::context::builder::RepairContext {
             stderr: all_err.clone(),
@@ -1146,6 +1146,11 @@ pub async fn do_repairing(
             dependency_graph,
         },
     );
+
+    ctx.context_tokens_total += repair_budget.tokens_after as u64;
+    ctx.context_tokens_before_total += repair_budget.tokens_before as u64;
+    ctx.context_files_total += repair_budget.selected_files as u64;
+    ctx.context_budget_samples += 1;
 
     let files_context = if smart_files_context.trim().is_empty() {
         crate::decision::build_workspace_context(workspace)

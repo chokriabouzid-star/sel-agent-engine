@@ -54,6 +54,12 @@ pub struct ExecutionContext {
     pub tokens_used: u64,
     pub plan_confidence: Option<f32>,
 
+    // v9.3.0: Context Budget Telemetry
+    pub context_tokens_total: u64,
+    pub context_tokens_before_total: u64,
+    pub context_files_total: u64,
+    pub context_budget_samples: u32,
+
     // v9.2.1: Plan Risk Telemetry
     pub plan_risk_triggered: bool,
     pub plan_risk_reasons: Vec<String>,
