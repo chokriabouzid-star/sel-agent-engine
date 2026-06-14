@@ -97,12 +97,9 @@ pub fn pre_repair_checklist(
         }
     }
 
-
     // Check 3b: Rust E0422 in integration tests often means the type exists
     // in lib.rs but is missing `pub` visibility. Fix SOURCE only.
-    if stderr.contains("E0422")
-        || stderr.contains("cannot find struct, variant or union type")
-    {
+    if stderr.contains("E0422") || stderr.contains("cannot find struct, variant or union type") {
         if let Some(type_name) = stderr
             .lines()
             .find(|l| l.contains("cannot find struct, variant or union type `"))
@@ -215,11 +212,38 @@ pub fn pre_repair_checklist(
         || stderr.contains("Could not find a version that satisfies the requirement")
     {
         let stdlib_modules = [
-            "unittest", "os", "sys", "re", "json", "math", "time", "datetime",
-            "collections", "itertools", "functools", "pathlib", "io", "abc",
-            "copy", "enum", "typing", "dataclasses", "contextlib", "logging",
-            "threading", "subprocess", "socket", "struct", "hashlib", "base64",
-            "random", "string", "textwrap", "traceback", "inspect", "warnings",
+            "unittest",
+            "os",
+            "sys",
+            "re",
+            "json",
+            "math",
+            "time",
+            "datetime",
+            "collections",
+            "itertools",
+            "functools",
+            "pathlib",
+            "io",
+            "abc",
+            "copy",
+            "enum",
+            "typing",
+            "dataclasses",
+            "contextlib",
+            "logging",
+            "threading",
+            "subprocess",
+            "socket",
+            "struct",
+            "hashlib",
+            "base64",
+            "random",
+            "string",
+            "textwrap",
+            "traceback",
+            "inspect",
+            "warnings",
         ];
         let bad_pkg = stdlib_modules.iter().find(|&&m| stderr.contains(m));
         if let Some(pkg) = bad_pkg {
@@ -262,9 +286,22 @@ fn try_auto_import_fix(plan: &mut Vec<Cmd>, stderr: &str) -> bool {
         if let Some(name_end) = rest.find("' is not defined") {
             let missing_module = &rest[..name_end];
             let stdlib = [
-                "os", "sys", "json", "math", "re", "datetime", "time", "random",
-                "subprocess", "logging", "asyncio", "collections", "itertools",
-                "functools", "pathlib", "typing",
+                "os",
+                "sys",
+                "json",
+                "math",
+                "re",
+                "datetime",
+                "time",
+                "random",
+                "subprocess",
+                "logging",
+                "asyncio",
+                "collections",
+                "itertools",
+                "functools",
+                "pathlib",
+                "typing",
             ];
             if stdlib.contains(&missing_module) {
                 if let Some(culprit) = crate::types::FailedStep::extract_culprit(stderr) {
@@ -273,10 +310,7 @@ fn try_auto_import_fix(plan: &mut Vec<Cmd>, stderr: &str) -> bool {
                         missing_module, culprit
                     );
                     let fix_cmd = Cmd::Run {
-                        command: format!(
-                            "sed -i '1s/^/import {}\\n/' {}",
-                            missing_module, culprit
-                        ),
+                        command: format!("sed -i '1s/^/import {}\\n/' {}", missing_module, culprit),
                     };
                     plan.insert(0, fix_cmd);
                     return true;
@@ -332,8 +366,12 @@ fn try_semantic_go_worker_pool_fix(
             let mut new_test = test_src.clone();
             if (needs_reflect || needs_sort) && new_test.contains("import (") {
                 let mut imports = String::new();
-                if needs_reflect { imports.push_str("\n\t\"reflect\""); }
-                if needs_sort { imports.push_str("\n\t\"sort\""); }
+                if needs_reflect {
+                    imports.push_str("\n\t\"reflect\"");
+                }
+                if needs_sort {
+                    imports.push_str("\n\t\"sort\"");
+                }
                 new_test = new_test.replacen("import (", &format!("import ({}", imports), 1);
             }
             if new_test.trim_end().ends_with('}') {
@@ -347,7 +385,9 @@ fn try_semantic_go_worker_pool_fix(
                 path: "main_test.go".to_string(),
                 content: new_test,
             });
-            plan.push(Cmd::RunTests { target: "go test".to_string() });
+            plan.push(Cmd::RunTests {
+                target: "go test".to_string(),
+            });
             ctx.failed_steps.clear();
             return true;
         }
@@ -392,7 +432,9 @@ fn try_semantic_go_worker_pool_fix(
             path: "main.go".to_string(),
             content: fixed_src.to_string(),
         });
-        plan.push(Cmd::RunTests { target: "go test".to_string() });
+        plan.push(Cmd::RunTests {
+            target: "go test".to_string(),
+        });
         ctx.failed_steps.clear();
         return true;
     }
@@ -418,8 +460,13 @@ fn try_semantic_go_worker_pool_fix(
     src = src.replacen("return results", "sort.Ints(results)\n\treturn results", 1);
     println!("    Pre-Repair: semantic Go worker-pool ordering fix applied");
     plan.clear();
-    plan.push(Cmd::WriteFile { path: "main.go".to_string(), content: src });
-    plan.push(Cmd::RunTests { target: "go test".to_string() });
+    plan.push(Cmd::WriteFile {
+        path: "main.go".to_string(),
+        content: src,
+    });
+    plan.push(Cmd::RunTests {
+        target: "go test".to_string(),
+    });
     ctx.failed_steps.clear();
     true
 }
@@ -458,7 +505,7 @@ fn try_semantic_ts_retry_fix(
     }
 
     let retry_ts = "export function retry<T>(\n  fn: () => Promise<T>,\n  attempts: number,\n  delayMs: number\n): Promise<T> {\n  return new Promise((resolve, reject) => {\n    let i = 0;\n    const attempt = (): void => {\n      fn().then(resolve, (err: unknown) => {\n        i += 1;\n        if (i >= attempts) { reject(err); }\n        else { setTimeout(attempt, delayMs); }\n      });\n    };\n    attempt();\n  });\n}\n";
-let retry_test_ts = r#"import { retry } from './retry';
+    let retry_test_ts = r#"import { retry } from './retry';
 
 beforeEach(() => { jest.useFakeTimers(); });
 afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); });
@@ -552,7 +599,9 @@ fn try_semantic_ts_api_client_fix(
         path: "api.test.ts".to_string(),
         content: api_test_ts.to_string(),
     });
-    plan.push(Cmd::RunTests { target: "npm test".to_string() });
+    plan.push(Cmd::RunTests {
+        target: "npm test".to_string(),
+    });
     ctx.failed_steps.clear();
     true
 }

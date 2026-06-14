@@ -145,8 +145,14 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
         });
     }
     // E0422: struct/enum not found — often caused by missing `pub` on type definition
-    if error_text.contains("E0422") || (error_text.contains("cannot find struct") && error_text.contains("in this scope")) {
-        let sym = extract_after(error_text, "cannot find struct, variant or union type `", 40);
+    if error_text.contains("E0422")
+        || (error_text.contains("cannot find struct") && error_text.contains("in this scope"))
+    {
+        let sym = extract_after(
+            error_text,
+            "cannot find struct, variant or union type `",
+            40,
+        );
         let sym = sym.split('`').next().unwrap_or("").trim();
         hints.push(Hint {
             severity: Severity::Error,
@@ -159,7 +165,11 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
         || (error_text.contains("cannot find struct, variant or union type")
             && error_text.contains("in this scope"))
     {
-        let sym = extract_after(error_text, "cannot find struct, variant or union type `", 40);
+        let sym = extract_after(
+            error_text,
+            "cannot find struct, variant or union type `",
+            40,
+        );
         let sym = sym.split('`').next().unwrap_or("").trim();
         hints.push(Hint {
             severity: Severity::Error,

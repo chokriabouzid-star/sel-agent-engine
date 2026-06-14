@@ -97,9 +97,7 @@ pub fn build_skeleton_context(workspace: &Path) -> String {
         map.push_str("CRITICAL RULES (violations = build failure):\n");
         map.push_str("- NEVER use write_file on existing files — use patch_file only\n");
         map.push_str("- NEVER redefine functions already listed above\n");
-        map.push_str(
-            "- NEVER guess the crate name — use exactly what CRATE NAME shows above\n",
-        );
+        map.push_str("- NEVER guess the crate name — use exactly what CRATE NAME shows above\n");
     }
     map
 }
