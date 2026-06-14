@@ -50,6 +50,10 @@ pub struct ExecutionContext {
     pub cached_dependency_graph: Option<crate::dependency_graph::DependencyGraph>, // v9.0: cached graph for smart repair context
     pub cached_dependency_graph_workspace: Option<PathBuf>, // v9.0: cache key
 
+    // v9.2.0 closeout: Cost + planning confidence telemetry
+    pub tokens_used: u64,
+    pub plan_confidence: Option<f32>,
+
     // v9.2.1: Plan Risk Telemetry
     pub plan_risk_triggered: bool,
     pub plan_risk_reasons: Vec<String>,

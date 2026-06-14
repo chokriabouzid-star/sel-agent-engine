@@ -18,6 +18,10 @@ pub struct ExecutionReport {
     pub llm_calls: u64,
     pub tokens_in: u64,
     pub tokens_out: u64,
+    #[serde(default)]
+    pub total_tokens: u64,
+    #[serde(default)]
+    pub avg_tokens_per_task: u64,
     pub failure_reason: Option<String>,
 
     // v9.2.1: Plan Risk Telemetry

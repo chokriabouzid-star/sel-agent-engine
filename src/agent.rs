@@ -411,6 +411,12 @@ impl Agent {
                         .unwrap_or(0);
                     let ms = self.mutation_score();
                     let stats = self.call_stats();
+                    let total_tokens = stats.tokens_in as u64 + stats.tokens_out as u64;
+                    let avg_tokens_per_task = if stats.successful_calls > 0 {
+                        total_tokens / stats.successful_calls as u64
+                    } else {
+                        0
+                    };
                     let cost = crate::cost::CostTracker::new();
                     cost.add_usage(stats.tokens_in, stats.tokens_out, stats.successful_calls);
                     let model = if stats.last_model.is_empty() {
@@ -419,6 +425,8 @@ impl Agent {
                     } else {
                         stats.last_model.clone()
                     };
+
+                    self.ctx.tokens_used = total_tokens;
 
                     record_pattern_outcome(
                         &self.executor.workspace,
@@ -443,6 +451,8 @@ impl Agent {
                         llm_calls: stats.successful_calls as u64,
                         tokens_in: stats.tokens_in as u64,
                         tokens_out: stats.tokens_out as u64,
+                        total_tokens,
+                        avg_tokens_per_task,
                         failure_reason: None,
                         plan_risk_triggered: self.ctx.plan_risk_triggered,
                         replan_count: self.ctx.replan_count as u64,
@@ -468,6 +478,12 @@ impl Agent {
                         .unwrap_or(0);
                     let ms = self.mutation_score();
                     let stats = self.call_stats();
+                    let total_tokens = stats.tokens_in as u64 + stats.tokens_out as u64;
+                    let avg_tokens_per_task = if stats.successful_calls > 0 {
+                        total_tokens / stats.successful_calls as u64
+                    } else {
+                        0
+                    };
                     let cost = crate::cost::CostTracker::new();
                     cost.add_usage(stats.tokens_in, stats.tokens_out, stats.successful_calls);
                     let model = if stats.last_model.is_empty() {
@@ -476,6 +492,8 @@ impl Agent {
                     } else {
                         stats.last_model.clone()
                     };
+
+                    self.ctx.tokens_used = total_tokens;
 
                     record_pattern_outcome(
                         &self.executor.workspace,
@@ -500,6 +518,8 @@ impl Agent {
                         llm_calls: stats.successful_calls as u64,
                         tokens_in: stats.tokens_in as u64,
                         tokens_out: stats.tokens_out as u64,
+                        total_tokens,
+                        avg_tokens_per_task,
                         failure_reason: Some(reason.clone()),
                         plan_risk_triggered: self.ctx.plan_risk_triggered,
                         replan_count: self.ctx.replan_count as u64,
@@ -649,6 +669,8 @@ struct ReportRunInput<'a> {
     llm_calls: u64,
     tokens_in: u64,
     tokens_out: u64,
+    total_tokens: u64,
+    avg_tokens_per_task: u64,
     failure_reason: Option<String>,
 
     // v9.2.1: Plan Risk Telemetry
@@ -681,6 +703,8 @@ async fn report_run(input: ReportRunInput<'_>) -> Result<()> {
         llm_calls: input.llm_calls,
         tokens_in: input.tokens_in,
         tokens_out: input.tokens_out,
+        total_tokens: input.total_tokens,
+        avg_tokens_per_task: input.avg_tokens_per_task,
         failure_reason: input.failure_reason.clone(),
         plan_risk_triggered: input.plan_risk_triggered,
         replan_count: input.replan_count,
