@@ -52,6 +52,7 @@ pub struct BudgetReport {
     pub selected_files: usize,
     pub tokens_before: usize,
     pub tokens_after: usize,
+    pub force_include_dropped: Vec<String>, // v9.3.0: force_include files that failed to load
 }
 
 impl BudgetReport {
@@ -118,6 +119,7 @@ pub fn build_repair_context_block(workspace: &Path, ctx: &RepairContext) -> (Str
                 selected_files: 0,
                 tokens_before: 0,
                 tokens_after: 0,
+                force_include_dropped: vec![],
             },
         );
     }
@@ -125,6 +127,14 @@ pub fn build_repair_context_block(workspace: &Path, ctx: &RepairContext) -> (Str
     let (selected, budget) = select_repair_files(&workspace_files, ctx);
     if selected.is_empty() {
         return (String::new(), budget);
+    }
+    // v9.3.0: warn if any force_include files were dropped
+    if !budget.force_include_dropped.is_empty() {
+        eprintln!(
+            "[WARN] {} force_include file(s) could not be loaded: {:?}",
+            budget.force_include_dropped.len(),
+            budget.force_include_dropped
+        );
     }
 
     let mut out = String::new();
@@ -236,6 +246,7 @@ pub fn select_repair_files(
 
     // Phase 1b: if a force_include file was not in workspace_files/scored set,
     // still include it directly from disk.
+    let mut force_include_dropped: Vec<String> = Vec::new();
     for path in &ctx.force_include {
         if selected.iter().any(|s| &s.path == path) {
             continue;
@@ -253,6 +264,18 @@ pub fn select_repair_files(
                 "[TRACE] force_include added from disk fallback: {}",
                 path.display()
             );
+        } else {
+            // v9.3.0: track force_include files that could not be loaded
+            let dropped_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("<unknown>")
+                .to_string();
+            eprintln!(
+                "[WARN] force_include file not found or unreadable: {}",
+                path.display()
+            );
+            force_include_dropped.push(dropped_name);
         }
     }
 
@@ -291,6 +314,7 @@ pub fn select_repair_files(
             selected_files,
             tokens_before,
             tokens_after,
+            force_include_dropped,
         },
     )
 }
@@ -363,6 +387,13 @@ fn compute_score(
     if ctx.stderr.contains(filename) {
         score += 5;
         reasons.push("mentioned in error".to_string());
+        // v9.3.0: extra weight if filename appears multiple times in stderr
+        let occurrences = ctx.stderr.matches(filename).count();
+        if occurrences > 1 {
+            let extra = ((occurrences - 1).min(3) * 2) as u8;
+            score = score.saturating_add(extra);
+            reasons.push(format!("stderr occurrences: {}", occurrences));
+        }
     }
     if ctx.recent_edits.contains(&path.to_path_buf()) {
         score += 3;

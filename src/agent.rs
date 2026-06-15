@@ -488,6 +488,7 @@ impl Agent {
                         avg_context_tokens,
                         avg_selected_files,
                         context_reduction_pct,
+                        force_include_dropped_count: self.ctx.force_include_dropped_count,
                         failure_reason: None,
                         plan_risk_triggered: self.ctx.plan_risk_triggered,
                         replan_count: self.ctx.replan_count as u64,
@@ -590,6 +591,7 @@ impl Agent {
                         avg_context_tokens,
                         avg_selected_files,
                         context_reduction_pct,
+                        force_include_dropped_count: self.ctx.force_include_dropped_count,
                         failure_reason: Some(reason.clone()),
                         plan_risk_triggered: self.ctx.plan_risk_triggered,
                         replan_count: self.ctx.replan_count as u64,
@@ -744,6 +746,7 @@ struct ReportRunInput<'a> {
     avg_context_tokens: u64,
     avg_selected_files: u64,
     context_reduction_pct: u8,
+    force_include_dropped_count: u64,
     failure_reason: Option<String>,
 
     // v9.2.1: Plan Risk Telemetry
@@ -781,6 +784,7 @@ async fn report_run(input: ReportRunInput<'_>) -> Result<()> {
         avg_context_tokens: input.avg_context_tokens,
         avg_selected_files: input.avg_selected_files,
         context_reduction_pct: input.context_reduction_pct,
+        force_include_dropped_count: input.force_include_dropped_count,
         failure_reason: input.failure_reason.clone(),
         plan_risk_triggered: input.plan_risk_triggered,
         replan_count: input.replan_count,

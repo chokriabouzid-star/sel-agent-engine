@@ -1151,6 +1151,7 @@ pub async fn do_repairing(
     ctx.context_tokens_before_total += repair_budget.tokens_before as u64;
     ctx.context_files_total += repair_budget.selected_files as u64;
     ctx.context_budget_samples += 1;
+    ctx.force_include_dropped_count += repair_budget.force_include_dropped.len() as u64;
 
     let files_context = if smart_files_context.trim().is_empty() {
         crate::decision::build_workspace_context(workspace)

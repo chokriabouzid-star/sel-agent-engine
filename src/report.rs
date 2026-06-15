@@ -28,6 +28,8 @@ pub struct ExecutionReport {
     pub avg_selected_files: u64,
     #[serde(default)]
     pub context_reduction_pct: u8,
+    #[serde(default)]
+    pub force_include_dropped_count: u64,
     pub failure_reason: Option<String>,
 
     // v9.2.1: Plan Risk Telemetry

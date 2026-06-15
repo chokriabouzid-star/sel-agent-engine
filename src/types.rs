@@ -59,6 +59,7 @@ pub struct ExecutionContext {
     pub context_tokens_before_total: u64,
     pub context_files_total: u64,
     pub context_budget_samples: u32,
+    pub force_include_dropped_count: u64,
 
     // v9.2.1: Plan Risk Telemetry
     pub plan_risk_triggered: bool,
