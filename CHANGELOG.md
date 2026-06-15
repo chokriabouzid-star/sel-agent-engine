@@ -128,3 +128,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 - Stable core + replay environment fix
+
+---
+
+## [v9.3.0] — 2026-06-14
+
+### Added
+- `BudgetReport.force_include_dropped: Vec<String>` — tracks unloadable force_include files
+- `ExecutionContext.force_include_dropped_count: u64`
+- `ExecutionReport.force_include_dropped_count: u64`
+- `ExecutionContext`: `context_tokens_total`, `context_tokens_before_total`, `context_files_total`, `context_budget_samples`
+- `ExecutionReport`: `avg_context_tokens`, `avg_selected_files`, `context_reduction_pct`
+- `compute_score`: stderr_occurrences weight (+2 per extra occurrence, max +6)
+- `evals/feature_impact/context_budget/RESULTS.md`
+
+### Changed
+- `build_repair_context_block()` returns `(String, BudgetReport)` instead of `String`
+- `state_handlers.rs`: accumulates `BudgetReport` into `ExecutionContext` each repair loop
+- `agent.rs`: computes averages and wires into `ExecutionReport`
+
+### Notes
+- 20% context reduction gate: data collection active — gate measured after live repair runs
+- All new report fields use `#[serde(default)]` for backward-compatible JSON deserialization
+
+### Gate Results
+- `regression_gate core`: ✅ PASS
+- `cargo test`: 143/143 ✅
+- `bench all --replay`: 36/36 ✅
+- `bench-swe --replay`: 30/30 ✅
+- `bench-sel-v11 --replay`: 18/18 ✅
