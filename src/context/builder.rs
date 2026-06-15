@@ -588,4 +588,151 @@ mod tests {
             .any(|f| f.reasons.iter().any(|r| r == "force_include")));
         assert!(budget.selected_files >= 1);
     }
+
+    // ═══ Evidence Tests (Wave 1) ═══
+
+    #[test]
+    fn evidence_smart_context_prioritizes_culprit_file() {
+        // Claim: Culprit file gets score >= 8 (culprit bonus)
+        let dir = setup(&[
+            ("main.py", "import utils\nprint(utils.run())\n"),
+            ("utils.py", "def run():\n    return 1\n"),
+            ("readme.txt", "This is a readme\n"),
+        ]);
+
+        let files = collect_workspace_files(dir.path());
+        let ctx = RepairContext {
+            stderr: "NameError in main.py".to_string(),
+            culprit_files: vec!["main.py".to_string()],
+            context_config: Some(crate::types::ContextConfig::default()),
+            workspace: Some(dir.path().to_path_buf()),
+            ..Default::default()
+        };
+
+        let (selected, _) = select_repair_files(&files, &ctx);
+        let main_file = selected.iter().find(|f| f.path.ends_with("main.py"));
+        assert!(main_file.is_some(), "Culprit file must be selected");
+        assert!(
+            main_file.unwrap().score >= 8,
+            "Culprit file must have score >= 8"
+        );
+    }
+
+    #[test]
+    fn evidence_stderr_repeated_mentions_boost_score() {
+        // Claim: Files mentioned multiple times in stderr get higher scores (v9.3.0)
+        let dir = setup(&[("buggy.py", "def broken():\n    pass\n")]);
+
+        let path = dir.path().join("buggy.py");
+        let content = std::fs::read_to_string(&path).unwrap();
+
+        // Single mention
+        let ctx_single = RepairContext {
+            stderr: "Error in buggy.py".to_string(),
+            workspace: Some(dir.path().to_path_buf()),
+            ..Default::default()
+        };
+        let (score_single, _) = compute_score(&path, &content, &ctx_single, None, &[]);
+
+        // Triple mention
+        let ctx_triple = RepairContext {
+            stderr: "Error in buggy.py\nFailed buggy.py\nCrash buggy.py".to_string(),
+            workspace: Some(dir.path().to_path_buf()),
+            ..Default::default()
+        };
+        let (score_triple, reasons) = compute_score(&path, &content, &ctx_triple, None, &[]);
+
+        assert!(
+            score_triple > score_single,
+            "Repeated stderr mentions must boost score: single={} triple={}",
+            score_single,
+            score_triple
+        );
+        assert!(
+            reasons.iter().any(|r| r.contains("stderr occurrences")),
+            "Reasons must include stderr occurrences"
+        );
+    }
+
+    #[test]
+    fn evidence_force_include_dropped_is_tracked() {
+        // Claim: force_include files that cannot be loaded are tracked (v9.3.0)
+        let dir = setup(&[("existing.py", "x = 1\n")]);
+
+        let files = collect_workspace_files(dir.path());
+        let nonexistent = dir.path().join("ghost.py");
+        let ctx = RepairContext {
+            force_include: vec![nonexistent],
+            context_config: Some(crate::types::ContextConfig::default()),
+            workspace: Some(dir.path().to_path_buf()),
+            ..Default::default()
+        };
+
+        let (_, budget) = select_repair_files(&files, &ctx);
+        assert_eq!(
+            budget.force_include_dropped.len(),
+            1,
+            "Missing force_include file must appear in dropped list"
+        );
+        assert!(budget.force_include_dropped[0].contains("ghost.py"));
+    }
+
+    #[test]
+    fn evidence_budget_report_reduction_pct_is_correct() {
+        // Claim: BudgetReport.reduction_pct() computes correctly
+        let report = BudgetReport {
+            total_files: 10,
+            selected_files: 3,
+            tokens_before: 1000,
+            tokens_after: 600,
+            force_include_dropped: vec![],
+        };
+        assert_eq!(report.reduction_pct(), 40);
+    }
+
+    #[test]
+    fn evidence_budget_report_reduction_pct_zero_when_no_reduction() {
+        let report = BudgetReport {
+            total_files: 5,
+            selected_files: 5,
+            tokens_before: 500,
+            tokens_after: 500,
+            force_include_dropped: vec![],
+        };
+        assert_eq!(report.reduction_pct(), 0);
+    }
+
+    #[test]
+    fn evidence_budget_report_handles_zero_tokens_before() {
+        let report = BudgetReport {
+            total_files: 0,
+            selected_files: 0,
+            tokens_before: 0,
+            tokens_after: 0,
+            force_include_dropped: vec![],
+        };
+        assert_eq!(report.reduction_pct(), 0);
+    }
+
+    #[test]
+    fn evidence_build_repair_context_returns_budget_metadata() {
+        // Claim: build_repair_context_block returns (String, BudgetReport) — not just String (v9.3.0)
+        let dir = setup(&[("main.py", "print(\"hello\")\n")]);
+
+        let ctx = RepairContext {
+            stderr: "Error in main.py".to_string(),
+            culprit_files: vec!["main.py".to_string()],
+            context_config: Some(crate::types::ContextConfig::default()),
+            workspace: Some(dir.path().to_path_buf()),
+            ..Default::default()
+        };
+
+        let (text, budget) = build_repair_context_block(dir.path(), &ctx);
+        assert!(!text.is_empty(), "Context text must not be empty");
+        assert!(
+            budget.selected_files >= 1,
+            "At least 1 file must be selected"
+        );
+        assert!(budget.tokens_after > 0, "tokens_after must be > 0");
+    }
 }

