@@ -131,6 +131,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [v9.3.1] — 2026-06-16
+
+### Added
+- `docs/EVIDENCE_MATRIX.md` — claim → evidence registry
+- Wave 1 / Wave 1.5 evidence backfill:
+  - Constitution enforced → **PROVEN**
+  - Smart Context active → **PROVEN**
+  - Plan Risk connected → **PROVEN**
+  - Telemetry correctness → **PROVEN**
+- `compute_report_telemetry()` helper in `src/agent.rs` with direct formula tests
+
+### Fixed
+- Rule 6 (`no-dangerous-command`) now blocks destructive workspace wipes:
+  - `rm -rf .`
+  - `rm -rf ..`
+  - `rm -rf *`
+  - `rm -rf ~`
+
+### Validation
+- `cargo test evidence_`: **31/31** ✅
+- `regression_gate core`: ✅ PASS
+- `bench all --replay`: 36/36 ✅
+- `bench-swe --replay`: 30/30 ✅
+- `bench-sel-v11 --replay`: 18/18 ✅
+
+---
+
 ## [v9.3.0] — 2026-06-14
 
 ### Added
