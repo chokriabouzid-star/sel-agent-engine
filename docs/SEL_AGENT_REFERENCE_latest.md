@@ -1,9 +1,9 @@
 # SEL Agent — الوثيقة المرجعية الشاملة
 
 > **الإصدار المعتمد:** v9.3.0
-> **الحالة:** Stable — context budget telemetry + force_include guarantee + smarter scoring
+> **الحالة:** Stable — context budget telemetry + force_include guarantee + smarter scoring + evidence backfill proven
 > **الفرع:** refactor/v9.2.5-decision-split
-> **آخر تحديث:** 2026-06-14
+> **آخر تحديث:** 2026-06-16
 > **الترخيص:** MIT
 
 ---
@@ -47,6 +47,7 @@ SEL Agent هو **وكيل هندسة برمجيات مستقل** مكتوب بل
 | `cargo check` | ✅ |
 | `cargo clippy --all-targets --all-features -- -D warnings` | ✅ 0 warnings |
 | `cargo test` | ✅ 143/143 |
+| `cargo test evidence_` | **31/31** ✅ |
 | `cargo build --release` | ✅ |
 | `regression_gate.sh core` | ✅ |
 | `bench --suite all --replay` | **36/36** ✅ |
@@ -132,11 +133,40 @@ text
 
 regression_gate core: ✅ PASS
 cargo test: 143/143 ✅
+cargo test evidence_: 31/31 ✅
 bench all: 36/36 ✅
 bench-swe: 30/30 ✅
 bench-sel-v11: 18/18 ✅
 force_include_dropped: مُتتبَّع ✅
 20% reduction gate: data collection active — يُقاس بعد live repair runs
+
+#### Evidence Backfill — Wave 1 / Wave 1.5
+
+**الادعاءات المُثبتة الآن:**
+
+| Claim | الحالة | مكان الإثبات |
+|------|--------|--------------|
+| Constitution enforced | **PROVEN** | `src/constitution.rs` |
+| Smart Context active | **PROVEN** | `src/context/builder.rs` |
+| Plan Risk connected | **PROVEN** | `src/decision/plan_risk.rs` |
+| Telemetry correctness | **PROVEN** | `src/report.rs`, `src/agent.rs` |
+
+**Artifacts:**
+- `docs/EVIDENCE_MATRIX.md`
+- `cargo test evidence_` → **31/31** ✅
+
+**أهم اكتشاف في Wave 1:**
+Evidence Backfill كشف gap حقيقي في Rule 6:
+- `rm -rf .`
+- `rm -rf ..`
+- `rm -rf *`
+- `rm -rf ~`
+
+لم تكن محظورة سابقاً رغم أن claim المشروع يقول:
+`no-dangerous-cmd → No destructive shell commands`
+
+**الإصلاح المُطبق:**
+Rule 6 الآن تمنع destructive workspace wipes بوضوح، مما جعل claim الدستور **مُثبتاً فعلاً** وليس مجرد موثق.
 v9.2.6 — v9.2.0 Closeout ✅
 ما أُضيف:
 
@@ -450,6 +480,7 @@ Git:
 
 Validated:
   cargo test:            143/143 ✅
+  cargo test evidence_:  31/31 ✅
   cargo clippy:          ✅ 0 warnings
   regression_gate core:  ✅
   bench all:             36/36 ✅
@@ -462,6 +493,8 @@ Active capabilities (cumulative):
   ✅ stderr_occurrences weight (v9.3.0)
   ✅ force_include guarantee + dropped tracking (v9.3.0)
   ✅ context budget telemetry in every report (v9.3.0)
+  ✅ evidence backfill (Wave 1 / Wave 1.5) — 4 core claims PROVEN
+  ✅ evidence matrix (`docs/EVIDENCE_MATRIX.md`)
   ✅ global prompt budget (24k chars)
   ✅ plan risk evaluation + telemetry
   ✅ decision.rs → facade + 5 submodules
