@@ -147,6 +147,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - `state_handlers.rs`: accumulates `BudgetReport` into `ExecutionContext` each repair loop
 - `agent.rs`: computes averages and wires into `ExecutionReport`
 
+### Evidence Backfill (Wave 1 / Wave 1.5)
+- `docs/EVIDENCE_MATRIX.md` added as the claim→evidence registry
+- **Constitution enforced** → **PROVEN**
+- **Smart Context active** → **PROVEN**
+- **Plan Risk connected** → **PROVEN**
+- **Telemetry correctness** → **PROVEN**
+- Evidence Backfill exposed a real gap in Rule 6:
+  - `rm -rf .`
+  - `rm -rf ..`
+  - `rm -rf *`
+  - `rm -rf ~`
+  were not blocked before
+- Rule 6 was strengthened to block destructive workspace wipes discovered by evidence tests
+- `compute_report_telemetry()` extracted into a pure helper and covered by formula tests
+
 ### Notes
 - 20% context reduction gate: data collection active — gate measured after live repair runs
 - All new report fields use `#[serde(default)]` for backward-compatible JSON deserialization
