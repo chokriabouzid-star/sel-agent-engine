@@ -12,8 +12,8 @@
 |------|--------|-------------------|-------|
 | Constitution enforced | **PROVEN** | `src/constitution.rs` | blocks test writes, go.mod overwrite, dangerous commands, network calls; allows safe actions |
 | Smart Context active | **PROVEN** | `src/context/builder.rs` | culprit priority, repeated stderr boost, force_include guarantee, dropped tracking, budget metadata |
-| Plan Risk connected | **PARTIAL** | `src/decision/plan_risk.rs` | existing test writes and safe plans covered; delete-file risk still needs stronger evidence |
-| Telemetry correctness | **PARTIAL** | `src/report.rs` | schema, roundtrip, backward compatibility proven; runtime formula correctness in `agent.rs` not fully proven yet |
+| Plan Risk connected | **PROVEN** | `src/decision/plan_risk.rs` | existing test writes, delete-file risk, safe plans, feedback lines — all covered |
+| Telemetry correctness | **PROVEN** | `src/report.rs`, `src/agent.rs` | schema, roundtrip, backward compat, formula correctness — all proven |
 | Dependency Graph used in scoring | **UNVERIFIED** | existing parser/builder tests only | Wave 2 |
 | Pattern Library active | **UNVERIFIED** | existing unit tests only | Wave 2 |
 | Adaptive Repair Routing active | **UNVERIFIED** | not backfilled yet | Wave 2 |

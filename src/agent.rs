@@ -822,3 +822,117 @@ async fn report_run(input: ReportRunInput<'_>) -> Result<()> {
 
     Ok(())
 }
+
+// v9.3.0 Wave 1.5: Extracted telemetry computation for testability
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ComputedTelemetry {
+    pub total_tokens: u64,
+    pub avg_tokens_per_task: u64,
+    pub avg_context_tokens: u64,
+    pub avg_selected_files: u64,
+    pub context_reduction_pct: u8,
+    pub force_include_dropped_count: u64,
+}
+
+pub(crate) fn compute_report_telemetry(
+    ctx: &crate::types::ExecutionContext,
+    tokens_in: u64,
+    tokens_out: u64,
+    successful_calls: u64,
+) -> ComputedTelemetry {
+    let total_tokens = tokens_in + tokens_out;
+    let avg_tokens_per_task = total_tokens.checked_div(successful_calls).unwrap_or(0);
+    let avg_context_tokens = ctx
+        .context_tokens_total
+        .checked_div(ctx.context_budget_samples as u64)
+        .unwrap_or(0);
+    let avg_selected_files = ctx
+        .context_files_total
+        .checked_div(ctx.context_budget_samples as u64)
+        .unwrap_or(0);
+    let context_reduction_pct = if ctx.context_tokens_before_total > 0 {
+        let saved = ctx
+            .context_tokens_before_total
+            .saturating_sub(ctx.context_tokens_total);
+        ((saved * 100) / ctx.context_tokens_before_total) as u8
+    } else {
+        0
+    };
+    ComputedTelemetry {
+        total_tokens,
+        avg_tokens_per_task,
+        avg_context_tokens,
+        avg_selected_files,
+        context_reduction_pct,
+        force_include_dropped_count: ctx.force_include_dropped_count,
+    }
+}
+
+#[cfg(test)]
+mod evidence_telemetry {
+    use super::*;
+    use crate::types::ExecutionContext;
+
+    #[test]
+    fn evidence_total_tokens_equals_in_plus_out() {
+        let ctx = ExecutionContext::new(5);
+        let t = compute_report_telemetry(&ctx, 200, 100, 3);
+        assert_eq!(t.total_tokens, 300);
+    }
+
+    #[test]
+    fn evidence_avg_tokens_per_task_zero_when_no_calls() {
+        let ctx = ExecutionContext::new(5);
+        let t = compute_report_telemetry(&ctx, 0, 0, 0);
+        assert_eq!(t.avg_tokens_per_task, 0);
+    }
+
+    #[test]
+    fn evidence_avg_tokens_per_task_computed_correctly() {
+        let ctx = ExecutionContext::new(5);
+        let t = compute_report_telemetry(&ctx, 600, 400, 5);
+        assert_eq!(t.total_tokens, 1000);
+        assert_eq!(t.avg_tokens_per_task, 200);
+    }
+
+    #[test]
+    fn evidence_context_averages_computed_from_samples() {
+        let mut ctx = ExecutionContext::new(5);
+        ctx.context_tokens_total = 3000;
+        ctx.context_files_total = 12;
+        ctx.context_budget_samples = 3;
+        ctx.context_tokens_before_total = 5000;
+
+        let t = compute_report_telemetry(&ctx, 100, 50, 2);
+        assert_eq!(t.avg_context_tokens, 1000);
+        assert_eq!(t.avg_selected_files, 4);
+        assert_eq!(t.context_reduction_pct, 40);
+    }
+
+    #[test]
+    fn evidence_context_averages_zero_when_no_samples() {
+        let ctx = ExecutionContext::new(5);
+        let t = compute_report_telemetry(&ctx, 100, 50, 1);
+        assert_eq!(t.avg_context_tokens, 0);
+        assert_eq!(t.avg_selected_files, 0);
+        assert_eq!(t.context_reduction_pct, 0);
+    }
+
+    #[test]
+    fn evidence_force_include_dropped_count_propagates() {
+        let mut ctx = ExecutionContext::new(5);
+        ctx.force_include_dropped_count = 3;
+        let t = compute_report_telemetry(&ctx, 0, 0, 0);
+        assert_eq!(t.force_include_dropped_count, 3);
+    }
+
+    #[test]
+    fn evidence_context_reduction_pct_zero_when_no_before() {
+        let mut ctx = ExecutionContext::new(5);
+        ctx.context_tokens_before_total = 0;
+        ctx.context_tokens_total = 100;
+        ctx.context_budget_samples = 1;
+        let t = compute_report_telemetry(&ctx, 0, 0, 0);
+        assert_eq!(t.context_reduction_pct, 0);
+    }
+}

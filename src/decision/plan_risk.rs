@@ -195,18 +195,39 @@ mod tests {
 
     #[test]
     fn evidence_plan_risk_triggers_on_delete_file() {
-        // Claim: Plan Risk flags delete_file as high risk
+        // Claim: Plan Risk flags Cmd::DeleteFile as high risk
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("old.py"), "x = 1\n").unwrap();
 
-        let plan = vec![Cmd::Run {
-            command: "rm old.py".into(),
+        let plan = vec![Cmd::DeleteFile {
+            path: "old.py".into(),
         }];
 
         let report = evaluate_plan_risk(dir.path(), &plan);
-        // delete via run command may not trigger — but direct delete planning should
-        // At minimum, risk should be computable without panic
-        assert!(report.estimated_risk >= 0.0);
+        assert!(
+            report.estimated_risk >= 0.5,
+            "DeleteFile must produce high risk, got {}",
+            report.estimated_risk
+        );
+        assert!(report.should_replan(), "DeleteFile must trigger replan");
+    }
+
+    #[test]
+    fn evidence_plan_risk_delete_file_produces_feedback() {
+        // Claim: DeleteFile risk produces actionable feedback lines
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("remove_me.py"), "x = 1\n").unwrap();
+
+        let plan = vec![Cmd::DeleteFile {
+            path: "remove_me.py".into(),
+        }];
+
+        let report = evaluate_plan_risk(dir.path(), &plan);
+        let lines = report.feedback_lines();
+        assert!(
+            !lines.is_empty(),
+            "DeleteFile risk must produce feedback lines"
+        );
     }
 
     #[test]
