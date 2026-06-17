@@ -94,9 +94,12 @@ impl SafeExecutor {
         };
         // sanitize Unicode quotes before writing
         let content_str = sanitize_code(content.as_ref());
-        let content_str = if p.extension().map(|x| x == "rs").unwrap_or(false) {
+        let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("");
+        let content_str = if ext == "rs" {
             let fixed = sanitize_rust_lifetime_quotes(&content_str);
             fix_rust_string_literals(&fixed)
+        } else if ext == "py" {
+            fix_python_string_quoting(&content_str)
         } else {
             content_str
         };

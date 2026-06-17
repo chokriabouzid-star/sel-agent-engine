@@ -263,13 +263,15 @@ pub fn pre_repair_checklist(
         }
     }
 
-    // Check 6-8: Bench-only semantic shortcuts
+    // Check 6: TS retry fix — runs in ALL modes (live + bench), Rule-1 safe
+    if try_semantic_ts_retry_fix(plan, ctx, workspace, &stderr) {
+        return ChecklistResult::Handled;
+    }
+
+    // Check 7-8: Bench-only semantic shortcuts
     let allow_bench = ctx.bench_mode || std::env::var("SEL_BENCH_MODE").is_ok();
     if allow_bench {
         if try_semantic_go_worker_pool_fix(plan, ctx, workspace, &stderr) {
-            return ChecklistResult::Handled;
-        }
-        if try_semantic_ts_retry_fix(plan, ctx, workspace, &stderr) {
             return ChecklistResult::Handled;
         }
         if try_semantic_ts_api_client_fix(plan, ctx, workspace, &stderr) {
@@ -505,53 +507,12 @@ fn try_semantic_ts_retry_fix(
     }
 
     let retry_ts = "export function retry<T>(\n  fn: () => Promise<T>,\n  attempts: number,\n  delayMs: number\n): Promise<T> {\n  return new Promise((resolve, reject) => {\n    let i = 0;\n    const attempt = (): void => {\n      fn().then(resolve, (err: unknown) => {\n        i += 1;\n        if (i >= attempts) { reject(err); }\n        else { setTimeout(attempt, delayMs); }\n      });\n    };\n    attempt();\n  });\n}\n";
-    let retry_test_ts = r#"import { retry } from './retry';
-
-beforeEach(() => { jest.useFakeTimers(); });
-afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); });
-
-it('fn succeeds on first try', async () => {
-  const fn = jest.fn().mockResolvedValue('success');
-  await expect(retry(fn, 3, 100)).resolves.toBe('success');
-  expect(fn).toHaveBeenCalledTimes(1);
-});
-
-it('fn fails twice then succeeds', async () => {
-  let calls = 0;
-  const err = new Error('fail');
-  const fn = jest.fn().mockImplementation(async () => {
-    calls++;
-    if (calls < 3) throw err;
-    return 'success';
-  });
-  const pending = expect(retry(fn, 3, 100)).resolves.toBe('success');
-  await jest.runAllTimersAsync();
-  await pending;
-  expect(fn).toHaveBeenCalledTimes(3);
-});
-
-it('fn always fails without extra final delay', async () => {
-  const err = new Error('fail');
-  const fn = jest.fn().mockImplementation(async () => { throw err; });
-  let rejected; //: unknown = undefined;
-  const promise = retry(fn, 3, 100);
-  promise.catch(e => { rejected = e; });
-  await jest.runAllTimersAsync();
-  await expect(promise).rejects.toThrow('fail');
-  expect(fn).toHaveBeenCalledTimes(3);
-  expect(rejected).toBe(err);
-});
-"#;
 
     println!("    Pre-Repair: semantic TS retry fix applied");
     plan.clear();
     plan.push(Cmd::WriteFile {
         path: "retry.ts".to_string(),
         content: retry_ts.to_string(),
-    });
-    plan.push(Cmd::WriteFile {
-        path: "retry.test.ts".to_string(),
-        content: retry_test_ts.to_string(),
     });
     plan.push(Cmd::RunTests {
         target: "npm test".to_string(),
@@ -588,16 +549,11 @@ fn try_semantic_ts_api_client_fix(
         \t\treturn response.data;\n\t}\n}\n\
         export default ApiClient;\n";
 
-    let api_test_ts = "jest.mock('axios');\nimport axios from 'axios';\nimport { ApiClient } from './api';\n\nconst mockedAxios = axios as jest.Mocked<typeof axios>;\n\nit('gets user successfully', async () => {\n    const userData = { id: 1, name: 'Test User' };\n    mockedAxios.get.mockResolvedValue({ data: userData });\n    const client = new ApiClient();\n    const result = await client.getUser(1);\n    expect(result).toEqual(userData);\n});\n\nit('handles 404 error', async () => {\n    mockedAxios.get.mockRejectedValue(new Error('Not Found'));\n    const client = new ApiClient();\n    await expect(client.getUser(999)).rejects.toThrow('Not Found');\n});\n";
-    println!("    Pre-Repair: semantic TS api-client fix applied");
+    println!("    Pre-Repair: semantic TS api-client fix applied (source-only, Rule-1 safe)");
     plan.clear();
     plan.push(Cmd::WriteFile {
         path: "api.ts".to_string(),
         content: api_ts.to_string(),
-    });
-    plan.push(Cmd::WriteFile {
-        path: "api.test.ts".to_string(),
-        content: api_test_ts.to_string(),
     });
     plan.push(Cmd::RunTests {
         target: "npm test".to_string(),
@@ -631,15 +587,26 @@ mod tests {
 
     #[test]
     fn test_bench_shortcuts_off_outside_bench_mode() {
+        // ts_retry now runs in ALL modes — source-only (Rule 1 safe)
         let dir = TempDir::new().unwrap();
-        write_file(&dir, "retry.test.ts", "it('x', async () => {})\n");
+        write_file(
+            &dir,
+            "retry.test.ts",
+            "it('x', async () => {})
+",
+        );
         let mut plan = Vec::new();
         let mut ctx = crate::types::ExecutionContext::new(3);
         ctx.failed_steps.push(timeout_step());
         ctx.bench_mode = false;
         let result = pre_repair_checklist(&mut plan, &mut ctx, dir.path());
-        assert!(matches!(result, ChecklistResult::ContinueToLlm));
-        assert!(plan.is_empty());
+        assert!(matches!(result, ChecklistResult::Handled));
+        assert!(plan
+            .iter()
+            .any(|c| matches!(c, Cmd::WriteFile { path, .. } if path == "retry.ts")));
+        assert!(!plan
+            .iter()
+            .any(|c| matches!(c, Cmd::WriteFile { path, .. } if path == "retry.test.ts")));
     }
 
     #[test]
@@ -655,5 +622,62 @@ mod tests {
         assert!(plan
             .iter()
             .any(|c| matches!(c, Cmd::WriteFile { path, .. } if path == "retry.ts")));
+    }
+    #[test]
+    fn test_ts_retry_fix_never_writes_test_file() {
+        let dir = TempDir::new().unwrap();
+        write_file(
+            &dir,
+            "retry.test.ts",
+            "it('always fails', async () => {})\n",
+        );
+        let mut plan = Vec::new();
+        let mut ctx = crate::types::ExecutionContext::new(3);
+        ctx.failed_steps.push(crate::types::FailedStep {
+            step_index: 0,
+            label: "run_tests".to_string(),
+            stderr: "PromiseRejectionHandledWarning: Promise rejection was handled asynchronously"
+                .to_string(),
+            exit_code: 1,
+            culprit_file: None,
+        });
+        ctx.bench_mode = false;
+        let result = pre_repair_checklist(&mut plan, &mut ctx, dir.path());
+        assert!(matches!(result, ChecklistResult::Handled));
+        assert!(
+            !plan
+                .iter()
+                .any(|c| matches!(c, Cmd::WriteFile { path, .. } if path == "retry.test.ts")),
+            "Rule 1 violated: retry.test.ts written by ts_retry_fix"
+        );
+    }
+    #[test]
+    fn test_ts_api_client_fix_never_writes_test_file() {
+        let dir = TempDir::new().unwrap();
+        write_file(&dir, "api.test.ts", "it('x', async () => {})\n");
+        write_file(&dir, "api.ts", "export class ApiClient {}\n");
+
+        let mut plan = Vec::new();
+        let mut ctx = crate::types::ExecutionContext::new(3);
+        ctx.failed_steps.push(crate::types::FailedStep {
+            step_index: 0,
+            label: "run_tests".to_string(),
+            stderr: "TS2459: Module declares 'ApiClient' locally, but it is not exported."
+                .to_string(),
+            exit_code: 1,
+            culprit_file: None,
+        });
+        ctx.bench_mode = true;
+
+        let result = pre_repair_checklist(&mut plan, &mut ctx, dir.path());
+        assert!(matches!(result, ChecklistResult::Handled));
+
+        assert!(plan
+            .iter()
+            .any(|c| matches!(c, Cmd::WriteFile { path, .. } if path == "api.ts")));
+
+        assert!(!plan
+            .iter()
+            .any(|c| matches!(c, Cmd::WriteFile { path, .. } if path == "api.test.ts")));
     }
 }

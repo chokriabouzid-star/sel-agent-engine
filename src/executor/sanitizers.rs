@@ -142,6 +142,35 @@ pub fn sanitize_code(s: &str) -> String {
     result
 }
 
+/// Fix Python assert strings where a weak LLM used single quotes outside
+/// a payload that already contains tuple/string syntax.
+pub fn fix_python_string_quoting(src: &str) -> String {
+    let had_trailing_newline = src.ends_with('\n');
+    let mut fixed_lines = Vec::new();
+
+    for line in src.lines() {
+        let trimmed = line.trim_start();
+        let should_fix = trimmed.starts_with("assert '")
+            && trimmed.contains("' in ")
+            && (trimmed.contains("[(") || trimmed.contains(")]") || trimmed.contains('"'));
+
+        if should_fix {
+            let fixed = line
+                .replacen("assert '", "assert \"", 1)
+                .replacen("' in ", "\" in ", 1);
+            fixed_lines.push(fixed);
+        } else {
+            fixed_lines.push(line.to_string());
+        }
+    }
+
+    let mut out = fixed_lines.join("\n");
+    if had_trailing_newline {
+        out.push('\n');
+    }
+    out
+}
+
 pub fn fix_toml_duplicates(src: &str) -> String {
     // v7.5: Basic fix for duplicate keys in [package] section of Cargo.toml
     let lines: Vec<String> = src.lines().map(|s| s.to_string()).collect();
@@ -298,5 +327,12 @@ pub fn pop(&mut self) -> Result<f64, String> {
         let input = r#"self.data.get(0).ok_or_else(|| "No data")"#;
         let result = fix_rust_string_types(input);
         assert!(result.contains(r#"ok_or_else(|| "No data".to_string())"#));
+    }
+    #[test]
+    fn test_fix_python_string_quoting_converts_outer_assert_quotes() {
+        let input = r#"assert 'Most common words: [("the", 5)]' in result"#;
+        let got = fix_python_string_quoting(input);
+        let expected = r#"assert "Most common words: [("the", 5)]" in result"#;
+        assert_eq!(got, expected);
     }
 }
