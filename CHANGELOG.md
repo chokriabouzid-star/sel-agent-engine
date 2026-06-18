@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+
+## [v9.3.2] — 2026-06-18
+
+### Fixed
+- TS retry: made `try_semantic_ts_retry_fix` Rule-1 safe (source-only) and removed retry loops.
+- TS retry: fix now works outside `bench_mode` and handles fake-timer unhandled rejection pattern safely.
+- Go worker pool smoke failure: improved missing-comma autofix for `_test.go` files.
+- Rust E0422 smoke failure: visibility/pub fix now supports sub-crate `src/lib.rs`.
+
+### Added
+- `fix_python_string_quoting()` in `src/executor/sanitizers.rs`
+- Wave 2 evidence tests in `tests/evidence_wave2.rs`
+- Regression coverage for TS retry / TS api-client Rule-1 safety
+- Project reference: `docs/SEL_AGENT_REFERENCE_v9.3.2.md`
+
+### Quality
+- smoke: **12/12**
+- bench all: **36/36**
+- bench-swe: **30/30**
+- bench-sel-v11: **18/18**
+- bench-real-world: **14/14**
+- clippy: **clean**
+- regression gate: **full PASSED**
+
+
 ## [v9.2.6] — 2026-06-14
 
 ### Added
