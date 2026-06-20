@@ -203,6 +203,40 @@ pub fn pre_repair_checklist(
         }
     }
 
+    // Check 2d: Go function redeclared in test file — use autofix
+    if stderr.contains("redeclared in this block") {
+        // Find the test file mentioned in the error
+        let test_file = stderr
+            .lines()
+            .find(|l| l.contains("redeclared in this block"))
+            .and_then(|l| l.split(':').next())
+            .map(|f| f.trim_start_matches("./"))
+            .map(|f| workspace.join(f))
+            .filter(|p| p.exists())
+            .or_else(|| {
+                let p = workspace.join("main_test.go");
+                if p.exists() {
+                    Some(p)
+                } else {
+                    None
+                }
+            });
+
+        if let Some(ref tf) = test_file {
+            if let Some(msg) =
+                crate::executor::autofix::autofix_go_redeclared_in_test(tf, &stderr, workspace)
+            {
+                println!("    Pre-Repair 2d: {}", msg);
+                plan.clear();
+                plan.push(Cmd::RunTests {
+                    target: "go test".to_string(),
+                });
+                ctx.failed_steps.clear();
+                return ChecklistResult::Handled;
+            }
+        }
+    }
+
     // Check 2c: Go HTTP echoHandler nil-body panic -> deterministic source fix
     if (stderr.contains("invalid memory address or nil pointer dereference")
         || stderr.contains("io.ReadAll({0x0, 0x0})"))

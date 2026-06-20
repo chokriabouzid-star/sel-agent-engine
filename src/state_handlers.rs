@@ -18,7 +18,8 @@ fn plan_risk_feedback_with_flag(workspace: &Path, commands: &[Cmd], enabled: boo
 
     if std::env::var_os("SEL_GOAL_AUTHORIZED_TESTS").is_some() {
         eprintln!("[TRACE] plan_risk: skipped for explicit goal-authorized existing test edits");
-        return Vec::new();
+        // Still check plan size even when skipping full plan_risk
+        return crate::decision::check_plan_size(commands);
     }
 
     let plan_risk = crate::decision::evaluate_plan_risk(workspace, commands);
@@ -215,6 +216,28 @@ fn build_planning_prompt(
         )
     };
 
+    let goal_lower = goal.to_lowercase();
+
+    let go_http_planning_hint = if goal_lower.contains("httptest")
+        || (goal_lower.contains("http") && goal_lower.contains("go"))
+    {
+        "\nGO HTTP TESTING HINT:\n- In Go, do NOT register routes only inside main().\n- Extract route registration into: func setupRouter() http.Handler\n- Use http.NewServeMux() inside setupRouter()\n- In tests, call httptest.NewServer(setupRouter())\n- NEVER redefine setupRouter() in main_test.go if it already exists in main.go\n"
+            .to_string()
+    } else {
+        String::new()
+    };
+
+    let ts_plan_compaction_hint = if goal_lower.contains("typescript")
+        || goal_lower.contains("node.js")
+        || goal_lower.contains("jest")
+        || goal_lower.contains(".ts")
+    {
+        "\nTYPESCRIPT PLAN COMPACTION HINT:\n- Prefer ONE write_file per file instead of many patch_file operations.\n- For small TypeScript tasks, keep the whole plan under 6 commands when possible.\n- Avoid multiple patches to the same .ts or .test.ts file in one plan.\n"
+            .to_string()
+    } else {
+        String::new()
+    };
+
     let thinking_prompt = format!(
         "\n\n## Required Analysis\n\
 Before writing the JSON plan, think step-by-step inside <think>...</think> tags:\n\
@@ -230,8 +253,12 @@ CRITICAL PROTOCOL REMINDER:\n\
 - Every plan MUST contain run_tests BEFORE done (non-negotiable)\n\
 - pip install: use venv/bin/pip install <pkg>\n\
 - Cargo.toml: use write_file with complete content when adding dependencies\n\
-{}{}{}",
-        repair_instruction, clarity_hint_block, advisory_hint_block
+{}{}{}{}{}",
+        repair_instruction,
+        clarity_hint_block,
+        advisory_hint_block,
+        go_http_planning_hint,
+        ts_plan_compaction_hint
     );
 
     crate::constitution::CONSTITUTION.to_string()
@@ -941,9 +968,13 @@ pub async fn do_repairing(
     ctx.repair_attempts += 1;
 
     let mut dynamic_max_repairs = ctx.max_repairs;
-    if goal.to_lowercase().contains("typescript")
-        || goal.to_lowercase().contains("node.js")
-        || goal.to_lowercase().contains("jest")
+    let goal_lower = goal.to_lowercase();
+    if goal_lower.contains("typescript")
+        || goal_lower.contains("node.js")
+        || goal_lower.contains("jest")
+        || goal_lower.contains("http server")
+        || goal_lower.contains("httptest")
+        || (goal_lower.contains("go") && goal_lower.contains("http"))
     {
         dynamic_max_repairs = dynamic_max_repairs.max(5);
     }

@@ -25,6 +25,20 @@ impl PlanRiskReport {
     }
 }
 
+/// فحص حجم الخطة — مستقل عن بقية plan_risk
+/// يُطبَّق دائماً حتى عند goal-authorized test edits
+pub fn check_plan_size(plan: &[Cmd]) -> Vec<String> {
+    let mut issues = Vec::new();
+    if plan.len() >= 10 {
+        issues.push(format!(
+            "PLAN RISK: plan has {} commands — unusually large, may indicate drift. \
+             Combine operations where possible.",
+            plan.len()
+        ));
+    }
+    issues
+}
+
 pub fn evaluate_plan_risk(workspace: &Path, plan: &[Cmd]) -> PlanRiskReport {
     let mut report = PlanRiskReport {
         estimated_risk: 0.0,

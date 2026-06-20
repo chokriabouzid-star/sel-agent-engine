@@ -212,6 +212,25 @@ impl SafeExecutor {
                     } else if let Some(fixed) = autofix_go_undefined_import(&p, &err) {
                         println!("   ⚡ AutoFix Go import: {}", fixed);
                         changed = true;
+                    } else if err.contains("redeclared in this block") {
+                        // Check other .go files in workspace for the redeclared function
+                        let ws = &self.workspace;
+                        if let Ok(entries) = std::fs::read_dir(ws) {
+                            for entry in entries.flatten() {
+                                let ep = entry.path();
+                                if ep.extension().and_then(|e| e.to_str()) == Some("go")
+                                    && ep != p
+                                    && ep.to_string_lossy().contains("_test")
+                                {
+                                    if let Some(msg) = autofix_go_redeclared_in_test(&ep, &err, ws)
+                                    {
+                                        println!("   ⚡ AutoFix Go redeclaration: {}", msg);
+                                        changed = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     if !changed {

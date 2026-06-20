@@ -1,4 +1,80 @@
 /// AutoFix:  Go stdlib import   LLM
+/// AutoFix: removes a function redeclared in a _test.go file when it already
+/// exists in main.go or another source file in the same package.
+/// Triggered by: "funcName redeclared in this block"
+pub fn autofix_go_redeclared_in_test(
+    test_file: &std::path::Path,
+    err: &str,
+    workspace: &std::path::Path,
+) -> Option<String> {
+    // Extract the function name from the error line
+    // Pattern: "./main_test.go:10:6: setupRouter redeclared in this block"
+    let fn_name = err
+        .lines()
+        .find(|l| l.contains("redeclared in this block"))?
+        .split(':')
+        .find(|seg| {
+            let s = seg.trim();
+            !s.is_empty()
+                && s.chars().next().map(|c| c.is_alphabetic()).unwrap_or(false)
+                && !s.contains('/')
+                && !s.contains('.')
+        })?
+        .trim()
+        .to_string();
+
+    if fn_name.is_empty() {
+        return None;
+    }
+
+    // Verify the function exists in main.go (the authoritative source)
+    let main_go = workspace.join("main.go");
+    if !main_go.exists() {
+        return None;
+    }
+    let main_src = std::fs::read_to_string(&main_go).ok()?;
+    let fn_sig = format!("func {}(", fn_name);
+    if !main_src.contains(&fn_sig) {
+        return None;
+    }
+
+    // Remove the function block from the test file
+    let test_src = std::fs::read_to_string(test_file).ok()?;
+    let mut result = String::new();
+    let mut in_fn = false;
+    let mut brace_depth: i32 = 0;
+
+    for line in test_src.lines() {
+        let trimmed = line.trim();
+        if !in_fn && trimmed.starts_with(&fn_sig) {
+            in_fn = true;
+            brace_depth = 0;
+            eprintln!(
+                "[AutoFix] Removing redeclared '{}' from {:?}",
+                fn_name,
+                test_file.file_name().unwrap_or_default()
+            );
+        }
+        if in_fn {
+            brace_depth += line.chars().filter(|&c| c == '{').count() as i32;
+            brace_depth -= line.chars().filter(|&c| c == '}').count() as i32;
+            if brace_depth <= 0 && line.contains('}') {
+                in_fn = false;
+            }
+            continue;
+        }
+        result.push_str(line);
+        result.push('\n');
+    }
+
+    if result.trim_end() == test_src.trim_end() {
+        return None;
+    }
+
+    std::fs::write(test_file, &result).ok()?;
+    Some(format!("removed redeclared '{}' from test file", fn_name))
+}
+
 pub fn autofix_go_undefined_import(file: &std::path::Path, err: &str) -> Option<String> {
     let filename = file.file_name()?.to_str()?;
     let go_std: &[(&str, &str)] = &[
