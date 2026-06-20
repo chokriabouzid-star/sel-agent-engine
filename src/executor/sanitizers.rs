@@ -1,3 +1,13 @@
+/// Fix Go files missing package declaration at top
+/// يحدث عندما يُنتج LLM Go code بدون "package main" أو "package foo"
+pub fn fix_go_missing_package(content: &str, default_pkg: &str) -> String {
+    let first_non_empty = content.lines().find(|l| !l.trim().is_empty());
+    match first_non_empty {
+        Some(line) if line.trim().starts_with("package ") => content.to_string(),
+        _ => format!("package {}\n\n{}", default_pkg, content),
+    }
+}
+
 pub fn fix_rust_string_literals(src: &str) -> String {
     let mut result = String::with_capacity(src.len());
     let bytes = src.as_bytes();
@@ -83,6 +93,30 @@ pub fn sanitize_rust_lifetime_quotes(content: &str) -> String {
         .replace("-> 'static str", "-> &'static str")
 }
 
+pub fn fix_rust_test_attributes(src: &str) -> String {
+    let had_trailing_newline = src.ends_with('\n');
+    let mut fixed_lines = Vec::new();
+
+    for line in src.lines() {
+        let trimmed = line.trim_start();
+        let indent = &line[..line.len() - trimmed.len()];
+
+        if trimmed == "[cfg(test)]" {
+            fixed_lines.push(format!("{}#[cfg(test)]", indent));
+        } else if trimmed == "[test]" {
+            fixed_lines.push(format!("{}#[test]", indent));
+        } else {
+            fixed_lines.push(line.to_string());
+        }
+    }
+
+    let mut out = fixed_lines.join("\n");
+    if had_trailing_newline {
+        out.push('\n');
+    }
+    out
+}
+
 /// v8.0  Fix Llama writing `-go 1.21` instead of `go 1.21` in go.mod files
 pub fn sanitize_go_mod_content(content: &str) -> String {
     let fixed: Vec<String> = content
@@ -144,20 +178,40 @@ pub fn sanitize_code(s: &str) -> String {
 
 /// Fix Python assert strings where a weak LLM used single quotes outside
 /// a payload that already contains tuple/string syntax.
+fn normalize_problematic_python_assert(line: &str) -> Option<String> {
+    let assert_pos = line.find("assert '")?;
+    let quote_start = assert_pos + "assert ".len();
+    let after_open = &line[quote_start + 1..];
+    let relative_end = after_open.find("' in ")?;
+    let quote_end = quote_start + 1 + relative_end;
+    let inner = &line[quote_start + 1..quote_end];
+
+    let looks_problematic = inner.contains("('")
+        || inner.contains("',")
+        || inner.contains("')")
+        || inner.contains("[(")
+        || inner.contains(")]")
+        || inner.contains('"');
+
+    if !looks_problematic {
+        return None;
+    }
+
+    let normalized_inner = inner.replace('"', "'");
+    Some(format!(
+        "{}\"{}\"{}",
+        &line[..quote_start],
+        normalized_inner,
+        &line[quote_end + 1..]
+    ))
+}
+
 pub fn fix_python_string_quoting(src: &str) -> String {
     let had_trailing_newline = src.ends_with('\n');
     let mut fixed_lines = Vec::new();
 
     for line in src.lines() {
-        let trimmed = line.trim_start();
-        let should_fix = trimmed.starts_with("assert '")
-            && trimmed.contains("' in ")
-            && (trimmed.contains("[(") || trimmed.contains(")]") || trimmed.contains('"'));
-
-        if should_fix {
-            let fixed = line
-                .replacen("assert '", "assert \"", 1)
-                .replacen("' in ", "\" in ", 1);
+        if let Some(fixed) = normalize_problematic_python_assert(line) {
             fixed_lines.push(fixed);
         } else {
             fixed_lines.push(line.to_string());
@@ -332,7 +386,15 @@ pub fn pop(&mut self) -> Result<f64, String> {
     fn test_fix_python_string_quoting_converts_outer_assert_quotes() {
         let input = r#"assert 'Most common words: [("the", 5)]' in result"#;
         let got = fix_python_string_quoting(input);
-        let expected = r#"assert "Most common words: [("the", 5)]" in result"#;
+        let expected = r#"assert "Most common words: [('the', 5)]" in result"#;
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn test_fix_python_string_quoting_handles_inner_single_quoted_tuples() {
+        let input = r#"assert 'Most common words: [('hello', 2), ('world', 2)]' in result"#;
+        let got = fix_python_string_quoting(input);
+        let expected = r#"assert "Most common words: [('hello', 2), ('world', 2)]" in result"#;
         assert_eq!(got, expected);
     }
 }

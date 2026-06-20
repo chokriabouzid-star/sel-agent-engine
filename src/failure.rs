@@ -12,8 +12,9 @@ pub enum FailureKind {
     DatabaseError,
     NodeTestError,
     FlaskConcurrency,
-    InfraError, // v6.4: connection error / rate limit / pip timeout
-    PatchError, // v6.6: search block not found / validation failed
+    InfraError,   // v6.4: connection error / rate limit / pip timeout
+    PatchError,   // v6.6: search block not found / validation failed
+    MissingTests, // v9.3.3: cargo/pytest ran 0 tests when tests required
     Unknown,
 }
 
@@ -28,15 +29,27 @@ impl FailureKind {
         {
             return Self::PatchError;
         }
-        // Infra errors
+        // Missing tests (Rust: running 0 tests, passed == 0)
+        if (s.contains("running 0 tests")
+            || s.contains("0 passed, 0 failed")
+            || s.contains("0 passed; 0 failed; 0 ignored"))
+            && !s.contains("error[E")
+            && !s.contains("error:")
+        {
+            return Self::MissingTests;
+        }
+        // Infra errors: Must be strictly contextual to avoid catching mocked HTTP status codes in user tests.
+        // Bare numbers like "503" or "429" will trigger false positives in API/web testing tasks.
         if s.contains("Connection error")
-            || s.contains("rate limit")
-            || s.contains("Rate limit")
-            || s.contains("429")
-            || s.contains("503")
-            || s.contains("502")
-            || s.contains("Timeout after")
             || s.contains("error sending request")
+            || s.contains("Timeout after ") // Agent's own execution timeout wrapper
+            || s.contains("ERR! network")   // npm network error
+            || s.contains("ECONNREFUSED")
+            || s.contains("ReadTimeoutError")
+            || s.contains("HTTP Error 429") || s.contains("HTTP 429") || s.contains("429 Too Many Requests")
+            || s.contains("HTTP Error 502") || s.contains("HTTP 502") || s.contains("502 Bad Gateway")
+            || s.contains("HTTP Error 503") || s.contains("HTTP 503") || s.contains("503 Service Unavailable")
+            || s.contains("Rate limit exceeded") || s.contains("rate_limit_exceeded") || s.contains("API rate limit")
         {
             return Self::InfraError;
         }
@@ -109,6 +122,7 @@ impl FailureKind {
             Self::AssertionError => "ASSERTION ERROR: Logic is wrong.",
             Self::TypeError => "TYPE ERROR: Wrong types used.",
             Self::CollectionError => "COLLECTION ERROR: No tests found.",
+            Self::MissingTests => "MISSING TESTS: 0 tests ran. Add #[cfg(test)] mod tests { } with at least one #[test] fn.",
             Self::BuildError => "BUILD ERROR: Compilation failed.",
             Self::NodeTestError => "NODE TEST ERROR: Use Node.js assert, not Jest.",
             Self::DatabaseError => "DATABASE ERROR: SQLite table missing.",
@@ -123,6 +137,7 @@ impl FailureKind {
         match self {
             Self::PatchError => 2,
             Self::InfraError => 0,
+            Self::MissingTests => 2,
             _ => 3,
         }
     }

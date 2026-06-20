@@ -95,15 +95,30 @@ impl SafeExecutor {
             let (passed, failed) = parse_rust_tests(&combined);
             let success = exit_ok && passed > 0;
 
+            // v9.3.3: 0 tests با exit 0 → treat as MissingTests failure
+            let zero_tests = exit_ok
+                && passed == 0
+                && failed == 0
+                && !combined.contains("error[E")
+                && !combined.contains("error:");
+            let stderr_out = if zero_tests {
+                format!(
+                    "running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored
+{}",
+                    capture_stderr(&combined, 1000)
+                )
+            } else if success {
+                String::new()
+            } else {
+                capture_stderr(&combined, 3000)
+            };
+
             return Ok(ExecResult {
-                success,
+                success: success && !zero_tests,
                 exit_code: out.status.code().unwrap_or(-1),
                 stdout: format!("{} passed, {} failed", passed, failed),
-                stderr: if success {
-                    String::new()
-                } else {
-                    capture_stderr(&combined, 3000)
-                },
+                stderr: stderr_out,
                 duration_ms: start.elapsed().as_millis() as u64,
                 autofix_triggered: false,
             });

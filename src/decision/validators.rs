@@ -97,6 +97,50 @@ pub fn validate_plan_integrity(plan: &[Cmd]) -> Vec<String> {
     issues
 }
 
+/// Validate Rust workspace bootstrap:
+/// if the plan writes Rust source/tests into a workspace that has no Cargo.toml,
+/// it must also create Cargo.toml or run cargo init/new.
+pub fn validate_rust_bootstrap_plan(workspace: &Path, plan: &[Cmd]) -> Vec<String> {
+    let mut issues = Vec::new();
+
+    let has_workspace_cargo = workspace.join("Cargo.toml").exists();
+
+    let touches_rust = plan.iter().any(|cmd| match cmd {
+        Cmd::WriteFile { path, .. }
+        | Cmd::AppendFile { path, .. }
+        | Cmd::PatchFile { path, .. }
+        | Cmd::ReadFile { path }
+        | Cmd::DeleteFile { path } => {
+            path.ends_with(".rs")
+                || path == "Cargo.toml"
+                || path.ends_with("/Cargo.toml")
+                || path.starts_with("src/")
+                || path.starts_with("tests/")
+        }
+        Cmd::Mkdir { path } => path == "src" || path == "tests",
+        _ => false,
+    });
+
+    if !touches_rust || has_workspace_cargo {
+        return issues;
+    }
+
+    let has_bootstrap = plan.iter().any(|cmd| match cmd {
+        Cmd::WriteFile { path, .. } => path == "Cargo.toml" || path.ends_with("/Cargo.toml"),
+        Cmd::Run { command } => command.contains("cargo init") || command.contains("cargo new"),
+        _ => false,
+    });
+
+    if !has_bootstrap {
+        issues.push(
+            "PLAN ERROR: Rust plan writes source/tests but workspace has no Cargo.toml. Add `write_file Cargo.toml` or `run: cargo init --lib` before Rust files."
+                .to_string(),
+        );
+    }
+
+    issues
+}
+
 /// Detect writes to protected manifest files that should be rejected during planning,
 /// before execution wastes repair budget.
 pub fn validate_protected_writes(plan: &[Cmd]) -> Vec<String> {

@@ -65,6 +65,28 @@ pub struct SafeExecutor {
     pub patch_attempts: std::cell::RefCell<HashMap<PathBuf, usize>>, // v5.2: track patch failures
 }
 
+fn shell_single_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r#"'\''"#))
+}
+
+fn normalize_shell_command(command: &str) -> Option<String> {
+    let trimmed = command.trim();
+    let inner = trimmed
+        .strip_prefix("print(")
+        .and_then(|s| s.strip_suffix(')'))?;
+
+    let payload = inner.trim();
+    if payload.len() >= 2
+        && ((payload.starts_with('\'') && payload.ends_with('\''))
+            || (payload.starts_with('"') && payload.ends_with('"')))
+    {
+        let message = &payload[1..payload.len() - 1];
+        return Some(format!("echo {}", shell_single_quote(message)));
+    }
+
+    None
+}
+
 impl SafeExecutor {
     pub fn new(workspace: PathBuf, timeout_secs: u64) -> Self {
         let oracle = WorkspaceOracle::new(workspace.clone());
@@ -101,6 +123,17 @@ impl SafeExecutor {
 
     async fn shell(&self, command: &str) -> Result<ExecResult> {
         self.safety_check(command)?;
+
+        let normalized_command = normalize_shell_command(command);
+        let command = if let Some(ref normalized) = normalized_command {
+            eprintln!(
+                "   ⚡ AutoFix: normalized shell command '{}' -> '{}'",
+                command, normalized
+            );
+            normalized.as_str()
+        } else {
+            command
+        };
 
         let parts: Vec<&str> = command.split_whitespace().collect();
         let prog = parts.first().ok_or_else(|| anyhow!("Empty command"))?;

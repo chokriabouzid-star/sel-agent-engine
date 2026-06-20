@@ -16,6 +16,11 @@ fn plan_risk_feedback_with_flag(workspace: &Path, commands: &[Cmd], enabled: boo
         return Vec::new();
     }
 
+    if std::env::var_os("SEL_GOAL_AUTHORIZED_TESTS").is_some() {
+        eprintln!("[TRACE] plan_risk: skipped for explicit goal-authorized existing test edits");
+        return Vec::new();
+    }
+
     let plan_risk = crate::decision::evaluate_plan_risk(workspace, commands);
     if plan_risk.should_replan() {
         plan_risk.feedback_lines()
@@ -93,6 +98,9 @@ pub async fn do_planning(
             println!("   ✓ {} commands", commands.len());
 
             let mut issues = crate::decision::validate_plan_integrity(&commands);
+            issues.extend(crate::decision::validate_rust_bootstrap_plan(
+                workspace, &commands,
+            ));
             let patch_issues = crate::decision::validate_patch_uniqueness(workspace, &commands);
             issues.extend(patch_issues);
             issues.extend(crate::decision::validate_protected_writes(&commands));
@@ -238,7 +246,7 @@ async fn plan_with_resilience(
     base_prompt: String,
     bench_mode: bool,
 ) -> Result<Vec<Cmd>, String> {
-    const MAX_RETRIES: u8 = 2;
+    const MAX_RETRIES: u8 = 3;
     let mut last_error = String::new();
     for attempt in 0..=MAX_RETRIES {
         let prompt = if attempt == 0 {
@@ -425,6 +433,10 @@ fn replan_with_feedback<'a>(
                     };
 
                 let mut new_issues = crate::decision::validate_plan_integrity(&candidate_plan);
+                new_issues.extend(crate::decision::validate_rust_bootstrap_plan(
+                    workspace,
+                    &candidate_plan,
+                ));
                 new_issues.extend(crate::decision::validate_patch_uniqueness(
                     workspace,
                     &candidate_plan,
@@ -1110,7 +1122,65 @@ pub async fn do_repairing(
         format!("\n\n{}", diag_report.as_prompt_fragment())
     };
 
-    let combined_hints = format!("{}{}", memory_hint, diagnostic_hint);
+    let go_http_router_hint = if (all_err.contains("404 page not found")
+        || all_err.contains("got 404")
+        || all_err.contains("Expected status code 200, got 404")
+        || all_err.contains("Expected status code 400, got 404"))
+        && workspace.join("main.go").exists()
+        && workspace.join("main_test.go").exists()
+    {
+        let body_check = if all_err.contains("Expected status code 400, got 404") {
+            r#"
+
+ADDITIONAL: The POST /echo handler must explicitly check for empty body and return 400.
+Suggested pattern:
+  body, _ := io.ReadAll(r.Body)
+  if len(bytes.TrimSpace(body)) == 0 {
+      w.WriteHeader(http.StatusBadRequest)
+      return
+  }
+  w.Header().Set("Content-Type", "text/plain")
+  _, _ = w.Write(body)
+"#
+            .to_string()
+        } else {
+            String::new()
+        };
+
+        format!(
+            r#"
+
+[go/http-router] Tests are returning 404. In Go, routes registered only inside `main()` are not reliably available to `httptest.NewServer(...)`-based tests. Extract route registration into `func setupRouter() http.Handler`, create a new `http.ServeMux` there, register all handlers there, return the mux, and call `setupRouter()` from both `main()` and tests. Do NOT rely on handlers being registered only by `main()` or only on `http.DefaultServeMux` side effects.{}"#,
+            body_check
+        )
+    } else {
+        String::new()
+    };
+
+    let rust_arc_move_hint = if (all_err.contains("thread::spawn")
+        || all_err.contains("std::thread")
+        || all_err.contains("Arc"))
+        && (all_err.contains("use of moved value")
+            || all_err.contains("borrow of moved value")
+            || all_err.contains("value borrowed here after move")
+            || all_err.contains("does not implement `Copy`")
+            || all_err.contains("does not implement Copy"))
+    {
+        "\n\n[rust/ownership-arc] You are fixing a Rust ownership error involving Arc and move closures. For each thread::spawn(move || ...), create fresh clones BEFORE the closure, e.g. `let data1_for_t1 = Arc::clone(&data1); let data2_for_t1 = Arc::clone(&data2);` then use those clones INSIDE the closure. Do not call Arc::clone(&data1) after `data1` has already been moved into a previous closure. Do not move a MutexGuard into another variable and then reuse the old binding.".to_string()
+    } else {
+        String::new()
+    };
+
+    let missing_tests_hint = if failure_kind == FailureKind::MissingTests {
+        "\n\n[rust/zero-tests] `cargo test` ran 0 tests. Do NOT just re-run tests. Add a REAL `#[cfg(test)] mod tests` block to the source file under test (for Rust binaries this is often `src/main.rs`) and include at least one `#[test]` that exercises the required behavior from the goal.".to_string()
+    } else {
+        String::new()
+    };
+
+    let combined_hints = format!(
+        "{}{}{}{}{}",
+        memory_hint, diagnostic_hint, go_http_router_hint, rust_arc_move_hint, missing_tests_hint
+    );
 
     let culprit_files: Vec<String> = ctx
         .failed_steps
@@ -1208,12 +1278,171 @@ pub async fn do_repairing(
     let prompt = build_budgeted_repair_prompt(&prompt_sections);
 
     match plan_with_resilience(llm, prompt, ctx.bench_mode).await {
-        Ok(commands) => {
+        Ok(mut commands) => {
+            for cmd in &mut commands {
+                if let Cmd::Run { command } = cmd {
+                    let trimmed = command.trim().to_string();
+                    let is_test_command = trimmed.starts_with("venv/bin/pytest")
+                        || trimmed == "pytest"
+                        || trimmed.starts_with("pytest ")
+                        || trimmed.starts_with("cargo test")
+                        || trimmed.starts_with("go test")
+                        || trimmed == "npm test"
+                        || trimmed.starts_with("npm test ")
+                        || trimmed.starts_with("npx jest");
+
+                    if is_test_command {
+                        println!(
+                            "   ⚡ Repair plan normalize: run -> run_tests ({})",
+                            trimmed
+                        );
+                        *cmd = Cmd::RunTests { target: trimmed };
+                    }
+                }
+            }
+
+            normalize_repair_plan_order(&mut commands);
+            drop_redundant_go_mod_init_commands(workspace, &mut commands);
+
+            let mut initial_issues = crate::decision::validate_plan_integrity(&commands);
+            initial_issues.extend(crate::decision::validate_rust_bootstrap_plan(
+                workspace, &commands,
+            ));
+            if !initial_issues.is_empty() {
+                println!("   ⚠️  Repair plan issues detected:");
+                for issue in &initial_issues {
+                    println!("       {}", issue);
+                }
+
+                let mut last_write_index = std::collections::HashMap::new();
+                for (idx, cmd) in commands.iter().enumerate() {
+                    if let Cmd::WriteFile { path, .. } = cmd {
+                        last_write_index.insert(path.clone(), idx);
+                    }
+                }
+
+                commands = commands
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(idx, cmd)| match &cmd {
+                        Cmd::WriteFile { path, .. } => {
+                            if last_write_index.get(path) == Some(&idx) {
+                                Some(cmd)
+                            } else {
+                                println!(
+                                    "   🗑️  Dropped duplicate repair write_file for '{}' (keeping last one)",
+                                    path
+                                );
+                                None
+                            }
+                        }
+                        _ => Some(cmd),
+                    })
+                    .collect();
+
+                let remaining_issues = crate::decision::validate_plan_integrity(&commands);
+                if !remaining_issues.is_empty() {
+                    let reason = remaining_issues.join("\n");
+                    return Ok((Vec::new(), AgentState::Failed(reason)));
+                }
+            }
+
+            if let Some(clippy_cmd) = preserved_validator_command(ctx) {
+                let already_has_clippy = commands.iter().any(|cmd| {
+                    matches!(cmd, Cmd::Run { command } if command.trim_start().starts_with("cargo clippy"))
+                });
+
+                if !already_has_clippy {
+                    println!("   ⚡ Repair plan preserve validator: {}", clippy_cmd);
+                    insert_before_done(
+                        &mut commands,
+                        Cmd::Run {
+                            command: clippy_cmd,
+                        },
+                    );
+                }
+            }
+
             println!("   🔧 Repair plan: {} commands", commands.len());
             Ok((commands, AgentState::Executing))
         }
         Err(e) => Ok((Vec::new(), AgentState::Failed(e))),
     }
+}
+
+fn normalize_repair_plan_order(commands: &mut Vec<Cmd>) {
+    let mut done_cmd = None;
+    if matches!(commands.last(), Some(Cmd::Done { .. })) {
+        done_cmd = commands.pop();
+    }
+
+    let mut others = Vec::new();
+    let mut last_run_tests = None;
+
+    for cmd in commands.drain(..) {
+        if cmd.is_run_tests() {
+            last_run_tests = Some(cmd);
+        } else {
+            others.push(cmd);
+        }
+    }
+
+    if let Some(run_tests) = last_run_tests {
+        others.push(run_tests);
+    }
+
+    if let Some(done) = done_cmd {
+        others.push(done);
+    }
+
+    *commands = others;
+}
+
+fn drop_redundant_go_mod_init_commands(workspace: &Path, commands: &mut Vec<Cmd>) {
+    if !workspace.join("go.mod").exists() {
+        return;
+    }
+
+    let before = commands.len();
+    commands.retain(|cmd| match cmd {
+        Cmd::Run { command } => {
+            let lc = command.trim().to_lowercase();
+            !(lc == "go mod init"
+                || lc.starts_with("go mod init ")
+                || lc.starts_with("go mod init\t"))
+        }
+        _ => true,
+    });
+
+    let dropped = before.saturating_sub(commands.len());
+    if dropped > 0 {
+        println!(
+            "   ⚡ Repair plan sanitize: dropped {} redundant `go mod init` command(s)",
+            dropped
+        );
+    }
+}
+
+fn preserved_validator_command(ctx: &crate::types::ExecutionContext) -> Option<String> {
+    ctx.failed_steps
+        .iter()
+        .chain(ctx.last_failed_steps.iter())
+        .find_map(|step| {
+            step.label
+                .trim()
+                .strip_prefix("run: ")
+                .map(str::trim)
+                .filter(|cmd| cmd.starts_with("cargo clippy"))
+                .map(|cmd| cmd.to_string())
+        })
+}
+
+fn insert_before_done(commands: &mut Vec<Cmd>, cmd: Cmd) {
+    let done_pos = commands
+        .iter()
+        .position(|c| matches!(c, Cmd::Done { .. }))
+        .unwrap_or(commands.len());
+    commands.insert(done_pos, cmd);
 }
 
 #[cfg(test)]

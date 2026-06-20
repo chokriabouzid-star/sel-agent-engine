@@ -21,6 +21,7 @@ pub enum ProtocolError {
 // Raw deserialization struct (LLM JSON output)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentCommand {
+    #[serde(alias = "type")]
     pub action: String,
     #[serde(default)]
     pub path: String,

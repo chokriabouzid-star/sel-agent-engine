@@ -72,55 +72,60 @@ pub fn autofix_go_unused_import(file: &std::path::Path, err: &str) -> Option<Str
     }
 
     let src = std::fs::read_to_string(file).ok()?;
+    let mut lines: Vec<String> = src.lines().map(|l| l.to_string()).collect();
 
-    let block_pattern = format!("\t\"{}\"", pkg);
-    let block_pattern_no_tab = format!("    \"{}\"", pkg);
-
-    let new_src = if src.contains(&block_pattern) {
-        let lines: Vec<&str> = src.lines().collect();
-        let filtered: Vec<&str> = lines
-            .iter()
-            .filter(|&&line| {
-                let trimmed = line.trim();
-                trimmed != format!("\"{}\"", pkg).as_str()
-            })
-            .cloned()
-            .collect();
-        let new = filtered.join("\n");
-        new.replace("import (\n)", "").replace("import (\n\n)", "")
-    } else if src.contains(&block_pattern_no_tab) {
-        src.lines()
-            .filter(|line| line.trim() != format!("\"{}\"", pkg).as_str())
-            .collect::<Vec<_>>()
-            .join("\n")
-    } else {
-        let single_pattern = format!("import \"{}\"", pkg);
-        if src.contains(&single_pattern) {
-            src.lines()
-                .filter(|line| !line.trim().starts_with(&single_pattern))
-                .collect::<Vec<_>>()
-                .join("\n")
-        } else {
-            return None;
+    // Case 1: single-line import: import "fmt"
+    let single_pattern = format!("import \"{}\"", pkg);
+    let mut changed = false;
+    lines.retain(|line| {
+        let keep = line.trim() != single_pattern;
+        if !keep {
+            changed = true;
         }
-    };
+        keep
+    });
 
-    let new_src = {
-        let mut cleaned = new_src.clone();
-        while let Some(start) = cleaned.find("import (") {
-            if let Some(end) = cleaned[start..].find(')') {
-                let block_content = &cleaned[start + 8..start + end];
-                if block_content.trim().is_empty() {
-                    cleaned = format!("{}{}", &cleaned[..start], &cleaned[start + end + 1..]);
-                } else {
-                    break;
-                }
-            } else {
-                break;
+    // Case 2: import block — remove any line whose trimmed form is exactly "pkg"
+    if !changed {
+        let quoted = format!("\"{}\"", pkg);
+        let before_len = lines.len();
+        lines.retain(|line| line.trim() != quoted);
+        changed = lines.len() != before_len;
+    }
+
+    if !changed {
+        return None;
+    }
+
+    let mut new_src = lines.join("\n");
+
+    // Clean empty import blocks like:
+    // import (
+    // )
+    // or import (\n\n)
+    while let Some(start) = new_src.find("import (") {
+        if let Some(end_rel) = new_src[start..].find(')') {
+            let end = start + end_rel;
+            let block_content = &new_src[start + "import (".len()..end];
+            if block_content.trim().is_empty() {
+                let mut rebuilt = String::new();
+                rebuilt.push_str(&new_src[..start]);
+                rebuilt.push_str(&new_src[end + 1..]);
+                new_src = rebuilt;
+                continue;
             }
         }
-        cleaned
-    };
+        break;
+    }
+
+    // Normalize triple blank lines caused by import removal
+    while new_src.contains("\n\n\n") {
+        new_src = new_src.replace("\n\n\n", "\n\n");
+    }
+
+    if src.ends_with('\n') && !new_src.ends_with('\n') {
+        new_src.push('\n');
+    }
 
     std::fs::write(file, &new_src).ok()?;
     Some(pkg)

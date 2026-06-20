@@ -24,6 +24,8 @@ pub struct Agent {
     failure_memory: crate::memory::FailureMemory, // v5.8
     initial_snapshot: Option<crate::snapshot::Snapshot>, // v7.5.1
     pub bench_mode: bool,                         // v7.9.8: skip EXPLAIN MODE in all bench runs
+    goal_authorized_test_files: Vec<PathBuf>,     // explicit existing tests allowed by user goal
+    initial_goal_test_write_window_open: bool,    // only during first execution before repair
 }
 
 impl Agent {
@@ -47,6 +49,8 @@ impl Agent {
             failure_memory: crate::memory::FailureMemory::load(),
             initial_snapshot: None,
             bench_mode: false,
+            goal_authorized_test_files: Vec::new(),
+            initial_goal_test_write_window_open: false,
         }
     }
     pub fn new_with_model(
@@ -71,6 +75,8 @@ impl Agent {
             failure_memory: crate::memory::FailureMemory::load(),
             initial_snapshot: None,
             bench_mode: false,
+            goal_authorized_test_files: Vec::new(),
+            initial_goal_test_write_window_open: false,
         }
     }
 
@@ -251,6 +257,29 @@ impl Agent {
                 self.executor.protected_test_files.len()
             );
         }
+
+        self.goal_authorized_test_files =
+            extract_goal_authorized_test_files(&self.goal, &self.executor.protected_test_files);
+        self.initial_goal_test_write_window_open = !self.goal_authorized_test_files.is_empty();
+        publish_goal_authorized_test_files(&self.goal_authorized_test_files);
+
+        if !self.goal_authorized_test_files.is_empty() {
+            let names = self
+                .goal_authorized_test_files
+                .iter()
+                .map(|p| {
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| p.to_string_lossy().to_string())
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!(
+                "   🔓 Goal-authorized existing test edits (initial plan only): {}",
+                names
+            );
+        }
         if !has_tests {
             // In bench_mode, benchmarks orchestrate tests on their own
             if self.bench_mode {
@@ -314,14 +343,43 @@ impl Agent {
                 }
 
                 AgentState::Executing => {
+                    let allow_goal_test_writes = self.initial_goal_test_write_window_open;
+                    if allow_goal_test_writes {
+                        std::env::set_var("SEL_ALLOW_GOAL_TEST_WRITES", "1");
+                    } else {
+                        std::env::remove_var("SEL_ALLOW_GOAL_TEST_WRITES");
+                    }
+
                     let mut snapshot = crate::snapshot::Snapshot::take(&self.executor.workspace);
-                    match crate::state_handlers::do_executing(
+                    let execute_result = crate::state_handlers::do_executing(
                         &mut self.ctx,
                         &self.executor,
                         &self.plan,
                     )
-                    .await
-                    {
+                    .await;
+
+                    if allow_goal_test_writes {
+                        // أبقِ الـ window مفتوحًا إذا كان الفشل بسبب الـ test file المُصرَّح به
+                        let authorized_file_still_broken = self.ctx.failed_steps.iter().any(|f| {
+                            self.goal_authorized_test_files.iter().any(|auth| {
+                                f.stderr.contains(
+                                    auth.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+                                )
+                            })
+                        });
+
+                        if !authorized_file_still_broken {
+                            std::env::remove_var("SEL_ALLOW_GOAL_TEST_WRITES");
+                            self.initial_goal_test_write_window_open = false;
+                            eprintln!("[TRACE] goal-authorized test write window closed");
+                        } else {
+                            eprintln!(
+                                "[TRACE] goal-authorized test write window kept open (authorized file still broken)"
+                            );
+                        }
+                    }
+
+                    match execute_result {
                         Ok(new_state) => {
                             snapshot.commit();
                             self.state = new_state;
@@ -334,6 +392,22 @@ impl Agent {
                 }
 
                 AgentState::Repairing => {
+                    // إذا كان الـ test file المُصرَّح به هو مصدر الفشل، افتح repair window
+                    let broken_authorized = !self.goal_authorized_test_files.is_empty()
+                        && self.ctx.failed_steps.iter().any(|f| {
+                            self.goal_authorized_test_files.iter().any(|auth| {
+                                let name = auth.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                                !name.is_empty() && f.stderr.contains(name)
+                            })
+                        });
+
+                    if broken_authorized {
+                        std::env::set_var("SEL_BROKEN_AUTHORIZED_TEST", "1");
+                        eprintln!("[TRACE] goal-authorized broken test repair window opened");
+                    } else {
+                        std::env::remove_var("SEL_BROKEN_AUTHORIZED_TEST");
+                    }
+
                     match crate::state_handlers::do_repairing(
                         &mut self.ctx,
                         self.llm.as_ref(),
@@ -353,6 +427,7 @@ impl Agent {
                             self.state = AgentState::Failed(e.to_string());
                         }
                     }
+                    std::env::remove_var("SEL_BROKEN_AUTHORIZED_TEST");
                 }
                 AgentState::WaitingForUserInput(msg) => {
                     // v8.0: In bench mode, skip EXPLAIN MODE immediately using env var or struct field
@@ -725,6 +800,53 @@ fn record_pattern_outcome(
     let mut lib = crate::pattern_library::PatternLibrary::load();
     lib.record_outcome(language, &stderr, route, success, example_fix);
     lib.save();
+}
+
+fn extract_goal_authorized_test_files(
+    goal: &str,
+    protected: &std::collections::HashSet<PathBuf>,
+) -> Vec<PathBuf> {
+    let goal_lower = goal.to_lowercase();
+
+    let mentions_edit_intent = ["add", "update", "modify", "edit", "write"]
+        .iter()
+        .any(|verb| goal_lower.contains(verb));
+    let mentions_tests = goal_lower.contains("test");
+
+    if !mentions_edit_intent || !mentions_tests {
+        return Vec::new();
+    }
+
+    let mut matches = protected
+        .iter()
+        .filter_map(|path| {
+            let name = path.file_name()?.to_str()?.to_lowercase();
+            if goal_lower.contains(&name) {
+                Some(path.clone())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    matches.sort();
+    matches.dedup();
+    matches
+}
+
+fn publish_goal_authorized_test_files(paths: &[PathBuf]) {
+    if paths.is_empty() {
+        std::env::remove_var("SEL_GOAL_AUTHORIZED_TESTS");
+        return;
+    }
+
+    let joined = paths
+        .iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    std::env::set_var("SEL_GOAL_AUTHORIZED_TESTS", joined);
 }
 
 struct ReportRunInput<'a> {

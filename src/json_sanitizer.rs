@@ -29,13 +29,61 @@ pub fn sanitize(raw: &str) -> Result<String, SanitizeError> {
     let extracted = extract_json_block(raw).ok_or(SanitizeError::NoJsonFound)?;
     let sanitized = repair_pipeline(&extracted);
 
-    // Validate that the result is parseable
-    serde_json::from_str::<serde_json::Value>(&sanitized)
-        .map(|_| sanitized.clone())
+    // First attempt: parse as-is
+    if serde_json::from_str::<serde_json::Value>(&sanitized).is_ok() {
+        return Ok(sanitized);
+    }
+
+    // Second attempt: balance brackets for truncated JSON
+    let balanced = balance_json_brackets(&sanitized);
+    serde_json::from_str::<serde_json::Value>(&balanced)
+        .map(|_| balanced)
         .map_err(|e| SanitizeError::UnrecoverableJson {
             reason: e.to_string(),
             fragment: sanitized.chars().take(120).collect(),
         })
+}
+
+/// Try to close any unclosed brackets/braces in truncated JSON.
+/// Conservative repair only: close open strings, arrays, and objects.
+/// This avoids syntax breakage from cut-off provider responses.
+fn balance_json_brackets(s: &str) -> String {
+    let mut depth_brace: i32 = 0;
+    let mut depth_bracket: i32 = 0;
+    let mut in_string = false;
+    let mut escape_next = false;
+
+    for ch in s.chars() {
+        if escape_next {
+            escape_next = false;
+            continue;
+        }
+
+        match ch {
+            '\\' if in_string => escape_next = true,
+            '"' => in_string = !in_string,
+            '{' if !in_string => depth_brace += 1,
+            '}' if !in_string => depth_brace -= 1,
+            '[' if !in_string => depth_bracket += 1,
+            ']' if !in_string => depth_bracket -= 1,
+            _ => {}
+        }
+    }
+
+    let mut result = s.to_string();
+
+    if in_string {
+        result.push('"');
+    }
+
+    for _ in 0..depth_bracket.max(0) {
+        result.push(']');
+    }
+    for _ in 0..depth_brace.max(0) {
+        result.push('}');
+    }
+
+    result
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -118,6 +118,38 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
         });
     }
 
+    // --- Rust: zero tests ---
+    if (error_text.contains("running 0 tests") || error_text.contains("0 passed, 0 failed"))
+        && !error_text.contains("error[E")
+        && !error_text.contains("error:")
+    {
+        hints.push(Hint {
+            severity: Severity::Error,
+            category: "rust/zero-tests",
+            message: "cargo test ran 0 tests — no #[test] functions found".into(),
+            suggestion: "Add a #[cfg(test)] mod tests { use super::*; } block with at least one #[test] fn that exercises the required functionality".into(),
+        });
+    }
+    // --- Rust bootstrap ---
+    if error_text.contains("could not find `Cargo.toml`") {
+        hints.push(Hint {
+            severity: Severity::Error,
+            category: "rust/bootstrap",
+            message: "Rust workspace is missing Cargo.toml".into(),
+            suggestion: "Create Cargo.toml first or run `cargo init --lib` / `cargo new --lib` before writing src/lib.rs and tests".into(),
+        });
+    }
+
+    // --- Rust integration test imports ---
+    if error_text.contains("tests/") && error_text.contains("not found in this scope") {
+        hints.push(Hint {
+            severity: Severity::Error,
+            category: "rust/integration-import",
+            message: "integration test cannot see crate items".into(),
+            suggestion: "Files under tests/*.rs are separate crates. Do NOT use `use super::*;`. Import from the crate name instead, e.g. `use crate_name::symbol;`".into(),
+        });
+    }
+
     // --- Rust patterns ---
     if error_text.contains("cannot borrow") && error_text.contains("as mutable") {
         hints.push(Hint {

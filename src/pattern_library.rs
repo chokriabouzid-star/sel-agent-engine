@@ -36,7 +36,7 @@ impl RepairRoute {
                 "The function was deleted — restore it from context or rewrite it."
             }
             Self::NullGuard => "Add a nil/null check before using the value.",
-            Self::RustOwnership => "Use clone() or a reference to fix the ownership issue.",
+            Self::RustOwnership => "Use clone() or a reference to fix the ownership issue. For Arc with thread::spawn(move || ...), clone each Arc BEFORE moving it into the closure, and do not try to use the original after move.",
             Self::CircularImport => "Restructure imports to break the circular dependency.",
             Self::TypeMismatch => "Verify the types match — check return type and argument types.",
         }
@@ -436,6 +436,12 @@ pub fn infer_route_from_stderr(stderr: &str) -> RepairRoute {
     } else if s.contains("cannot borrow")
         || s.contains("does not live long enough")
         || s.contains("borrowed value")
+        || s.contains("use of moved value")
+        || s.contains("borrow of moved value")
+        || s.contains("value borrowed here after move")
+        || s.contains("does not implement `copy`")
+        || s.contains("does not implement copy")
+        || s.contains("error[e0382]")
     {
         RepairRoute::RustOwnership
     } else if s.contains("nil pointer")

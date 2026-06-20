@@ -6,6 +6,26 @@ use crate::executor::sanitizers::*;
 use crate::types::ExecResult;
 use anyhow::Result;
 
+fn goal_authorized_test_write_allowed(p: &std::path::Path) -> bool {
+    let Ok(raw) = std::env::var("SEL_GOAL_AUTHORIZED_TESTS") else {
+        return false;
+    };
+    if raw.is_empty() {
+        return false;
+    }
+    // window مفتوح (initial plan) أو الملف المُصرَّح به لا يزال مكسورًا
+    let needle = p.to_string_lossy();
+    if !raw.lines().any(|line| line == needle) {
+        return false;
+    }
+    // الـ window مفتوح بشكل صريح
+    if std::env::var("SEL_ALLOW_GOAL_TEST_WRITES").ok().as_deref() == Some("1") {
+        return true;
+    }
+    // أو: الملف مذكور في SEL_BROKEN_AUTHORIZED_TEST (repair window)
+    std::env::var("SEL_BROKEN_AUTHORIZED_TEST").ok().as_deref() == Some("1")
+}
+
 impl SafeExecutor {
     //  File Operations
 
@@ -24,7 +44,9 @@ impl SafeExecutor {
     }
 
     fn blocks_existing_spec_modification(&self, path: &str, p: &std::path::Path) -> bool {
-        self.is_spec_file(path) && self.protected_test_files.contains(p)
+        self.is_spec_file(path)
+            && self.protected_test_files.contains(p)
+            && !goal_authorized_test_write_allowed(p)
     }
 
     pub fn write_file(&self, path: &str, content: &str) -> Result<ExecResult> {
@@ -95,9 +117,15 @@ impl SafeExecutor {
         // sanitize Unicode quotes before writing
         let content_str = sanitize_code(content.as_ref());
         let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("");
+        // Go: أضف package declaration إذا كانت مفقودة
+        let content_str = if ext == "go" {
+            fix_go_missing_package(&content_str, "main")
+        } else {
+            content_str
+        };
         let content_str = if ext == "rs" {
             let fixed = sanitize_rust_lifetime_quotes(&content_str);
-            fix_rust_string_literals(&fixed)
+            fix_rust_test_attributes(&fix_rust_string_literals(&fixed))
         } else if ext == "py" {
             fix_python_string_quoting(&content_str)
         } else {
@@ -157,76 +185,54 @@ impl SafeExecutor {
                     "[TRACE] Checking autofix for: {}",
                     err.chars().take(80).collect::<String>()
                 );
-                // Check if the error mentions THIS file specifically
+
                 let file_name = std::path::Path::new(path)
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or(path);
+
                 let mut err_mentions_this_file = err.contains(file_name);
 
-                if err_mentions_this_file {
-                    // AutoFix chain: syntax → imports → common Go test patterns
+                // Iterative autofix loop: keep fixing until no more autofixes apply
+                while err_mentions_this_file {
+                    let mut changed = false;
+
                     if let Some(fixed) = autofix_go_missing_comma(&p, &err) {
                         println!("   ⚡ AutoFix Go missing comma: {}", fixed);
-                        if let Some(err2) = go_compile_check(&self.workspace) {
-                            err = err2;
-                        } else {
-                            println!("   ✅ AutoFix missing-comma succeeded");
-                            return Ok(ExecResult::ok(format!("Written: {}", path)));
-                        }
-                    }
-
-                    if let Some(fixed) = autofix_go_unused_import(&p, &err) {
+                        changed = true;
+                    } else if let Some(fixed) = autofix_go_unused_import(&p, &err) {
                         println!("   ⚡ AutoFix Go unused import: {}", fixed);
-                        if let Some(err2) = go_compile_check(&self.workspace) {
-                            err = err2;
-                        } else {
-                            println!("   ✅ AutoFix unused-import succeeded");
-                            return Ok(ExecResult::ok(format!("Written: {}", path)));
-                        }
-                    }
-
-                    if let Some(fixed) = autofix_go_test_run_shadow_alias(&p, &err) {
+                        changed = true;
+                    } else if let Some(fixed) = autofix_go_test_run_shadow_alias(&p, &err) {
                         println!("   ⚡ AutoFix Go test shadow alias: {}", fixed);
-                        if let Some(err2) = go_compile_check(&self.workspace) {
-                            err = err2;
-                        } else {
-                            println!("   ✅ AutoFix test-shadow-alias succeeded");
-                            return Ok(ExecResult::ok(format!("Written: {}", path)));
-                        }
-                    }
-
-                    if let Some(fixed) = autofix_go_test_table_shadow_run(&p, &err) {
+                        changed = true;
+                    } else if let Some(fixed) = autofix_go_test_table_shadow_run(&p, &err) {
                         println!("   ⚡ AutoFix Go test shadow: {}", fixed);
-                        if let Some(err2) = go_compile_check(&self.workspace) {
-                            err = err2;
-                        } else {
-                            println!("   ✅ AutoFix test-shadow succeeded");
-                            return Ok(ExecResult::ok(format!("Written: {}", path)));
-                        }
-                    }
-
-                    if let Some(fixed) = autofix_go_undefined_import(&p, &err) {
+                        changed = true;
+                    } else if let Some(fixed) = autofix_go_undefined_import(&p, &err) {
                         println!("   ⚡ AutoFix Go import: {}", fixed);
-                        if let Some(err2) = go_compile_check(&self.workspace) {
-                            err = err2;
-                        } else {
-                            println!("   ✅ AutoFix import succeeded");
-                            return Ok(ExecResult::ok(format!("Written: {}", path)));
-                        }
+                        changed = true;
                     }
 
-                    err_mentions_this_file = err.contains(file_name);
+                    if !changed {
+                        break;
+                    }
+
+                    if let Some(err2) = go_compile_check(&self.workspace) {
+                        err = err2;
+                        err_mentions_this_file = err.contains(file_name);
+                    } else {
+                        println!("   ✅ Go compile autofix loop succeeded");
+                        return Ok(ExecResult::ok(format!("Written: {}", path)));
+                    }
                 }
 
                 if err_mentions_this_file {
-                    // Error is specifically in this file — block and report
                     return Ok(ExecResult::fail(format!(
                         "COMPILE ERROR in '{}':\n{}",
                         path, err
                     )));
                 } else {
-                    // Error is in a DIFFERENT file — warn but don't block
                     eprintln!(
                         "[TRACE] go_compile_check: error in other file (not '{}'), continuing",
                         path
@@ -395,7 +401,7 @@ impl SafeExecutor {
                 let new_content = sanitize_code(&new_content);
                 let new_content = if p.extension().map(|x| x == "rs").unwrap_or(false) {
                     let fixed = sanitize_rust_lifetime_quotes(&new_content);
-                    fix_rust_string_literals(&fixed)
+                    fix_rust_test_attributes(&fix_rust_string_literals(&fixed))
                 } else {
                     new_content
                 };
@@ -488,7 +494,7 @@ impl SafeExecutor {
         let new_content = if p.extension().map(|x| x == "rs").unwrap_or(false) {
             {
                 let fixed = sanitize_rust_lifetime_quotes(&new_content);
-                fix_rust_string_literals(&fixed)
+                fix_rust_test_attributes(&fix_rust_string_literals(&fixed))
             }
         } else {
             new_content
