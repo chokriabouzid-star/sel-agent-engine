@@ -2,7 +2,6 @@
 mod bench_cases;
 mod bench_compile;
 mod bench_realworld;
-mod bench_suite;
 mod failure;
 pub mod llm;
 mod trajectory_index;
@@ -25,7 +24,6 @@ pub mod cost;
 mod decision;
 mod dependency_graph;
 pub mod diagnostic;
-mod manifest;
 mod memory;
 mod pattern_library;
 mod protocol;
