@@ -206,6 +206,10 @@ impl SafeExecutor {
     }
 
     pub fn safety_check(&self, cmd: &str) -> Result<()> {
+        if let Err(e) = crate::constitution::check_command(cmd) {
+            return Err(anyhow!(e.to_string()));
+        }
+
         let lower = cmd.to_lowercase();
         for b in BLOCKED {
             if lower.contains(b) {
@@ -268,5 +272,19 @@ mod tests {
             .expect("test setup/use should succeed");
         assert!(r.success);
         assert!(r.stdout.contains("hello"));
+    }
+
+    #[test]
+    pub fn blocks_constitution_network_command() {
+        let d = tempdir().expect("test setup/use should succeed");
+        let e = ex(d.path());
+        assert!(e.safety_check("curl https://example.com").is_err());
+    }
+
+    #[test]
+    pub fn allows_safe_test_command() {
+        let d = tempdir().expect("test setup/use should succeed");
+        let e = ex(d.path());
+        assert!(e.safety_check("cargo test").is_ok());
     }
 }
