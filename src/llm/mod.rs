@@ -220,6 +220,14 @@ pub fn preflight_quota_check(task_count: usize, provider: &dyn LLMProvider) {
             println!("    Load seems manageable for the configured providers.");
         }
 
-        if remaining < total_estimated {}
+        if remaining < total_estimated {
+            println!(
+                "   ⚠️  Estimated capacity may be insufficient: need ~{} calls but only ~{} remain.",
+                total_estimated, remaining
+            );
+            println!(
+                "   💡 Consider reducing task count, adding more provider keys, or using replay mode."
+            );
+        }
     }
 }
