@@ -521,12 +521,17 @@ impl SafeExecutor {
             )));
         }
 
-        // auto-fix single-quote string literals in Rust files
-        let new_content = if p.extension().map(|x| x == "rs").unwrap_or(false) {
-            {
-                let fixed = sanitize_rust_lifetime_quotes(&new_content);
-                fix_rust_test_attributes(&fix_rust_string_literals(&fixed))
-            }
+        // auto-fix language-specific content issues before writing
+        let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("");
+        let new_content = if ext == "rs" {
+            let fixed = sanitize_rust_lifetime_quotes(&new_content);
+            let fixed = fix_rust_string_literals(&fixed);
+            let fixed = fix_rust_string_types(&fixed);
+            fix_rust_test_attributes(&fixed)
+        } else if ext == "go" {
+            fix_go_backslashes(&new_content)
+        } else if ext == "py" {
+            fix_python_string_quoting(&new_content)
         } else {
             new_content
         };
