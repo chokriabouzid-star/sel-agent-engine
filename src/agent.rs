@@ -486,12 +486,12 @@ impl Agent {
                         .unwrap_or(0);
                     let ms = self.mutation_score();
                     let stats = self.call_stats();
-                    let total_tokens = stats.tokens_in as u64 + stats.tokens_out as u64;
-                    let avg_tokens_per_task = if stats.successful_calls > 0 {
-                        total_tokens / stats.successful_calls as u64
-                    } else {
-                        0
-                    };
+                    let telemetry = compute_report_telemetry(
+                        &self.ctx,
+                        stats.tokens_in as u64,
+                        stats.tokens_out as u64,
+                        stats.successful_calls as u64,
+                    );
                     let cost = crate::cost::CostTracker::new();
                     cost.add_usage(stats.tokens_in, stats.tokens_out, stats.successful_calls);
                     let model = if stats.last_model.is_empty() {
@@ -501,39 +501,7 @@ impl Agent {
                         stats.last_model.clone()
                     };
 
-                    self.ctx.tokens_used = total_tokens;
-
-                    let avg_context_tokens = if self.ctx.context_budget_samples > 0 {
-                        {
-                            self.ctx.context_tokens_total / self.ctx.context_budget_samples as u64
-                        }
-                    } else {
-                        {
-                            0
-                        }
-                    };
-                    let avg_selected_files = if self.ctx.context_budget_samples > 0 {
-                        {
-                            self.ctx.context_files_total / self.ctx.context_budget_samples as u64
-                        }
-                    } else {
-                        {
-                            0
-                        }
-                    };
-                    let context_reduction_pct = if self.ctx.context_tokens_before_total > 0 {
-                        {
-                            let saved = self
-                                .ctx
-                                .context_tokens_before_total
-                                .saturating_sub(self.ctx.context_tokens_total);
-                            ((saved * 100) / self.ctx.context_tokens_before_total) as u8
-                        }
-                    } else {
-                        {
-                            0
-                        }
-                    };
+                    self.ctx.tokens_used = telemetry.total_tokens;
 
                     record_pattern_outcome(
                         &self.executor.workspace,
@@ -558,12 +526,12 @@ impl Agent {
                         llm_calls: stats.successful_calls as u64,
                         tokens_in: stats.tokens_in as u64,
                         tokens_out: stats.tokens_out as u64,
-                        total_tokens,
-                        avg_tokens_per_task,
-                        avg_context_tokens,
-                        avg_selected_files,
-                        context_reduction_pct,
-                        force_include_dropped_count: self.ctx.force_include_dropped_count,
+                        total_tokens: telemetry.total_tokens,
+                        avg_tokens_per_task: telemetry.avg_tokens_per_task,
+                        avg_context_tokens: telemetry.avg_context_tokens,
+                        avg_selected_files: telemetry.avg_selected_files,
+                        context_reduction_pct: telemetry.context_reduction_pct,
+                        force_include_dropped_count: telemetry.force_include_dropped_count,
                         failure_reason: None,
                         plan_risk_triggered: self.ctx.plan_risk_triggered,
                         replan_count: self.ctx.replan_count as u64,
@@ -589,12 +557,12 @@ impl Agent {
                         .unwrap_or(0);
                     let ms = self.mutation_score();
                     let stats = self.call_stats();
-                    let total_tokens = stats.tokens_in as u64 + stats.tokens_out as u64;
-                    let avg_tokens_per_task = if stats.successful_calls > 0 {
-                        total_tokens / stats.successful_calls as u64
-                    } else {
-                        0
-                    };
+                    let telemetry = compute_report_telemetry(
+                        &self.ctx,
+                        stats.tokens_in as u64,
+                        stats.tokens_out as u64,
+                        stats.successful_calls as u64,
+                    );
                     let cost = crate::cost::CostTracker::new();
                     cost.add_usage(stats.tokens_in, stats.tokens_out, stats.successful_calls);
                     let model = if stats.last_model.is_empty() {
@@ -604,39 +572,7 @@ impl Agent {
                         stats.last_model.clone()
                     };
 
-                    self.ctx.tokens_used = total_tokens;
-
-                    let avg_context_tokens = if self.ctx.context_budget_samples > 0 {
-                        {
-                            self.ctx.context_tokens_total / self.ctx.context_budget_samples as u64
-                        }
-                    } else {
-                        {
-                            0
-                        }
-                    };
-                    let avg_selected_files = if self.ctx.context_budget_samples > 0 {
-                        {
-                            self.ctx.context_files_total / self.ctx.context_budget_samples as u64
-                        }
-                    } else {
-                        {
-                            0
-                        }
-                    };
-                    let context_reduction_pct = if self.ctx.context_tokens_before_total > 0 {
-                        {
-                            let saved = self
-                                .ctx
-                                .context_tokens_before_total
-                                .saturating_sub(self.ctx.context_tokens_total);
-                            ((saved * 100) / self.ctx.context_tokens_before_total) as u8
-                        }
-                    } else {
-                        {
-                            0
-                        }
-                    };
+                    self.ctx.tokens_used = telemetry.total_tokens;
 
                     record_pattern_outcome(
                         &self.executor.workspace,
@@ -661,12 +597,12 @@ impl Agent {
                         llm_calls: stats.successful_calls as u64,
                         tokens_in: stats.tokens_in as u64,
                         tokens_out: stats.tokens_out as u64,
-                        total_tokens,
-                        avg_tokens_per_task,
-                        avg_context_tokens,
-                        avg_selected_files,
-                        context_reduction_pct,
-                        force_include_dropped_count: self.ctx.force_include_dropped_count,
+                        total_tokens: telemetry.total_tokens,
+                        avg_tokens_per_task: telemetry.avg_tokens_per_task,
+                        avg_context_tokens: telemetry.avg_context_tokens,
+                        avg_selected_files: telemetry.avg_selected_files,
+                        context_reduction_pct: telemetry.context_reduction_pct,
+                        force_include_dropped_count: telemetry.force_include_dropped_count,
                         failure_reason: Some(reason.clone()),
                         plan_risk_triggered: self.ctx.plan_risk_triggered,
                         replan_count: self.ctx.replan_count as u64,
