@@ -119,13 +119,16 @@ impl SafeExecutor {
         let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("");
         // Go: أضف package declaration إذا كانت مفقودة
         let content_str = if ext == "go" {
-            fix_go_missing_package(&content_str, "main")
+            let fixed = fix_go_missing_package(&content_str, "main");
+            fix_go_backslashes(&fixed)
         } else {
             content_str
         };
         let content_str = if ext == "rs" {
             let fixed = sanitize_rust_lifetime_quotes(&content_str);
-            fix_rust_test_attributes(&fix_rust_string_literals(&fixed))
+            let fixed = fix_rust_string_literals(&fixed);
+            let fixed = fix_rust_string_types(&fixed);
+            fix_rust_test_attributes(&fixed)
         } else if ext == "py" {
             fix_python_string_quoting(&content_str)
         } else {
@@ -146,6 +149,15 @@ impl SafeExecutor {
         }
 
         std::fs::write(&p, content_str.as_bytes())?;
+
+        if path.ends_with(".py") {
+            if let Some(err) = python_syntax_check(&p) {
+                return Ok(ExecResult::fail(format!(
+                    "PYTHON SYNTAX ERROR in '{}':\n{}",
+                    path, err
+                )));
+            }
+        }
 
         // Auto-fix: if jest.config.js is written -> remove "jest" field from package.json
         if path.ends_with("jest.config.js") {
