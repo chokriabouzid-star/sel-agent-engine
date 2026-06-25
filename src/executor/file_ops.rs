@@ -6,26 +6,6 @@ use crate::executor::sanitizers::*;
 use crate::types::ExecResult;
 use anyhow::Result;
 
-fn goal_authorized_test_write_allowed(p: &std::path::Path) -> bool {
-    let Ok(raw) = std::env::var("SEL_GOAL_AUTHORIZED_TESTS") else {
-        return false;
-    };
-    if raw.is_empty() {
-        return false;
-    }
-    // window مفتوح (initial plan) أو الملف المُصرَّح به لا يزال مكسورًا
-    let needle = p.to_string_lossy();
-    if !raw.lines().any(|line| line == needle) {
-        return false;
-    }
-    // الـ window مفتوح بشكل صريح
-    if std::env::var("SEL_ALLOW_GOAL_TEST_WRITES").ok().as_deref() == Some("1") {
-        return true;
-    }
-    // أو: الملف مذكور في SEL_BROKEN_AUTHORIZED_TEST (repair window)
-    std::env::var("SEL_BROKEN_AUTHORIZED_TEST").ok().as_deref() == Some("1")
-}
-
 impl SafeExecutor {
     //  File Operations
 
@@ -46,7 +26,7 @@ impl SafeExecutor {
     fn blocks_existing_spec_modification(&self, path: &str, p: &std::path::Path) -> bool {
         self.is_spec_file(path)
             && self.protected_test_files.contains(p)
-            && !goal_authorized_test_write_allowed(p)
+            && !self.goal_authorized_test_write_allowed(p)
     }
 
     pub fn write_file(&self, path: &str, content: &str) -> Result<ExecResult> {

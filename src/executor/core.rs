@@ -4,6 +4,8 @@ use crate::workspace_oracle::WorkspaceOracle;
 use anyhow::{anyhow, Result};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::RwLock;
 use std::time::{Duration, Instant};
 use tokio::process::Command as TCmd;
 
@@ -63,6 +65,9 @@ pub struct SafeExecutor {
     pub bench_mode: bool,  // v8.5: run-mode hint
     pub protected_test_files: HashSet<PathBuf>, // tests present before agent writes anything
     pub patch_attempts: std::cell::RefCell<HashMap<PathBuf, usize>>, // v5.2: track patch failures
+    goal_authorized_test_files: RwLock<HashSet<PathBuf>>,
+    allow_goal_test_writes: AtomicBool,
+    broken_authorized_test_repair: AtomicBool,
 }
 
 fn shell_single_quote(s: &str) -> String {
@@ -98,7 +103,53 @@ impl SafeExecutor {
             bench_mode: false,
             protected_test_files: HashSet::new(),
             patch_attempts: std::cell::RefCell::new(HashMap::new()),
+            goal_authorized_test_files: RwLock::new(HashSet::new()),
+            allow_goal_test_writes: AtomicBool::new(false),
+            broken_authorized_test_repair: AtomicBool::new(false),
         }
+    }
+
+    pub(crate) fn set_goal_authorized_test_files(&self, paths: &[PathBuf]) {
+        let mut guard = self
+            .goal_authorized_test_files
+            .write()
+            .expect("goal-authorized test files lock poisoned");
+        guard.clear();
+        guard.extend(paths.iter().cloned());
+    }
+
+    pub(crate) fn clear_goal_authorized_test_files(&self) {
+        let mut guard = self
+            .goal_authorized_test_files
+            .write()
+            .expect("goal-authorized test files lock poisoned");
+        guard.clear();
+    }
+
+    pub(crate) fn set_allow_goal_test_writes(&self, allow: bool) {
+        self.allow_goal_test_writes.store(allow, Ordering::Relaxed);
+    }
+
+    pub(crate) fn set_broken_authorized_test_repair(&self, allow: bool) {
+        self.broken_authorized_test_repair
+            .store(allow, Ordering::Relaxed);
+    }
+
+    pub(crate) fn goal_authorized_test_write_allowed(&self, path: &std::path::Path) -> bool {
+        let guard = self
+            .goal_authorized_test_files
+            .read()
+            .expect("goal-authorized test files lock poisoned");
+
+        if !guard.contains(path) {
+            return false;
+        }
+
+        if self.allow_goal_test_writes.load(Ordering::Relaxed) {
+            return true;
+        }
+
+        self.broken_authorized_test_repair.load(Ordering::Relaxed)
     }
 
     pub async fn run(&self, cmd: &Cmd) -> Result<ExecResult> {
@@ -137,6 +188,28 @@ impl SafeExecutor {
 
         let parts: Vec<&str> = command.split_whitespace().collect();
         let prog = parts.first().ok_or_else(|| anyhow!("Empty command"))?;
+
+        if self.replay_mode && *prog == "npm" {
+            let action = parts.get(1).copied().unwrap_or("");
+            let is_mutating_npm = matches!(action, "install" | "i" | "ci");
+
+            if is_mutating_npm {
+                let node_modules = self.workspace.join("node_modules");
+                if node_modules.exists() {
+                    eprintln!(
+                        "[TRACE] Replay mode: skipping '{}' to preserve cached node_modules",
+                        command
+                    );
+                    return Ok(ExecResult::ok(
+                        "Replay mode: skipped npm dependency mutation; cached node_modules present",
+                    ));
+                } else {
+                    return Ok(ExecResult::fail(
+                        "REPLAY_ENV_MISMATCH: npm dependency install requested in replay but node_modules is unavailable".to_string(),
+                    ));
+                }
+            }
+        }
 
         //  pip install  package name
         if prog.contains("pip3") || prog.contains("pip") {
@@ -230,6 +303,27 @@ mod tests {
     }
 
     #[test]
+    pub fn goal_authorized_test_policy_requires_membership_and_window() {
+        let d = tempdir().expect("test setup/use should succeed");
+        let e = ex(d.path());
+        let test_file = d.path().join("main_test.go");
+
+        e.set_goal_authorized_test_files(std::slice::from_ref(&test_file));
+        assert!(!e.goal_authorized_test_write_allowed(&test_file));
+
+        e.set_allow_goal_test_writes(true);
+        assert!(e.goal_authorized_test_write_allowed(&test_file));
+
+        e.set_allow_goal_test_writes(false);
+        e.set_broken_authorized_test_repair(true);
+        assert!(e.goal_authorized_test_write_allowed(&test_file));
+
+        e.set_broken_authorized_test_repair(false);
+        e.clear_goal_authorized_test_files();
+        assert!(!e.goal_authorized_test_write_allowed(&test_file));
+    }
+
+    #[test]
     pub fn write_and_read() {
         let d = tempdir().expect("test setup/use should succeed");
         let e = ex(d.path());
@@ -272,6 +366,50 @@ mod tests {
             .expect("test setup/use should succeed");
         assert!(r.success);
         assert!(r.stdout.contains("hello"));
+    }
+
+    #[tokio::test]
+    pub async fn replay_skips_npm_install_when_node_modules_exists() {
+        let d = tempdir().expect("test setup/use should succeed");
+        std::fs::create_dir_all(d.path().join("node_modules"))
+            .expect("test setup/use should succeed");
+
+        let mut e = ex(d.path());
+        e.replay_mode = true;
+
+        let r = e
+            .run(&Cmd::Run {
+                command: "npm install crypto".into(),
+            })
+            .await
+            .expect("test setup/use should succeed");
+
+        assert!(r.success);
+        assert!(
+            r.stdout.contains("skipped npm dependency mutation")
+                || r.stderr.contains("skipped npm dependency mutation")
+        );
+    }
+
+    #[tokio::test]
+    pub async fn replay_rejects_npm_install_without_node_modules() {
+        let d = tempdir().expect("test setup/use should succeed");
+
+        let mut e = ex(d.path());
+        e.replay_mode = true;
+
+        let r = e
+            .run(&Cmd::Run {
+                command: "npm install crypto".into(),
+            })
+            .await
+            .expect("test setup/use should succeed");
+
+        assert!(!r.success);
+        assert!(
+            r.stdout.contains("REPLAY_ENV_MISMATCH")
+                || r.stderr.contains("REPLAY_ENV_MISMATCH")
+        );
     }
 
     #[test]

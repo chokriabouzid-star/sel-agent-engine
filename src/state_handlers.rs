@@ -8,15 +8,33 @@ use std::path::Path;
 
 fn plan_risk_feedback(workspace: &Path, commands: &[Cmd]) -> Vec<String> {
     let enabled = std::env::var_os("SEL_DISABLE_PLAN_RISK").is_none();
-    plan_risk_feedback_with_flag(workspace, commands, enabled)
+    plan_risk_feedback_with_options(workspace, commands, enabled, false)
 }
 
 fn plan_risk_feedback_with_flag(workspace: &Path, commands: &[Cmd], enabled: bool) -> Vec<String> {
+    plan_risk_feedback_with_options(workspace, commands, enabled, false)
+}
+
+fn plan_risk_feedback_with_goal_authorized(
+    workspace: &Path,
+    commands: &[Cmd],
+    skip_existing_test_risk: bool,
+) -> Vec<String> {
+    let enabled = std::env::var_os("SEL_DISABLE_PLAN_RISK").is_none();
+    plan_risk_feedback_with_options(workspace, commands, enabled, skip_existing_test_risk)
+}
+
+fn plan_risk_feedback_with_options(
+    workspace: &Path,
+    commands: &[Cmd],
+    enabled: bool,
+    skip_existing_test_risk: bool,
+) -> Vec<String> {
     if !enabled {
         return Vec::new();
     }
 
-    if std::env::var_os("SEL_GOAL_AUTHORIZED_TESTS").is_some() {
+    if skip_existing_test_risk {
         eprintln!("[TRACE] plan_risk: skipped for explicit goal-authorized existing test edits");
         // Still check plan size even when skipping full plan_risk
         return crate::decision::check_plan_size(commands);
@@ -57,6 +75,25 @@ pub async fn do_planning(
     goal: &str,
     workspace: &Path,
     config: &ContextConfig,
+) -> Result<(Vec<Cmd>, AgentState)> {
+    do_planning_with_goal_authorized_test_edits(
+        ctx,
+        llm,
+        goal,
+        workspace,
+        config,
+        false,
+    )
+    .await
+}
+
+pub(crate) async fn do_planning_with_goal_authorized_test_edits(
+    ctx: &mut ExecutionContext,
+    llm: &dyn LLMProvider,
+    goal: &str,
+    workspace: &Path,
+    config: &ContextConfig,
+    has_goal_authorized_test_edits: bool,
 ) -> Result<(Vec<Cmd>, AgentState)> {
     if let Some(reason) = crate::decision::validate_goal(goal) {
         return Ok((Vec::new(), AgentState::Failed(reason.to_string())));
@@ -106,7 +143,11 @@ pub async fn do_planning(
             issues.extend(patch_issues);
             issues.extend(crate::decision::validate_protected_writes(&commands));
 
-            let plan_risk_issues = plan_risk_feedback(workspace, &commands);
+            let plan_risk_issues = plan_risk_feedback_with_goal_authorized(
+        workspace,
+        &commands,
+        has_goal_authorized_test_edits,
+    );
             record_plan_risk_telemetry(ctx, &commands, &plan_risk_issues);
             issues.extend(plan_risk_issues);
 

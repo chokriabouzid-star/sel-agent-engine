@@ -261,7 +261,10 @@ impl Agent {
         self.goal_authorized_test_files =
             extract_goal_authorized_test_files(&self.goal, &self.executor.protected_test_files);
         self.initial_goal_test_write_window_open = !self.goal_authorized_test_files.is_empty();
-        publish_goal_authorized_test_files(&self.goal_authorized_test_files);
+        self.executor
+            .set_goal_authorized_test_files(&self.goal_authorized_test_files);
+        self.executor.set_allow_goal_test_writes(false);
+        self.executor.set_broken_authorized_test_repair(false);
 
         if !self.goal_authorized_test_files.is_empty() {
             let names = self
@@ -323,12 +326,13 @@ impl Agent {
         loop {
             match self.state.clone() {
                 AgentState::Planning => {
-                    match crate::state_handlers::do_planning(
+                    match crate::state_handlers::do_planning_with_goal_authorized_test_edits(
                         &mut self.ctx,
                         self.llm.as_ref(),
                         &self.goal,
                         &self.executor.workspace,
                         &self.context_config,
+                        !self.goal_authorized_test_files.is_empty(),
                     )
                     .await
                     {
@@ -344,11 +348,8 @@ impl Agent {
 
                 AgentState::Executing => {
                     let allow_goal_test_writes = self.initial_goal_test_write_window_open;
-                    if allow_goal_test_writes {
-                        std::env::set_var("SEL_ALLOW_GOAL_TEST_WRITES", "1");
-                    } else {
-                        std::env::remove_var("SEL_ALLOW_GOAL_TEST_WRITES");
-                    }
+                    self.executor
+                        .set_allow_goal_test_writes(allow_goal_test_writes);
 
                     let mut snapshot = crate::snapshot::Snapshot::take(&self.executor.workspace);
                     let execute_result = crate::state_handlers::do_executing(
@@ -369,7 +370,7 @@ impl Agent {
                         });
 
                         if !authorized_file_still_broken {
-                            std::env::remove_var("SEL_ALLOW_GOAL_TEST_WRITES");
+                            self.executor.set_allow_goal_test_writes(false);
                             self.initial_goal_test_write_window_open = false;
                             eprintln!("[TRACE] goal-authorized test write window closed");
                         } else {
@@ -402,10 +403,10 @@ impl Agent {
                         });
 
                     if broken_authorized {
-                        std::env::set_var("SEL_BROKEN_AUTHORIZED_TEST", "1");
+                        self.executor.set_broken_authorized_test_repair(true);
                         eprintln!("[TRACE] goal-authorized broken test repair window opened");
                     } else {
-                        std::env::remove_var("SEL_BROKEN_AUTHORIZED_TEST");
+                        self.executor.set_broken_authorized_test_repair(false);
                     }
 
                     match crate::state_handlers::do_repairing(
@@ -427,7 +428,7 @@ impl Agent {
                             self.state = AgentState::Failed(e.to_string());
                         }
                     }
-                    std::env::remove_var("SEL_BROKEN_AUTHORIZED_TEST");
+                    self.executor.set_broken_authorized_test_repair(false);
                 }
                 AgentState::WaitingForUserInput(msg) => {
                     // v8.0: In bench mode, skip EXPLAIN MODE immediately using env var or struct field
@@ -539,6 +540,10 @@ impl Agent {
                     })
                     .await;
 
+                    self.executor.set_allow_goal_test_writes(false);
+                    self.executor.set_broken_authorized_test_repair(false);
+                    self.executor.clear_goal_authorized_test_files();
+
                     cost.print_summary(&model);
 
                     return Ok(());
@@ -609,6 +614,10 @@ impl Agent {
                         plan_risk_reasons: self.ctx.plan_risk_reasons.clone(),
                     })
                     .await;
+
+                    self.executor.set_allow_goal_test_writes(false);
+                    self.executor.set_broken_authorized_test_repair(false);
+                    self.executor.clear_goal_authorized_test_files();
 
                     cost.print_summary(&model);
 
@@ -768,21 +777,6 @@ fn extract_goal_authorized_test_files(
     matches.sort();
     matches.dedup();
     matches
-}
-
-fn publish_goal_authorized_test_files(paths: &[PathBuf]) {
-    if paths.is_empty() {
-        std::env::remove_var("SEL_GOAL_AUTHORIZED_TESTS");
-        return;
-    }
-
-    let joined = paths
-        .iter()
-        .map(|p| p.to_string_lossy().to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    std::env::set_var("SEL_GOAL_AUTHORIZED_TESTS", joined);
 }
 
 struct ReportRunInput<'a> {

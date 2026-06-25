@@ -111,11 +111,7 @@ pub fn validate_rust_bootstrap_plan(workspace: &Path, plan: &[Cmd]) -> Vec<Strin
         | Cmd::PatchFile { path, .. }
         | Cmd::ReadFile { path }
         | Cmd::DeleteFile { path } => {
-            path.ends_with(".rs")
-                || path == "Cargo.toml"
-                || path.ends_with("/Cargo.toml")
-                || path.starts_with("src/")
-                || path.starts_with("tests/")
+            path.ends_with(".rs") || path == "Cargo.toml" || path.ends_with("/Cargo.toml")
         }
         Cmd::Mkdir { path } => path == "src" || path == "tests",
         _ => false,
