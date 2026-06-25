@@ -997,13 +997,10 @@
       "task_id": "swe_ts_06",
       "files": [
         "001.json",
-        "002.json",
-        "003.json",
-        "004.json",
-        "005.json"
+        "002.json"
       ],
-      "interaction_count": 5,
-      "recorded_at": "2026-06-20T17:37:09.237255901+00:00",
+      "interaction_count": 2,
+      "recorded_at": "2026-06-25T18:56:38.947687495+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"
