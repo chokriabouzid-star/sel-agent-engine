@@ -1,0 +1,12 @@
+# SEL Agent v9.3.4 — Pre-cleanup Baseline
+# Binary: a725d75
+
+bench-swe (30 cases):
+  Total:   30/30 (100.0%)
+  Points:  27.2/30 (90.7%)
+  python:  10/10 | go: 7/7 | rust: 7/7 | typescript: 6/6
+
+bench all (36 cases):
+  Passed:       36/36 (100.0%)
+  Avg Repairs:  0.0
+  Quality Index: 1.00
