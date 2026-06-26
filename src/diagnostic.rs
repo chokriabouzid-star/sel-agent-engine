@@ -252,8 +252,8 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
     //   1. @dataclass decorator is missing (bare `dataclass` without @)
     //   2. __init__ is not defined and class is not a dataclass
     // This is the most common failure after a broken first write of a Python class.
-    let takes_no_args = error_text.contains("takes no arguments")
-        && error_text.contains("TypeError");
+    let takes_no_args =
+        error_text.contains("takes no arguments") && error_text.contains("TypeError");
     if takes_no_args {
         let is_dataclass_goal = error_text.contains("dataclass")
             || error_text.contains("@dataclass")
@@ -268,7 +268,9 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
         hints.push(Hint {
             severity: Severity::Error,
             category: "python/class-no-init",
-            message: "TypeError: class takes no arguments — missing __init__ or @dataclass decorator".into(),
+            message:
+                "TypeError: class takes no arguments — missing __init__ or @dataclass decorator"
+                    .into(),
             suggestion: suggestion.into(),
         });
     }
@@ -546,15 +548,27 @@ mod tests {
         let err = "TypeError: User() takes no arguments";
         let report = analyze(err);
         let cats: Vec<_> = report.hints.iter().map(|h| h.category).collect();
-        assert!(cats.contains(&"python/class-no-init"), "expected python/class-no-init, got: {:?}", cats);
+        assert!(
+            cats.contains(&"python/class-no-init"),
+            "expected python/class-no-init, got: {:?}",
+            cats
+        );
     }
 
     #[test]
     fn test_python_class_no_init_suggests_dataclass() {
         let err = "TypeError: User() takes no arguments\n  test_user.py:5: user = User(username=\"test\", age=30)";
         let report = analyze(err);
-        let hint = report.hints.iter().find(|h| h.category == "python/class-no-init").unwrap();
-        assert!(hint.suggestion.contains("@dataclass"), "suggestion: {}", hint.suggestion);
+        let hint = report
+            .hints
+            .iter()
+            .find(|h| h.category == "python/class-no-init")
+            .unwrap();
+        assert!(
+            hint.suggestion.contains("@dataclass"),
+            "suggestion: {}",
+            hint.suggestion
+        );
     }
 
     #[test]

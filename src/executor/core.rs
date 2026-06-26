@@ -407,8 +407,7 @@ mod tests {
 
         assert!(!r.success);
         assert!(
-            r.stdout.contains("REPLAY_ENV_MISMATCH")
-                || r.stderr.contains("REPLAY_ENV_MISMATCH")
+            r.stdout.contains("REPLAY_ENV_MISMATCH") || r.stderr.contains("REPLAY_ENV_MISMATCH")
         );
     }
 

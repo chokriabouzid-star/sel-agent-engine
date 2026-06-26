@@ -76,15 +76,7 @@ pub async fn do_planning(
     workspace: &Path,
     config: &ContextConfig,
 ) -> Result<(Vec<Cmd>, AgentState)> {
-    do_planning_with_goal_authorized_test_edits(
-        ctx,
-        llm,
-        goal,
-        workspace,
-        config,
-        false,
-    )
-    .await
+    do_planning_with_goal_authorized_test_edits(ctx, llm, goal, workspace, config, false).await
 }
 
 pub(crate) async fn do_planning_with_goal_authorized_test_edits(
@@ -144,10 +136,10 @@ pub(crate) async fn do_planning_with_goal_authorized_test_edits(
             issues.extend(crate::decision::validate_protected_writes(&commands));
 
             let plan_risk_issues = plan_risk_feedback_with_goal_authorized(
-        workspace,
-        &commands,
-        has_goal_authorized_test_edits,
-    );
+                workspace,
+                &commands,
+                has_goal_authorized_test_edits,
+            );
             record_plan_risk_telemetry(ctx, &commands, &plan_risk_issues);
             issues.extend(plan_risk_issues);
 
