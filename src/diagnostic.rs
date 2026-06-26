@@ -247,6 +247,32 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
         });
     }
 
+    // --- Python class init / dataclass missing decorator ---
+    // Covers: `TypeError: Foo() takes no arguments` which means either:
+    //   1. @dataclass decorator is missing (bare `dataclass` without @)
+    //   2. __init__ is not defined and class is not a dataclass
+    // This is the most common failure after a broken first write of a Python class.
+    let takes_no_args = error_text.contains("takes no arguments")
+        && error_text.contains("TypeError");
+    if takes_no_args {
+        let is_dataclass_goal = error_text.contains("dataclass")
+            || error_text.contains("@dataclass")
+            || error_text.contains("username")
+            || error_text.contains("user.py")
+            || error_text.contains("User(");
+        let suggestion = if is_dataclass_goal {
+            "Class accepts no arguments — @dataclass decorator is likely missing or malformed.              Ensure user.py contains exactly: `from dataclasses import dataclass` then `@dataclass`              on its own line directly above `class User:`.              Do NOT write `dataclass` without `@`. Do NOT write `dataclass class User:`."
+        } else {
+            "Class accepts no arguments — define `__init__(self, ...)` matching the constructor              call, or add `@dataclass` if this is a dataclass."
+        };
+        hints.push(Hint {
+            severity: Severity::Error,
+            category: "python/class-no-init",
+            message: "TypeError: class takes no arguments — missing __init__ or @dataclass decorator".into(),
+            suggestion: suggestion.into(),
+        });
+    }
+
     // --- Python dataclass mutable default / field() misuse ---
     if error_text.contains("Field' object has no attribute")
         || error_text.contains("Field object has no attribute")
@@ -513,5 +539,29 @@ mod tests {
         let report = analyze(err);
         let cats: Vec<_> = report.hints.iter().map(|h| h.category).collect();
         assert!(cats.contains(&"python/dataclass-syntax"));
+    }
+
+    #[test]
+    fn test_python_class_takes_no_arguments_detected() {
+        let err = "TypeError: User() takes no arguments";
+        let report = analyze(err);
+        let cats: Vec<_> = report.hints.iter().map(|h| h.category).collect();
+        assert!(cats.contains(&"python/class-no-init"), "expected python/class-no-init, got: {:?}", cats);
+    }
+
+    #[test]
+    fn test_python_class_no_init_suggests_dataclass() {
+        let err = "TypeError: User() takes no arguments\n  test_user.py:5: user = User(username=\"test\", age=30)";
+        let report = analyze(err);
+        let hint = report.hints.iter().find(|h| h.category == "python/class-no-init").unwrap();
+        assert!(hint.suggestion.contains("@dataclass"), "suggestion: {}", hint.suggestion);
+    }
+
+    #[test]
+    fn test_python_class_no_init_generic_class() {
+        let err = "TypeError: MyClass() takes no arguments";
+        let report = analyze(err);
+        let cats: Vec<_> = report.hints.iter().map(|h| h.category).collect();
+        assert!(cats.contains(&"python/class-no-init"));
     }
 }

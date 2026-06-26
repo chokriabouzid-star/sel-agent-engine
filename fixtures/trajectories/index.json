@@ -842,11 +842,10 @@
       "files": [
         "001.json",
         "002.json",
-        "003.json",
-        "004.json"
+        "003.json"
       ],
-      "interaction_count": 2,
-      "recorded_at": "2026-06-18T17:59:51.548367354+00:00",
+      "interaction_count": 3,
+      "recorded_at": "2026-06-26T16:48:05.402566400+00:00",
       "constitution_hash": "85cbb8f2e26c7f98",
       "has_repairs": true,
       "language": "trajectories"

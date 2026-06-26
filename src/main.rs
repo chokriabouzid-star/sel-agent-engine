@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 mod bench_cases;
 mod bench_compile;
 mod bench_realworld;
