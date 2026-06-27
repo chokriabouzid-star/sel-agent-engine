@@ -1,3 +1,4 @@
+use crate::executor::run_policy::{preflight_shell, ShellPolicyDecision};
 use crate::protocol::Cmd;
 use crate::types::ExecResult;
 use crate::workspace_oracle::WorkspaceOracle;
@@ -8,40 +9,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
 use tokio::process::Command as TCmd;
-
-pub const ALLOWED: &[&str] = &[
-    "python3",
-    "python",
-    "venv/bin/python3",
-    "venv/bin/python",
-    "venv/bin/pip3",
-    "venv/bin/pip",
-    "venv/bin/uvicorn",
-    "venv/bin/gunicorn",
-    "venv/bin/pytest",
-    "pytest",
-    "node",
-    "npm",
-    "npx",
-    "node_modules/.bin/jest",
-    "cargo",
-    "rustc",
-    "git",
-    "go",
-    "mkdir",
-    "touch",
-    "ls",
-    "cat",
-    "cp",
-    "mv",
-    "echo",
-    "find",
-    "grep",
-    "curl",
-    "chmod",
-    "node",
-    "npm",
-];
 
 pub const BLOCKED: &[&str] = &[
     "sudo",
@@ -186,61 +153,21 @@ impl SafeExecutor {
             command
         };
 
-        let parts: Vec<&str> = command.split_whitespace().collect();
-        let prog = parts.first().ok_or_else(|| anyhow!("Empty command"))?;
+        let decision = preflight_shell(command, &self.workspace, self.replay_mode)?;
 
-        if self.replay_mode && *prog == "npm" {
-            let action = parts.get(1).copied().unwrap_or("");
-            let is_mutating_npm = matches!(action, "install" | "i" | "ci");
-
-            if is_mutating_npm {
-                let node_modules = self.workspace.join("node_modules");
-                if node_modules.exists() {
-                    eprintln!(
-                        "[TRACE] Replay mode: skipping '{}' to preserve cached node_modules",
-                        command
-                    );
-                    return Ok(ExecResult::ok(
-                        "Replay mode: skipped npm dependency mutation; cached node_modules present",
-                    ));
-                } else {
-                    return Ok(ExecResult::fail(
-                        "REPLAY_ENV_MISMATCH: npm dependency install requested in replay but node_modules is unavailable".to_string(),
-                    ));
-                }
+        let (prog, args) = match decision {
+            ShellPolicyDecision::Return(result) => return Ok(result),
+            ShellPolicyDecision::Service { prog, args } => {
+                return self.service(&prog, &args).await;
             }
-        }
-
-        //  pip install  package name
-        if prog.contains("pip3") || prog.contains("pip") {
-            let is_install = parts.contains(&"install");
-            let has_package = parts.len() > 2 && parts.iter().skip(2).any(|p| !p.starts_with('-'));
-            if is_install && !has_package {
-                return Ok(ExecResult::fail(
-                    "pip install needs package name: e.g. venv/bin/pip3 install pytest".to_string(),
-                ));
-            }
-        }
-
-        // v8.4: Allow workspace-local binaries (./main, ./server, target/debug/*)
-        let is_local_binary = prog.starts_with("./") || prog.starts_with("target/");
-        if !is_local_binary && !ALLOWED.contains(prog) {
-            return Ok(ExecResult::fail(format!(
-                "'{}' is not in the allowed programs list",
-                prog
-            )));
-        }
-
-        let services = ["venv/bin/uvicorn", "uvicorn", "venv/bin/gunicorn"];
-        if services.contains(prog) {
-            return self.service(prog, &parts[1..]).await;
-        }
+            ShellPolicyDecision::Execute { prog, args } => (prog, args),
+        };
 
         let start = Instant::now();
         let out = tokio::time::timeout(
             Duration::from_secs(self.timeout_secs),
-            TCmd::new(prog)
-                .args(&parts[1..])
+            TCmd::new(&prog)
+                .args(&args)
                 .current_dir(&self.workspace)
                 .output(),
         )
@@ -257,7 +184,7 @@ impl SafeExecutor {
         })
     }
 
-    async fn service(&self, prog: &str, args: &[&str]) -> Result<ExecResult> {
+    async fn service(&self, prog: &str, args: &[String]) -> Result<ExecResult> {
         println!("   🚀 Service: {}", prog);
         TCmd::new(prog)
             .args(args)
@@ -409,6 +336,22 @@ mod tests {
         assert!(
             r.stdout.contains("REPLAY_ENV_MISMATCH") || r.stderr.contains("REPLAY_ENV_MISMATCH")
         );
+    }
+
+    #[tokio::test]
+    pub async fn live_rejects_npm_install_builtin_module() {
+        let d = tempdir().expect("test setup/use should succeed");
+        let e = ex(d.path());
+
+        let r = e
+            .run(&Cmd::Run {
+                command: "npm install crypto".into(),
+            })
+            .await
+            .expect("test setup/use should succeed");
+
+        assert!(!r.success);
+        assert!(r.stdout.contains("Node.js built-in") || r.stderr.contains("Node.js built-in"));
     }
 
     #[test]

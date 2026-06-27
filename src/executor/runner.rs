@@ -244,30 +244,37 @@ test result: ok. 0 passed; 0 failed; 0 ignored
                     if let Some(end) = rest.find('\'') {
                         let module = &rest[..end];
                         if !module.starts_with('.') && !module.starts_with('/') {
-                            println!("   ⚡ QuickFix: npm install {}", module);
-                            autofix_active = true;
+                            if crate::executor::node_builtins::is_node_builtin(module) {
+                                eprintln!(
+                                    "   ⚠️  QuickFix skipped: '{}' is a Node.js built-in — use `import {{ ... }} from '{}'` instead of npm install",
+                                    module, module
+                                );
+                            } else {
+                                println!("   ⚡ QuickFix: npm install {}", module);
+                                autofix_active = true;
 
-                            let _ = TCmd::new("npm")
-                                .args(["install", module])
-                                .current_dir(&self.workspace)
-                                .output()
-                                .await;
-
-                            out = tokio::time::timeout(
-                                std::time::Duration::from_secs(self.timeout_secs),
-                                TCmd::new(&prog)
-                                    .args(&args)
+                                let _ = TCmd::new("npm")
+                                    .args(["install", module])
                                     .current_dir(&self.workspace)
-                                    .output(),
-                            )
-                            .await
-                            .map_err(|_| anyhow!("Node.js test timeout after AutoFix"))??;
+                                    .output()
+                                    .await;
 
-                            combined = format!(
-                                "{}\n{}",
-                                String::from_utf8_lossy(&out.stdout),
-                                String::from_utf8_lossy(&out.stderr)
-                            );
+                                out = tokio::time::timeout(
+                                    std::time::Duration::from_secs(self.timeout_secs),
+                                    TCmd::new(&prog)
+                                        .args(&args)
+                                        .current_dir(&self.workspace)
+                                        .output(),
+                                )
+                                .await
+                                .map_err(|_| anyhow!("Node.js test timeout after AutoFix"))??;
+
+                                combined = format!(
+                                    "{}\n{}",
+                                    String::from_utf8_lossy(&out.stdout),
+                                    String::from_utf8_lossy(&out.stderr)
+                                );
+                            }
                         }
                     }
                 }
