@@ -251,7 +251,7 @@ pub async fn run_bench_swe(
         let _ = fs::remove_dir_all(&ws);
 
         // cooldown بين الحالات
-        if i < total - 1 && delay > 0 {
+        if !replay && i < total - 1 && delay > 0 {
             print!("     ⏳ {}s cooldown...", delay);
             std::io::Write::flush(&mut std::io::stdout()).ok();
             tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
