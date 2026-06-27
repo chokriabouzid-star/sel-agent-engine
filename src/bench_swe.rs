@@ -306,6 +306,33 @@ fn prepare_workspace(ws: &Path, case: &SweCase) -> Result<()> {
         prepare_typescript(ws)?;
     }
 
+    // إعداد خاص بالـ Go
+    if case.lang == "go" {
+        prepare_go(ws, case)?;
+    }
+
+    Ok(())
+}
+
+fn prepare_go(ws: &Path, case: &SweCase) -> Result<()> {
+    // استخرج اسم الحزمة من أول سطر في source_code (package <name>)
+    let pkg_name = case.source_code
+        .lines()
+        .find(|l| l.starts_with("package "))
+        .and_then(|l| l.split_whitespace().nth(1))
+        .unwrap_or("main");
+
+    let module_name = format!("sel_swe_{}", case.id.to_lowercase().replace('-', "_"));
+
+    let go_mod = format!(
+        "module {}\n\ngo 1.21\n",
+        module_name
+    );
+    fs::write(ws.join("go.mod"), go_mod)?;
+
+    // إذا كانت الحزمة "main"، لا نحتاج شيئاً إضافياً
+    // go test ./... سيعمل مباشرة
+    let _ = pkg_name; // suppress unused warning
     Ok(())
 }
 
