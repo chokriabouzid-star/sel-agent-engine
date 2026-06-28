@@ -193,23 +193,7 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
             suggestion: "Add `pub` to the struct/enum definition in lib.rs: `pub struct Name { ... }`. Also ensure the integration test imports it correctly: `use crate_name::Name;`".into(),
         });
     }
-    if error_text.contains("E0422")
-        || (error_text.contains("cannot find struct, variant or union type")
-            && error_text.contains("in this scope"))
-    {
-        let sym = extract_after(
-            error_text,
-            "cannot find struct, variant or union type `",
-            40,
-        );
-        let sym = sym.split('`').next().unwrap_or("").trim();
-        hints.push(Hint {
-            severity: Severity::Error,
-            category: "rust/E0422-visibility",
-            message: format!("type not visible from integration test: {}", sym),
-            suggestion: "Fix SOURCE only: add `pub` to the struct/enum definition in lib.rs if the type is intended to be imported from tests".into(),
-        });
-    }
+
     if error_text.contains("unused import") || error_text.contains("unused variable") {
         hints.push(Hint {
             severity: Severity::Warning,
@@ -378,23 +362,7 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
                 "Add `export` keyword: write `export class ApiClient` not `class ApiClient`".into(),
         });
     }
-    if error_text.contains("TS2345") && error_text.contains("never") {
-        let is_axios_mock = error_text.contains("mockResolvedValue")
-            || error_text.contains("mockRejectedValue")
-            || error_text.contains("jest.Mock");
-        let suggestion = if is_axios_mock {
-            "axios.get has overloaded types — casting to jest.Mock produces `never`.              Instead use: `jest.mocked(axios.get).mockResolvedValue(...)`              OR import axios differently:              `import * as axios from 'axios'; jest.mock('axios');`              then `(axios.get as jest.MockedFunction<typeof axios.get>).mockResolvedValue(...)`              OR simplest: mock the whole module with manual mock returning typed values              without casting axios.get directly.".into()
-        } else {
-            "Argument type is not assignable to parameter type never — check generic constraints              or add explicit type annotation".into()
-        };
-        hints.push(Hint {
-            severity: Severity::Error,
-            category: "ts/mock-never",
-            message: "TS2345 argument not assignable to never (likely jest.Mock overload issue)"
-                .into(),
-            suggestion,
-        });
-    }
+
     if error_text.contains("TS2459") && error_text.contains("not exported") {
         hints.push(Hint {
             severity: Severity::Error,
@@ -577,5 +545,29 @@ mod tests {
         let report = analyze(err);
         let cats: Vec<_> = report.hints.iter().map(|h| h.category).collect();
         assert!(cats.contains(&"python/class-no-init"));
+    }
+
+    #[test]
+    fn test_no_duplicate_hints() {
+        // Rust E0422
+        let report =
+            analyze("error[E0422]: cannot find struct, variant or union type `Foo` in this scope");
+        let e0422_count = report
+            .hints
+            .iter()
+            .filter(|h| h.category.contains("E0422"))
+            .count();
+        assert_eq!(e0422_count, 1, "Expected exactly 1 hint for E0422");
+
+        // TypeScript TS2345 never
+        let report = analyze(
+            "TS2345: Argument of type 'string' is not assignable to parameter of type 'never'",
+        );
+        let ts2345_count = report
+            .hints
+            .iter()
+            .filter(|h| h.category == "ts/mock-never")
+            .count();
+        assert_eq!(ts2345_count, 1, "Expected exactly 1 hint for TS2345 never");
     }
 }
