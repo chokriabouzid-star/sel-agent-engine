@@ -17,6 +17,7 @@ use std::path::Path;
 /// A constitution rule violation  explains what was blocked and why.
 #[derive(Debug, Clone)]
 pub struct Violation {
+    #[allow(dead_code)]
     pub rule_id: u8,
     pub rule_name: &'static str,
     pub detail: String,
@@ -245,6 +246,7 @@ pub fn constitution_hash() -> String {
     format!("{:08x}", hash)
 }
 
+#[allow(dead_code)] // utility: returns constitution text for docs/prompts — reserved for CONTRIBUTING integration
 pub fn rules_summary() -> &'static str {
     CONSTITUTION
 }

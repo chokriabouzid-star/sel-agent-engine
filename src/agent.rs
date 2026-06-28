@@ -21,11 +21,13 @@ pub struct Agent {
     error_history: Vec<String>,
     repair_fingerprints: Vec<u64>, // Repair History Guard v1.2
     context_config: ContextConfig,
-    failure_memory: crate::memory::FailureMemory, // v5.8
+    #[allow(dead_code)]
+    // v5.8: FailureMemory instance — currently loaded on-demand in state_handlers; field reserved for caching
+    failure_memory: crate::memory::FailureMemory,
     initial_snapshot: Option<crate::snapshot::Snapshot>, // v7.5.1
-    pub bench_mode: bool,                         // v7.9.8: skip EXPLAIN MODE in all bench runs
-    goal_authorized_test_files: Vec<PathBuf>,     // explicit existing tests allowed by user goal
-    initial_goal_test_write_window_open: bool,    // only during first execution before repair
+    pub bench_mode: bool, // v7.9.8: skip EXPLAIN MODE in all bench runs
+    goal_authorized_test_files: Vec<PathBuf>, // explicit existing tests allowed by user goal
+    initial_goal_test_write_window_open: bool, // only during first execution before repair
 }
 
 impl Agent {

@@ -64,6 +64,7 @@ impl BudgetReport {
         ((saved * 100) / self.tokens_before) as u8
     }
 
+    #[allow(dead_code)]
     pub fn print(&self) {
         println!("\n Context Budget:");
         println!(

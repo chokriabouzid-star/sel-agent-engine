@@ -56,8 +56,10 @@ impl ProjectEnv {
 ///    disk -
 #[derive(Debug, Clone, Default)]
 pub struct ProjectState {
+    #[allow(dead_code)]
     pub files: HashSet<String>,
     pub has_jest_config: bool,
+    #[allow(dead_code)]
     pub has_tsconfig: bool,
     pub has_package_json: bool,
     pub jest_in_pkg_json: bool,

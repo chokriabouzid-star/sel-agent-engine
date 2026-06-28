@@ -168,12 +168,14 @@ impl Cmd {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentResponseRaw {
     #[serde(default)]
+    #[allow(dead_code)]
     pub plan: String,
     pub commands: Vec<AgentCommand>,
 }
 
 #[derive(Debug, Clone)]
 pub struct AgentResponse {
+    #[allow(dead_code)]
     pub plan: String,
     pub commands: Vec<Cmd>,
 }

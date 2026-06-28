@@ -5,14 +5,17 @@ use std::path::Path;
 
 pub struct CompileCase {
     pub name: &'static str,
+    #[allow(dead_code)]
     pub lang: &'static str,
     pub goal: &'static str,
     pub max_repairs: u8,
+    #[allow(dead_code)]
     pub require_mutation: bool,
 }
 
 pub struct CompileCheck {
     pub passed: bool,
+    #[allow(dead_code)]
     pub repairs: usize,
     pub created_wrong_files: bool,
     pub mutation_ok: bool,

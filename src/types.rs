@@ -52,6 +52,7 @@ pub struct ExecutionContext {
 
     // v9.2.0 closeout: Cost + planning confidence telemetry
     pub tokens_used: u64,
+    #[allow(dead_code)] // v9.2.0: reserved for v11.0 plan confidence scoring
     pub plan_confidence: Option<f32>,
 
     // v9.3.0: Context Budget Telemetry
@@ -88,6 +89,7 @@ impl ExecutionContext {
         self.mutations_total = 0;
         self.mutations_killed = 0;
     }
+    #[allow(dead_code)] // utility method — may be used in future repair logic
     pub fn has_failures(&self) -> bool {
         !self.failed_steps.is_empty()
     }
@@ -138,9 +140,11 @@ impl ExecutionContext {
 
 #[derive(Debug, Clone)]
 pub struct FailedStep {
+    #[allow(dead_code)] // diagnostic field — reserved for structured failure reporting
     pub step_index: usize,
     pub label: String,
     pub stderr: String,
+    #[allow(dead_code)] // diagnostic field — reserved for structured failure reporting
     pub exit_code: i32,
     pub culprit_file: Option<String>, //
 }
@@ -318,6 +322,7 @@ impl Message {
 //
 
 #[derive(Debug)]
+#[allow(dead_code)] // reserved error type — wired when executor error model matures
 pub enum SafetyError {
     PathTraversal(String),
     BlockedCommand(String),
@@ -341,6 +346,7 @@ pub use crate::failure::FailureKind;
 //
 
 impl ExecutionContext {
+    #[allow(dead_code)] // v0.9: persistent workspace hashes — may be rewired in session continuity feature
     pub fn load_hashes(&mut self, workspace: &std::path::Path) {
         let path = workspace.join(".sel_hashes");
         if let Ok(content) = std::fs::read_to_string(path) {

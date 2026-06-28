@@ -28,6 +28,7 @@ pub enum SubKind {
 #[derive(Debug, Clone)]
 pub struct ParsedGoal {
     pub kind: ProjectKind,
+    #[allow(dead_code)]
     pub sub_kind: SubKind,
     pub extra_deps: Vec<String>, //     Scaffold
 }

@@ -42,6 +42,7 @@ pub struct FileChunk {
     ///      chunk
     pub end_line: usize,
     ///
+    #[allow(dead_code)]
     pub total_lines: usize,
 }
 
@@ -247,6 +248,7 @@ pub enum SmartContent {
 }
 
 impl SmartContent {
+    #[allow(dead_code)]
     pub fn content_for_prompt(&self, file_name: &str) -> String {
         match self {
             SmartContent::FullFile(content) => content.clone(),
@@ -257,10 +259,12 @@ impl SmartContent {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_chunk(&self) -> bool {
         matches!(self, SmartContent::Chunk(_))
     }
 
+    #[allow(dead_code)]
     pub fn context_hint(&self, file_name: &str) -> Option<String> {
         match self {
             SmartContent::FullFile(_) => None,
@@ -276,10 +280,12 @@ impl SmartContent {
 
 //    tokens
 
+#[allow(dead_code)]
 pub fn estimate_tokens(text: &str) -> usize {
     text.len() / CHARS_PER_TOKEN
 }
 
+#[allow(dead_code)]
 pub fn estimate_context_tokens(files: &[(String, String)]) -> usize {
     files
         .iter()

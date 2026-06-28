@@ -46,6 +46,7 @@ const PACKAGE_JSON_TS: &str = r#"{
 }"#;
 
 // v8.4.2: axios pinned version for TypeScript HTTP client tasks
+#[allow(dead_code)] // v8.4.2: pinned axios version for TypeScript HTTP client scaffold tasks
 const AXIOS_VERSION: &str = "1.6.7";
 
 const TSCONFIG_JSON: &str = r#"{

@@ -11,6 +11,7 @@ pub enum ProjectType {
 }
 
 impl ProjectType {
+    #[allow(dead_code)] // utility: ProjectType display — used in diagnostics and logging
     pub fn as_str(&self) -> &str {
         match self {
             ProjectType::Rust => "Rust",
@@ -207,6 +208,7 @@ impl WorkspaceOracle {
     }
 
     ///         LLM
+    #[allow(dead_code)] // documented in docs/architecture/oracle.md — planned for plan validation pipeline
     pub fn validate_plan_cmd(&self, cmd: &crate::protocol::Cmd) -> Result<(), String> {
         use crate::protocol::Cmd;
         let p_type = self.current_type();

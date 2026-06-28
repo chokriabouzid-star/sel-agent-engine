@@ -73,6 +73,7 @@ impl Provider {
         }
     }
 
+    #[allow(dead_code)]
     fn is_configured(&self) -> bool {
         self.key_pool
             .lock()

@@ -11,6 +11,7 @@ fn plan_risk_feedback(workspace: &Path, commands: &[Cmd]) -> Vec<String> {
     plan_risk_feedback_with_options(workspace, commands, enabled, false)
 }
 
+#[allow(dead_code)] // used in test assertions for plan_risk toggle verification
 fn plan_risk_feedback_with_flag(workspace: &Path, commands: &[Cmd], enabled: bool) -> Vec<String> {
     plan_risk_feedback_with_options(workspace, commands, enabled, false)
 }
@@ -69,6 +70,7 @@ fn record_plan_risk_telemetry(
 // PLANNING
 //
 
+#[allow(dead_code)] // public wrapper for do_planning_with_goal_authorized_test_edits — reserved for external callers
 pub async fn do_planning(
     ctx: &mut ExecutionContext,
     llm: &dyn LLMProvider,

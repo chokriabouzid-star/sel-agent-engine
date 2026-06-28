@@ -1,5 +1,6 @@
 use std::sync::LazyLock;
 
+#[allow(dead_code)]
 static RE_LITERALS: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r#""[^"]*"|'[^']*'|-?\b\d+\b"#).expect("RE_LITERALS"));
 
@@ -62,6 +63,7 @@ pub fn python_syntax_check(file: &std::path::Path) -> Option<String> {
 }
 
 /// v7.9.9 P6: Semantic Guard for tests
+#[allow(dead_code)]
 pub fn guard_assertion_integrity(
     path: &str,
     before: &str,
@@ -91,6 +93,7 @@ pub fn guard_assertion_integrity(
 
 /// v7.9.9 P6: Count assertion statements in test file
 /// Used by Semantic Guard to prevent test weakening
+#[allow(dead_code)]
 pub fn count_assertions(content: &str) -> usize {
     content
         .lines()
@@ -110,6 +113,7 @@ pub fn count_assertions(content: &str) -> usize {
 
 /// v7.9.9 P6: Extract expected values from assertion strings
 /// Regex-based heuristic to detect literal changes in tests
+#[allow(dead_code)]
 pub fn extract_expected_values(content: &str) -> std::collections::BTreeSet<String> {
     let mut values = std::collections::BTreeSet::new();
     // Extract all numbers and quoted strings as a heuristic for test literals

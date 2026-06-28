@@ -30,6 +30,7 @@ pub async fn run_compare(models: &[String], suite: &str, max_repairs: u8) -> Res
         total: usize,
         avg_repairs: f64,
         mut_score: f64,
+        #[allow(dead_code)]
         quality: f64,
         elapsed_secs: u64,
         retries: u32,

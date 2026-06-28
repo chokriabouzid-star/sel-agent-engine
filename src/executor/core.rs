@@ -76,6 +76,7 @@ impl SafeExecutor {
         }
     }
 
+    #[allow(dead_code)] // used from bin target (agent.rs); appears unused in lib target
     pub(crate) fn set_goal_authorized_test_files(&self, paths: &[PathBuf]) {
         let mut guard = self
             .goal_authorized_test_files
@@ -85,6 +86,7 @@ impl SafeExecutor {
         guard.extend(paths.iter().cloned());
     }
 
+    #[allow(dead_code)] // used from bin target (agent.rs); appears unused in lib target
     pub(crate) fn clear_goal_authorized_test_files(&self) {
         let mut guard = self
             .goal_authorized_test_files
@@ -93,10 +95,12 @@ impl SafeExecutor {
         guard.clear();
     }
 
+    #[allow(dead_code)] // used from bin target (agent.rs); appears unused in lib target
     pub(crate) fn set_allow_goal_test_writes(&self, allow: bool) {
         self.allow_goal_test_writes.store(allow, Ordering::Relaxed);
     }
 
+    #[allow(dead_code)] // used from bin target (agent.rs); appears unused in lib target
     pub(crate) fn set_broken_authorized_test_repair(&self, allow: bool) {
         self.broken_authorized_test_repair
             .store(allow, Ordering::Relaxed);

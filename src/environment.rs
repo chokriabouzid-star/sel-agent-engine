@@ -2,6 +2,7 @@ use std::process::Command;
 
 #[derive(Debug, Clone)]
 pub struct PythonInfo {
+    #[allow(dead_code)]
     pub cmd: String,
     pub version: String,
     pub venv: bool,
@@ -10,6 +11,7 @@ pub struct PythonInfo {
 
 #[derive(Debug, Clone)]
 pub struct ToolInfo {
+    #[allow(dead_code)]
     pub cmd: String,
     pub version: String,
 }

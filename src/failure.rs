@@ -115,6 +115,7 @@ impl FailureKind {
         Self::Unknown
     }
 
+    #[allow(dead_code)] // v7.3: diagnostic repair hints
     pub fn repair_hint(&self) -> &str {
         match self {
             Self::SyntaxError => "SYNTAX ERROR: Fix syntax only.",
@@ -132,6 +133,7 @@ impl FailureKind {
             Self::Unknown => "Fix the errors shown.",
         }
     }
+    #[allow(dead_code)] // v7.3: custom failure attempts policy
 
     pub fn max_attempts(&self) -> u8 {
         match self {
