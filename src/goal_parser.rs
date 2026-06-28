@@ -1,12 +1,7 @@
-// goal_parser.rs  v6.5
-//  goal   ParsedGoal
-// ScaffoldEngine    string matching
+// goal_parser.rs — goal -> ParsedGoal
+// Scaffold selection from natural-language goal text.
 
 use crate::scaffold_engine::ProjectKind;
-
-//
-// SubKind
-//
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SubKind {
@@ -21,21 +16,13 @@ pub enum SubKind {
     Plain,
 }
 
-//
-// ParsedGoal
-//
-
 #[derive(Debug, Clone)]
 pub struct ParsedGoal {
     pub kind: ProjectKind,
     #[allow(dead_code)]
     pub sub_kind: SubKind,
-    pub extra_deps: Vec<String>, //     Scaffold
+    pub extra_deps: Vec<String>,
 }
-
-//
-// parse()
-//
 
 pub fn parse(workspace: &std::path::Path, goal: &str) -> ParsedGoal {
     let kind = detect_kind(workspace, goal);
@@ -49,10 +36,24 @@ pub fn parse(workspace: &std::path::Path, goal: &str) -> ParsedGoal {
     }
 }
 
-//   ProjectKind
+/// Match a standalone token, not an arbitrary substring.
+/// Prevents false positives like:
+/// - "expression" -> "express"
+/// - "reactive"   -> "react"
+fn contains_goal_token(goal: &str, needle: &str) -> bool {
+    goal.split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .any(|token| token == needle)
+}
+
+fn contains_any_goal_token(goal: &str, needles: &[&str]) -> bool {
+    needles
+        .iter()
+        .copied()
+        .any(|needle| contains_goal_token(goal, needle))
+}
 
 fn detect_kind(workspace: &std::path::Path, goal: &str) -> ProjectKind {
-    //
     if workspace.join("Cargo.toml").exists() {
         return ProjectKind::Rust;
     }
@@ -66,55 +67,54 @@ fn detect_kind(workspace: &std::path::Path, goal: &str) -> ProjectKind {
         return ProjectKind::Python;
     }
 
-    //   goal
     let g = goal.to_lowercase();
-    if g.contains("typescript")
-        || g.contains(" ts ")
+
+    if contains_goal_token(&g, "typescript")
+        || contains_goal_token(&g, "ts")
         || g.contains(".ts")
-        || g.contains("express")
-        || g.contains("react")
-        || g.contains("jest")
+        || contains_any_goal_token(&g, &["express", "react", "jest"])
     {
         return ProjectKind::TypeScript;
     }
-    if g.contains("python")
-        || g.contains("pytest")
-        || g.contains("flask")
-        || g.contains("fastapi")
-        || g.contains("django")
+
+    if g.contains("fast api")
+        || contains_any_goal_token(&g, &["python", "pytest", "flask", "fastapi", "django"])
     {
         return ProjectKind::Python;
     }
-    if g.contains("rust") || g.contains("cargo") {
+
+    if contains_any_goal_token(&g, &["rust", "cargo"]) {
         return ProjectKind::Rust;
     }
-    if g.contains("golang") || g.contains(" go ") || g.contains("gorilla") {
+
+    // Keep "go" conservative: the English verb is too ambiguous to classify
+    // purely as a standalone token without causing false positives.
+    if g.contains(" go ") || contains_any_goal_token(&g, &["golang", "gorilla"]) {
         return ProjectKind::Go;
     }
 
     ProjectKind::Unknown
 }
 
-//   SubKind
-
 fn detect_sub_kind(kind: &ProjectKind, goal: &str) -> SubKind {
     let g = goal.to_lowercase();
+
     match kind {
         ProjectKind::Python => {
-            if g.contains("fastapi") || g.contains("fast api") {
+            if g.contains("fast api") || contains_goal_token(&g, "fastapi") {
                 SubKind::FastAPI
-            } else if g.contains("flask") {
+            } else if contains_goal_token(&g, "flask") {
                 SubKind::Flask
-            } else if g.contains("django") {
+            } else if contains_goal_token(&g, "django") {
                 SubKind::Django
             } else {
                 SubKind::Plain
             }
         }
         ProjectKind::TypeScript => {
-            if g.contains("express") {
+            if contains_goal_token(&g, "express") {
                 SubKind::Express
-            } else if g.contains("react") {
+            } else if contains_goal_token(&g, "react") {
                 SubKind::React
             } else {
                 SubKind::Plain
@@ -124,12 +124,10 @@ fn detect_sub_kind(kind: &ProjectKind, goal: &str) -> SubKind {
     }
 }
 
-//   extra_deps
-
 fn detect_extra_deps(kind: &ProjectKind, sub_kind: &SubKind, goal: &str) -> Vec<String> {
     let g = goal.to_lowercase();
 
-    // v7.5 Fix: Bypass extra_deps extraction for QuickFix tests
+    // v7.5 fix: bypass extra_deps extraction for QuickFix tests
     if g.contains("do not use pip_install")
         || g.contains("do not use pip install")
         || g.contains("strict rule")
@@ -140,34 +138,32 @@ fn detect_extra_deps(kind: &ProjectKind, sub_kind: &SubKind, goal: &str) -> Vec<
     let mut deps: Vec<String> = vec![];
 
     match kind {
-        ProjectKind::Python => {
-            match sub_kind {
-                SubKind::FastAPI => {
-                    deps.push("fastapi".into());
-                    deps.push("uvicorn[standard]".into());
-                    deps.push("httpx".into()); // TestClient
+        ProjectKind::Python => match sub_kind {
+            SubKind::FastAPI => {
+                deps.push("fastapi".into());
+                deps.push("uvicorn[standard]".into());
+                deps.push("httpx".into()); // TestClient
+            }
+            SubKind::Flask => {
+                deps.push("flask".into());
+            }
+            SubKind::Django => {
+                deps.push("django".into());
+                deps.push("pytest-django".into());
+            }
+            SubKind::Plain => {
+                if contains_goal_token(&g, "requests") {
+                    deps.push("requests".into());
                 }
-                SubKind::Flask => {
-                    deps.push("flask".into());
+                if contains_goal_token(&g, "sqlalchemy") {
+                    deps.push("sqlalchemy".into());
                 }
-                SubKind::Django => {
-                    deps.push("django".into());
-                    deps.push("pytest-django".into());
-                }
-                _ => {
-                    //
-                    if g.contains("requests") {
-                        deps.push("requests".into());
-                    }
-                    if g.contains("sqlalchemy") {
-                        deps.push("sqlalchemy".into());
-                    }
-                    if g.contains("pydantic") {
-                        deps.push("pydantic".into());
-                    }
+                if contains_goal_token(&g, "pydantic") {
+                    deps.push("pydantic".into());
                 }
             }
-        }
+            _ => {}
+        },
         ProjectKind::TypeScript => {
             match sub_kind {
                 SubKind::Express => {
@@ -183,12 +179,12 @@ fn detect_extra_deps(kind: &ProjectKind, sub_kind: &SubKind, goal: &str) -> Vec<
                 }
                 _ => {}
             }
-            // v8.4.2: detect axios in any TS goal
-            if g.contains("axios") {
+
+            if contains_goal_token(&g, "axios") {
                 deps.push("axios".into());
             }
-            // v8.4.2: detect other common TS deps
-            if g.contains("supertest") && !deps.contains(&"supertest".to_string()) {
+
+            if contains_goal_token(&g, "supertest") && !deps.contains(&"supertest".to_string()) {
                 deps.push("supertest".into());
                 deps.push("@types/supertest".into());
             }
@@ -198,10 +194,6 @@ fn detect_extra_deps(kind: &ProjectKind, sub_kind: &SubKind, goal: &str) -> Vec<
 
     deps
 }
-
-//
-// Tests
-//
 
 #[cfg(test)]
 mod tests {
@@ -230,6 +222,7 @@ mod tests {
             fake_ws(),
             "Create a Flask app with a /hello route and pytest tests",
         );
+        assert_eq!(g.kind, ProjectKind::Python);
         assert_eq!(g.sub_kind, SubKind::Flask);
         assert!(g.extra_deps.contains(&"flask".to_string()));
     }
@@ -248,8 +241,32 @@ mod tests {
     #[test]
     fn test_plain_python() {
         let g = parse(fake_ws(), "Create a Python calculator with pytest tests");
+        assert_eq!(g.kind, ProjectKind::Python);
         assert_eq!(g.sub_kind, SubKind::Plain);
         assert!(g.extra_deps.is_empty());
+    }
+
+    #[test]
+    fn test_expression_does_not_trigger_express_detection() {
+        let g = parse(
+            fake_ws(),
+            "Create a Python Flask web calculator in app.py with a single page '/' showing a calculator UI. Clicking = sends POST to '/calculate' with JSON {'expression': '...'}. The server returns JSON {'result': ...}. Write test_calc.py using Flask test client and pytest.",
+        );
+        assert_eq!(g.kind, ProjectKind::Python);
+        assert_eq!(g.sub_kind, SubKind::Flask);
+        assert!(g.extra_deps.contains(&"flask".to_string()));
+        assert!(!g.extra_deps.contains(&"express".to_string()));
+    }
+
+    #[test]
+    fn test_reactive_does_not_trigger_react_detection() {
+        let g = parse(
+            fake_ws(),
+            "Create a TypeScript reactive event pipeline with Jest tests",
+        );
+        assert_eq!(g.kind, ProjectKind::TypeScript);
+        assert_eq!(g.sub_kind, SubKind::Plain);
+        assert!(!g.extra_deps.contains(&"react".to_string()));
     }
 
     #[test]

@@ -11,7 +11,6 @@ mod chunker;
 mod constraint_engine;
 mod context;
 mod environment;
-mod evaluator;
 mod executor;
 mod goal_parser;
 
@@ -109,13 +108,6 @@ async fn main() -> Result<()> {
         }
         Commands::Scan { workspace, json } => {
             commands::cmd_scan(&workspace, json);
-        }
-        Commands::Compare {
-            models,
-            suite,
-            max_repairs,
-        } => {
-            commands::run_compare(&models, &suite, max_repairs).await?;
         }
         Commands::Plan {
             workspace,

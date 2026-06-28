@@ -138,10 +138,6 @@ impl LiveProvider {
         Self::new()
     }
 
-    pub fn from_config(_cfg: crate::llm::ModelConfig, _key: String) -> Self {
-        Self::new()
-    }
-
     pub fn primary_name(&self) -> String {
         self.providers
             .first()

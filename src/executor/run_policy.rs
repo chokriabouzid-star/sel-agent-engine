@@ -1,4 +1,4 @@
-use crate::executor::node_builtins::is_npm_install_builtin;
+use crate::executor::node_builtins::{is_npm_install_builtin, is_pip_without_package};
 use crate::types::ExecResult;
 use anyhow::{anyhow, Result};
 use std::path::Path;
@@ -65,7 +65,7 @@ pub fn preflight_shell(
         return Ok(decision);
     }
 
-    if let Some(decision) = pip_install_missing_package_policy(&prog, &args) {
+    if let Some(decision) = pip_install_missing_package_policy(command) {
         return Ok(decision);
     }
 
@@ -129,26 +129,13 @@ fn npm_builtin_install_policy(command: &str, replay_mode: bool) -> Option<ShellP
     ))))
 }
 
-fn pip_install_missing_package_policy(prog: &str, args: &[String]) -> Option<ShellPolicyDecision> {
-    if !(prog.contains("pip3") || prog.contains("pip")) {
-        return None;
-    }
-
-    let Some(install_pos) = args.iter().position(|a| a == "install") else {
-        return None;
-    };
-
-    let has_package = args
-        .iter()
-        .skip(install_pos + 1)
-        .any(|a| !a.starts_with('-'));
-
-    if has_package {
-        None
-    } else {
+fn pip_install_missing_package_policy(command: &str) -> Option<ShellPolicyDecision> {
+    if is_pip_without_package(command) {
         Some(ShellPolicyDecision::Return(ExecResult::fail(
             "pip install needs package name: e.g. venv/bin/pip3 install pytest".to_string(),
         )))
+    } else {
+        None
     }
 }
 

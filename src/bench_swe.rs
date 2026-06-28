@@ -316,7 +316,8 @@ fn prepare_workspace(ws: &Path, case: &SweCase) -> Result<()> {
 
 fn prepare_go(ws: &Path, case: &SweCase) -> Result<()> {
     // استخرج اسم الحزمة من أول سطر في source_code (package <name>)
-    let pkg_name = case.source_code
+    let pkg_name = case
+        .source_code
         .lines()
         .find(|l| l.starts_with("package "))
         .and_then(|l| l.split_whitespace().nth(1))
@@ -324,10 +325,7 @@ fn prepare_go(ws: &Path, case: &SweCase) -> Result<()> {
 
     let module_name = format!("sel_swe_{}", case.id.to_lowercase().replace('-', "_"));
 
-    let go_mod = format!(
-        "module {}\n\ngo 1.21\n",
-        module_name
-    );
+    let go_mod = format!("module {}\n\ngo 1.21\n", module_name);
     fs::write(ws.join("go.mod"), go_mod)?;
 
     // إذا كانت الحزمة "main"، لا نحتاج شيئاً إضافياً

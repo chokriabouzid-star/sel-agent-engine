@@ -134,7 +134,6 @@ impl FailureKind {
         }
     }
     #[allow(dead_code)] // v7.3: custom failure attempts policy
-
     pub fn max_attempts(&self) -> u8 {
         match self {
             Self::PatchError => 2,
