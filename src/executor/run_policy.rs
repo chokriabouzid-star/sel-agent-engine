@@ -68,6 +68,9 @@ pub fn preflight_shell(
     if let Some(decision) = pip_install_missing_package_policy(command) {
         return Ok(decision);
     }
+    if let Some(decision) = pip_install_stdlib_policy(command) {
+        return Ok(decision);
+    }
 
     if SERVICE_PROGRAMS.contains(&prog.as_str()) {
         return Ok(ShellPolicyDecision::Service { prog, args });
@@ -134,6 +137,157 @@ fn pip_install_missing_package_policy(command: &str) -> Option<ShellPolicyDecisi
         Some(ShellPolicyDecision::Return(ExecResult::fail(
             "pip install needs package name: e.g. venv/bin/pip3 install pytest".to_string(),
         )))
+    } else {
+        None
+    }
+}
+
+/// Python standard library modules — never need pip install.
+const PYTHON_STDLIB_MODULES: &[&str] = &[
+    "abc",
+    "ast",
+    "asyncio",
+    "base64",
+    "bisect",
+    "builtins",
+    "calendar",
+    "cmath",
+    "cmd",
+    "codecs",
+    "collections",
+    "colorsys",
+    "concurrent",
+    "configparser",
+    "contextlib",
+    "copy",
+    "csv",
+    "dataclasses",
+    "datetime",
+    "decimal",
+    "difflib",
+    "dis",
+    "doctest",
+    "email",
+    "enum",
+    "errno",
+    "filecmp",
+    "fileinput",
+    "fnmatch",
+    "fractions",
+    "ftplib",
+    "functools",
+    "gc",
+    "getopt",
+    "getpass",
+    "gettext",
+    "glob",
+    "gzip",
+    "hashlib",
+    "heapq",
+    "hmac",
+    "html",
+    "http",
+    "importlib",
+    "inspect",
+    "io",
+    "ipaddress",
+    "itertools",
+    "json",
+    "keyword",
+    "linecache",
+    "locale",
+    "logging",
+    "lzma",
+    "math",
+    "mimetypes",
+    "mmap",
+    "multiprocessing",
+    "numbers",
+    "operator",
+    "optparse",
+    "os",
+    "pathlib",
+    "pdb",
+    "pickle",
+    "pkgutil",
+    "platform",
+    "pprint",
+    "profile",
+    "queue",
+    "random",
+    "re",
+    "runpy",
+    "sched",
+    "secrets",
+    "select",
+    "shelve",
+    "shlex",
+    "shutil",
+    "signal",
+    "site",
+    "smtplib",
+    "socket",
+    "socketserver",
+    "sqlite3",
+    "ssl",
+    "stat",
+    "statistics",
+    "string",
+    "struct",
+    "subprocess",
+    "sys",
+    "sysconfig",
+    "tarfile",
+    "tempfile",
+    "test",
+    "textwrap",
+    "threading",
+    "time",
+    "timeit",
+    "token",
+    "tokenize",
+    "tomllib",
+    "trace",
+    "traceback",
+    "types",
+    "typing",
+    "unicodedata",
+    "unittest",
+    "urllib",
+    "uuid",
+    "venv",
+    "warnings",
+    "wave",
+    "weakref",
+    "webbrowser",
+    "xml",
+    "xmlrpc",
+    "zipfile",
+    "zipimport",
+    "zlib",
+    "zoneinfo",
+];
+
+fn is_python_stdlib(module: &str) -> bool {
+    let base = module.split('.').next().unwrap_or(module);
+    PYTHON_STDLIB_MODULES.contains(&base)
+}
+
+fn pip_install_stdlib_policy(command: &str) -> Option<ShellPolicyDecision> {
+    let cmd = command.trim();
+    if !cmd.contains("pip install") && !cmd.contains("pip3 install") {
+        return None;
+    }
+    let parts: Vec<&str> = cmd.split_whitespace().collect();
+    let pos = parts.iter().position(|&p| p == "install")?;
+    let pkg = parts[pos + 1..].iter().find(|&&p| !p.starts_with('-'))?;
+    if is_python_stdlib(pkg) {
+        Some(ShellPolicyDecision::Return(ExecResult::fail(format!(
+            "pip install '{}' rejected — '{}' is a Python standard library module, no installation needed.
+CORRECT: import {}
+NEVER:   pip install {}",
+            pkg, pkg, pkg, pkg
+        ))))
     } else {
         None
     }
@@ -232,6 +386,51 @@ mod tests {
                 );
             }
             _ => panic!("expected pip rejection result"),
+        }
+    }
+    #[test]
+    fn rejects_pip_install_stdlib_unittest() {
+        let d = tempdir().expect("tempdir");
+        let decision = preflight_shell("venv/bin/pip install unittest", d.path(), false)
+            .expect("should return decision");
+        match decision {
+            ShellPolicyDecision::Return(result) => {
+                assert!(!result.success);
+                assert!(
+                    result.stdout.contains("standard library")
+                        || result.stderr.contains("standard library"),
+                    "got: {} / {}",
+                    result.stdout,
+                    result.stderr
+                );
+            }
+            _ => panic!("expected rejection but got a non-Return decision"),
+        }
+    }
+
+    #[test]
+    fn rejects_pip_install_stdlib_json() {
+        let d = tempdir().expect("tempdir");
+        let decision = preflight_shell("venv/bin/pip3 install json", d.path(), false)
+            .expect("should return decision");
+        match decision {
+            ShellPolicyDecision::Return(result) => assert!(!result.success),
+            _ => panic!("expected rejection"),
+        }
+    }
+
+    #[test]
+    fn allows_pip_install_third_party() {
+        let d = tempdir().expect("tempdir");
+        let decision = preflight_shell("venv/bin/pip install requests", d.path(), false)
+            .expect("should return decision");
+        // requests هي third-party — لا يجب رفضها بسبب stdlib check
+        if let ShellPolicyDecision::Return(result) = decision {
+            assert!(
+                !result.stdout.contains("standard library")
+                    && !result.stderr.contains("standard library"),
+                "requests should not be rejected as stdlib"
+            );
         }
     }
 }

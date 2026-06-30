@@ -110,7 +110,9 @@ impl SafeExecutor {
             let fixed = fix_rust_string_types(&fixed);
             fix_rust_test_attributes(&fixed)
         } else if ext == "py" {
-            fix_python_string_quoting(&content_str)
+            let s = fix_python_string_quoting(&content_str);
+            // v9.3.5: fix common decorator syntax errors (dataclass, property, etc.)
+            autofix_python_decorator_syntax(&s).unwrap_or(s)
         } else {
             content_str
         };
@@ -204,6 +206,15 @@ impl SafeExecutor {
                     } else if let Some(fixed) = autofix_go_undefined_import(&p, &err) {
                         println!("   ⚡ AutoFix Go import: {}", fixed);
                         changed = true;
+                    } else if err.contains("declared and not used") {
+                        // v9.3.5: fix unused variables by replacing with `_`
+                        if let Ok(source) = std::fs::read_to_string(&p) {
+                            if let Some(fixed_src) = autofix_go_unused_vars(&source, &err) {
+                                let _ = std::fs::write(&p, fixed_src.as_bytes());
+                                println!("   ⚡ AutoFix Go unused vars: replaced with _");
+                                changed = true;
+                            }
+                        }
                     } else if err.contains("redeclared in this block") {
                         // Check other .go files in workspace for the redeclared function
                         let ws = &self.workspace;

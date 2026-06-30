@@ -103,7 +103,18 @@ pub fn validate_plan_integrity(plan: &[Cmd]) -> Vec<String> {
 pub fn validate_rust_bootstrap_plan(workspace: &Path, plan: &[Cmd]) -> Vec<String> {
     let mut issues = Vec::new();
 
-    let has_workspace_cargo = workspace.join("Cargo.toml").exists();
+    // Check root Cargo.toml OR any immediate subdirectory Cargo.toml
+    // (handles `cargo new myproject --lib` which creates myproject/Cargo.toml)
+    let has_workspace_cargo = workspace.join("Cargo.toml").exists()
+        || std::fs::read_dir(workspace)
+            .ok()
+            .map(|entries| {
+                entries
+                    .filter_map(|e| e.ok())
+                    .filter(|e| e.path().is_dir())
+                    .any(|e| e.path().join("Cargo.toml").exists())
+            })
+            .unwrap_or(false);
 
     let touches_rust = plan.iter().any(|cmd| match cmd {
         Cmd::WriteFile { path, .. }

@@ -128,7 +128,6 @@ pub fn autofix_go_undefined_import(file: &std::path::Path, err: &str) -> Option<
         let pkg_line = src.lines().find(|l| l.starts_with("package "))?.to_string();
         src.replacen(&pkg_line, &format!("{}\n\nimport \"{}\"", pkg_line, pkg), 1)
     };
-
     std::fs::write(file, &new_src).ok()?;
     Some(pkg.to_string())
 }
@@ -246,19 +245,29 @@ pub fn autofix_go_missing_comma(file: &std::path::Path, err: &str) -> Option<Str
     let src = std::fs::read_to_string(file).ok()?;
     let mut lines: Vec<String> = src.lines().map(|l| l.to_string()).collect();
 
-    // line_num is 1-based; the error points to the CLOSING brace line.
-    // We need to add a comma to the line BEFORE it (line_num - 2 in 0-based).
-    let target = line_num.saturating_sub(2); // 0-based index of line before error
-    if target >= lines.len() {
-        return None;
-    }
+    // line_num is 1-based. The Go compiler points to either:
+    //   a) the closing brace line  → add comma to line_num-2 (0-based)
+    //   b) the last value line     → add comma to line_num-1 (0-based)
+    // Try both candidates: prefer the one that doesn't already end with comma.
+    let candidates = [
+        line_num.saturating_sub(1), // closing-brace case
+        line_num.saturating_sub(2), // last-value case (original behaviour)
+    ];
 
+    let target = candidates.iter().copied().find(|&i| {
+        if i >= lines.len() {
+            return false;
+        }
+        let l = lines[i].trim_end();
+        !l.is_empty()
+            && !l.ends_with(',')
+            && !l.ends_with('{')
+            && !l.ends_with('(')
+            && !l.ends_with('[')
+    });
+
+    let target = target?;
     let line = lines[target].trim_end().to_string();
-
-    // Only add comma if line doesn't already end with comma, opening brace, or is empty
-    if line.is_empty() || line.ends_with(',') || line.ends_with('{') || line.ends_with('(') {
-        return None;
-    }
 
     // Add trailing comma
     let indent: String = lines[target]
@@ -274,7 +283,6 @@ pub fn autofix_go_missing_comma(file: &std::path::Path, err: &str) -> Option<Str
     } else {
         fixed
     };
-
     std::fs::write(file, &fixed).ok()?;
     Some(format!("added trailing comma at line {}", line_num - 1))
 }
@@ -501,4 +509,157 @@ func main() {
 
     std::fs::write(file, fixed).ok()?;
     Some("fixed goroutine deadlock in ProcessJobs (buffered resultChan + WaitGroup)".to_string())
+}
+
+/// Fix common Python decorator syntax errors produced by LLMs.
+///
+/// Handles three broken patterns:
+///   dataclass(User):          → @dataclass\nclass User:
+///   dataclass\nclass User:   → @dataclass\nclass User:
+///   dataclass class User:     → @dataclass\nclass User:
+///
+/// Also handles any single-word decorator on its own line before `class`:
+///   validator\nclass Foo:    → @validator\nclass Foo:
+pub fn autofix_python_decorator_syntax(content: &str) -> Option<String> {
+    let mut result = content.to_string();
+    let mut changed = false;
+
+    // Pattern 1: `dataclass(ClassName):` — decorator used as function call
+    // Replace with `@dataclass\nclass ClassName:`
+    let re1 = regex::Regex::new(r"(?m)^([ \t]*)dataclass\(([A-Za-z_][A-Za-z0-9_]*)\)\s*:").unwrap();
+    if re1.is_match(&result) {
+        result = re1
+            .replace_all(&result, "${1}@dataclass\n${1}class $2:")
+            .to_string();
+        changed = true;
+    }
+
+    // Pattern 2: `dataclass class ClassName:` — missing newline between decorator and class
+    let re2 = regex::Regex::new(r"(?m)^([ \t]*)dataclass[ \t]+class[ \t]+").unwrap();
+    if re2.is_match(&result) {
+        result = re2
+            .replace_all(&result, "${1}@dataclass\n${1}class ")
+            .to_string();
+        changed = true;
+    }
+
+    // Pattern 3: decorator word alone on a line, followed by `class` on next line
+    // e.g. `dataclass\nclass Foo:` → `@dataclass\nclass Foo:`
+    // Only matches known decorators (not random words) to avoid false positives
+    let re3 = regex::Regex::new(
+        r"(?m)^([ \t]*)(dataclass|dataclasses\.dataclass|validator|property|staticmethod|classmethod|abstractmethod)[ \t]*\n([ \t]*class[ \t])"
+    ).unwrap();
+    if re3.is_match(&result) {
+        result = re3.replace_all(&result, "${1}@${2}\n${3}").to_string();
+        changed = true;
+    }
+
+    if changed {
+        Some(result)
+    } else {
+        None
+    }
+}
+
+/// Fix Go "declared and not used" errors by replacing the unused variable with `_`.
+///
+/// Pattern: the compiler says "X declared and not used" at line N.
+/// We parse the stderr to find variable names, then rewrite the source file
+/// replacing `varname, ok :=` with `_, ok :=` (or `varname :=` with `_ :=`).
+///
+/// This is safe because if the variable is truly unused, replacing with `_`
+/// cannot break the logic — it was already broken.
+pub fn autofix_go_unused_vars(source: &str, stderr: &str) -> Option<String> {
+    // Extract all "X declared and not used" variable names from stderr
+    let re_err = regex::Regex::new(r"(?m)([a-zA-Z_][a-zA-Z0-9_]*) declared and not used").ok()?;
+    let unused_vars: Vec<&str> = re_err
+        .captures_iter(stderr)
+        .filter_map(|cap| cap.get(1).map(|m| m.as_str()))
+        .collect();
+
+    if unused_vars.is_empty() {
+        return None;
+    }
+
+    let mut result = source.to_string();
+    let mut changed = false;
+
+    for var in &unused_vars {
+        // Pattern: `var, something :=` → `_, something :=`
+        let p1 = format!(
+            r"(?m)^([ \t]*){var}(,[ \t]*[a-zA-Z_][a-zA-Z0-9_]*)[ \t]*:=",
+            var = var
+        );
+        if let Ok(re) = regex::Regex::new(&p1) {
+            if re.is_match(&result) {
+                result = re.replace_all(&result, "_${2} :=").to_string();
+                changed = true;
+                continue;
+            }
+        }
+
+        // Pattern: `something, var :=` → `something, _ :=`
+        let p2 = format!(
+            r"(?m)^([ \t]*[a-zA-Z_][a-zA-Z0-9_]*,[ \t]*){var}[ \t]*:=",
+            var = var
+        );
+        if let Ok(re) = regex::Regex::new(&p2) {
+            if re.is_match(&result) {
+                result = re.replace_all(&result, "${1}_ :=").to_string();
+                changed = true;
+                continue;
+            }
+        }
+
+        // Pattern: `var :=` alone → `_ :=`
+        let p3 = format!(r"(?m)^([ \t]*){var}[ \t]*:=", var = var);
+        if let Ok(re) = regex::Regex::new(&p3) {
+            if re.is_match(&result) {
+                result = re.replace_all(&result, "${1}_ :=").to_string();
+                changed = true;
+            }
+        }
+    }
+
+    if changed {
+        Some(result)
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod go_unused_var_tests {
+    use super::*;
+
+    #[test]
+    fn fixes_unused_first_in_pair() {
+        let src = "func f() {\n\tval, ok := stack.Pop()\n\t_ = ok\n}\n";
+        let stderr = "./main_test.go:2:2: val declared and not used";
+        let fixed = autofix_go_unused_vars(src, stderr).expect("should fix");
+        assert!(fixed.contains("_, ok :="), "got: {}", fixed);
+    }
+
+    #[test]
+    fn fixes_unused_second_in_pair() {
+        let src = "func f() {\n\tok, val := stack.Pop()\n\t_ = ok\n}\n";
+        let stderr = "./main_test.go:2:5: val declared and not used";
+        let fixed = autofix_go_unused_vars(src, stderr).expect("should fix");
+        assert!(fixed.contains("ok, _ :="), "got: {}", fixed);
+    }
+
+    #[test]
+    fn fixes_solo_unused_var() {
+        let src = "func f() {\n\tval := stack.Pop()\n}\n";
+        let stderr = "./main_test.go:2:2: val declared and not used";
+        let fixed = autofix_go_unused_vars(src, stderr).expect("should fix");
+        assert!(fixed.contains("_ :="), "got: {}", fixed);
+    }
+
+    #[test]
+    fn no_change_when_no_unused_in_stderr() {
+        let src = "func f() {\n\tval := stack.Pop()\n}\n";
+        let stderr = "no errors here";
+        assert!(autofix_go_unused_vars(src, stderr).is_none());
+    }
 }
