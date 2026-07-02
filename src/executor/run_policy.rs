@@ -2,6 +2,7 @@ use crate::executor::node_builtins::{is_npm_install_builtin, is_pip_without_pack
 use crate::types::ExecResult;
 use anyhow::{anyhow, Result};
 use std::path::Path;
+use std::process::Command;
 
 pub const ALLOWED_PROGRAMS: &[&str] = &[
     "python3",
@@ -71,6 +72,11 @@ pub fn preflight_shell(
     if let Some(decision) = pip_install_stdlib_policy(command) {
         return Ok(decision);
     }
+    if let Some(decision) =
+        replay_pip_mutation_policy(&prog, &args, workspace, command, replay_mode)
+    {
+        return Ok(decision);
+    }
 
     if SERVICE_PROGRAMS.contains(&prog.as_str()) {
         return Ok(ShellPolicyDecision::Service { prog, args });
@@ -130,6 +136,82 @@ fn npm_builtin_install_policy(command: &str, replay_mode: bool) -> Option<ShellP
         "npm install '{}' rejected — '{}' is a Node.js built-in module and requires no installation.\nCORRECT: import {{ ... }} from '{}'\nNEVER:   npm install {}",
         module, module, module, module
     ))))
+}
+
+fn replay_pip_mutation_policy(
+    prog: &str,
+    args: &[String],
+    workspace: &Path,
+    command: &str,
+    replay_mode: bool,
+) -> Option<ShellPolicyDecision> {
+    if !replay_mode {
+        return None;
+    }
+
+    let package = extract_pip_install_package(prog, args)?;
+    let import_name = python_import_name_for_package(&package);
+
+    if python_importable_in_workspace_venv(workspace, &import_name) {
+        eprintln!(
+            "[TRACE] Replay mode: skipping '{}' because '{}' is already importable in workspace venv",
+            command, import_name
+        );
+        Some(ShellPolicyDecision::Return(ExecResult::ok(format!(
+            "Replay mode: skipped pip dependency mutation; package '{}' already available in workspace venv",
+            package
+        ))))
+    } else {
+        Some(ShellPolicyDecision::Return(ExecResult::fail(format!(
+            "REPLAY_ENV_MISMATCH: pip package '{}' not available in workspace venv during replay",
+            package
+        ))))
+    }
+}
+
+fn extract_pip_install_package(prog: &str, args: &[String]) -> Option<String> {
+    let is_direct_pip = matches!(prog, "pip" | "pip3" | "venv/bin/pip" | "venv/bin/pip3")
+        && args.first().map(String::as_str) == Some("install");
+
+    let is_python_module_pip = matches!(
+        prog,
+        "python" | "python3" | "venv/bin/python" | "venv/bin/python3"
+    ) && args.len() >= 4
+        && args[0] == "-m"
+        && (args[1] == "pip" || args[1] == "pip3")
+        && args[2] == "install";
+
+    if !is_direct_pip && !is_python_module_pip {
+        return None;
+    }
+
+    let install_pos = args.iter().position(|arg| arg == "install")?;
+    args[install_pos + 1..]
+        .iter()
+        .find(|arg| !arg.starts_with('-'))
+        .cloned()
+}
+
+fn python_import_name_for_package(package: &str) -> String {
+    package
+        .split(['=', '<', '>', '!', '~', '['])
+        .next()
+        .unwrap_or(package)
+        .replace('-', "_")
+}
+
+fn python_importable_in_workspace_venv(workspace: &Path, module: &str) -> bool {
+    let python = workspace.join("venv/bin/python3");
+    if !python.exists() {
+        return false;
+    }
+
+    Command::new(&python)
+        .args(["-c", &format!("import {}", module)])
+        .current_dir(workspace)
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false)
 }
 
 fn pip_install_missing_package_policy(command: &str) -> Option<ShellPolicyDecision> {
@@ -296,7 +378,33 @@ NEVER:   pip install {}",
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
+
+    #[cfg(unix)]
+    fn write_fake_workspace_python(
+        workspace: &Path,
+        importable_modules: &[&str],
+    ) -> std::path::PathBuf {
+        let bin_dir = workspace.join("venv/bin");
+        std::fs::create_dir_all(&bin_dir).expect("test setup/use should succeed");
+        let python = bin_dir.join("python3");
+
+        let mut script = String::from("#!/bin/sh\ncase \"$2\" in\n");
+        for module in importable_modules {
+            script.push_str(&format!("  \"import {}\") exit 0 ;;\n", module));
+        }
+        script.push_str("  *) exit 1 ;;\nesac\n");
+
+        std::fs::write(&python, script).expect("test setup/use should succeed");
+        let mut perms = std::fs::metadata(&python)
+            .expect("test setup/use should succeed")
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&python, perms).expect("test setup/use should succeed");
+        python
+    }
 
     #[test]
     fn rejects_npm_install_builtin_in_live_mode() {
@@ -416,6 +524,49 @@ mod tests {
         match decision {
             ShellPolicyDecision::Return(result) => assert!(!result.success),
             _ => panic!("expected rejection"),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replay_skips_pip_install_when_package_already_importable() {
+        let d = tempdir().expect("test setup/use should succeed");
+        let _python = write_fake_workspace_python(d.path(), &["pytest"]);
+
+        let decision = preflight_shell("venv/bin/pip install pytest", d.path(), true)
+            .expect("test setup/use should succeed");
+
+        match decision {
+            ShellPolicyDecision::Return(result) => {
+                assert!(result.success);
+                assert!(
+                    result.stdout.contains("skipped pip dependency mutation")
+                        || result.stderr.contains("skipped pip dependency mutation")
+                );
+            }
+            _ => panic!("expected replay skip result"),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replay_rejects_pip_install_when_package_missing_from_venv() {
+        let d = tempdir().expect("test setup/use should succeed");
+        let _python = write_fake_workspace_python(d.path(), &[]);
+
+        let decision = preflight_shell("venv/bin/pip install requests", d.path(), true)
+            .expect("test setup/use should succeed");
+
+        match decision {
+            ShellPolicyDecision::Return(result) => {
+                assert!(!result.success);
+                assert!(
+                    result.stdout.contains("REPLAY_ENV_MISMATCH")
+                        || result.stderr.contains("REPLAY_ENV_MISMATCH")
+                );
+                assert!(result.stdout.contains("requests") || result.stderr.contains("requests"));
+            }
+            _ => panic!("expected replay mismatch result"),
         }
     }
 
