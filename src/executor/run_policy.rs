@@ -77,6 +77,11 @@ pub fn preflight_shell(
     {
         return Ok(decision);
     }
+    if let Some(decision) =
+        replay_python_venv_bootstrap_policy(&prog, &args, workspace, replay_mode)
+    {
+        return Ok(decision);
+    }
 
     if SERVICE_PROGRAMS.contains(&prog.as_str()) {
         return Ok(ShellPolicyDecision::Service { prog, args });
@@ -212,6 +217,46 @@ fn python_importable_in_workspace_venv(workspace: &Path, module: &str) -> bool {
         .output()
         .map(|out| out.status.success())
         .unwrap_or(false)
+}
+
+fn replay_python_venv_bootstrap_policy(
+    prog: &str,
+    args: &[String],
+    workspace: &Path,
+    replay_mode: bool,
+) -> Option<ShellPolicyDecision> {
+    if !replay_mode {
+        return None;
+    }
+
+    // Match: python3 -m venv venv  |  python -m venv venv
+    let is_venv_create = matches!(
+        prog,
+        "python3" | "python" | "venv/bin/python3" | "venv/bin/python"
+    ) && args.len() >= 3
+        && args[0] == "-m"
+        && args[1] == "venv";
+
+    if !is_venv_create {
+        return None;
+    }
+
+    // إذا كان workspace/venv موجوداً (مجلد حقيقي أو symlink)، تخطَّ الأمر
+    if workspace.join("venv").exists() {
+        eprintln!(
+            "[TRACE] Replay mode: skipping '{}' — workspace venv already available",
+            std::iter::once(prog)
+                .chain(args.iter().map(String::as_str))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        return Some(ShellPolicyDecision::Return(ExecResult::ok(
+            "Replay mode: skipped python venv bootstrap; workspace venv already available",
+        )));
+    }
+
+    // كاش miss — اترك الأمر يُنفَّذ (محلي، حتمي، لا شبكة)
+    None
 }
 
 fn pip_install_missing_package_policy(command: &str) -> Option<ShellPolicyDecision> {
@@ -545,6 +590,42 @@ mod tests {
                 );
             }
             _ => panic!("expected replay skip result"),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replay_skips_venv_bootstrap_when_venv_already_exists() {
+        let d = tempdir().expect("test setup/use should succeed");
+        std::fs::create_dir_all(d.path().join("venv/bin")).expect("test setup");
+
+        let decision = preflight_shell("python3 -m venv venv", d.path(), true)
+            .expect("test setup/use should succeed");
+
+        match decision {
+            ShellPolicyDecision::Return(result) => {
+                assert!(result.success);
+                assert!(
+                    result.stdout.contains("skipped python venv bootstrap")
+                        || result.stderr.contains("skipped python venv bootstrap")
+                );
+            }
+            _ => panic!("expected replay skip result"),
+        }
+    }
+
+    #[test]
+    fn replay_allows_venv_bootstrap_when_venv_missing() {
+        let d = tempdir().expect("test setup/use should succeed");
+
+        let decision = preflight_shell("python3 -m venv venv", d.path(), true)
+            .expect("test setup/use should succeed");
+
+        match decision {
+            ShellPolicyDecision::Execute { prog, .. } => {
+                assert_eq!(prog, "python3");
+            }
+            _ => panic!("expected execute decision when venv is absent"),
         }
     }
 
