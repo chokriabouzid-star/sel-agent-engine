@@ -7,7 +7,7 @@ static RE_ANSI: LazyLock<regex::Regex> =
 // src/bench_swe.rs — SEL Agent Mini SWE-Bench v1.1
 // 30 اختباراً حقيقياً + trajectory record/replay
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use colored::Colorize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -165,7 +165,7 @@ pub async fn run_bench_swe(
         std::io::Write::flush(&mut std::io::stdout()).ok();
 
         // تحضير الملفات
-        let prep = prepare_workspace(&ws, case);
+        let prep = prepare_workspace(&ws, case, replay).await;
         if let Err(e) = prep {
             println!(" → ❌ workspace error: {}", e);
             results.push(SweResult {
@@ -277,7 +277,7 @@ fn build_workspace(case: &SweCase, idx: usize) -> Result<PathBuf> {
     Ok(ws)
 }
 
-fn prepare_workspace(ws: &Path, case: &SweCase) -> Result<()> {
+async fn prepare_workspace(ws: &Path, case: &SweCase, replay: bool) -> Result<()> {
     // إنشاء المجلدات الفرعية
     for file in &[case.source_file, case.test_file] {
         if let Some(parent) = Path::new(file).parent() {
@@ -293,7 +293,7 @@ fn prepare_workspace(ws: &Path, case: &SweCase) -> Result<()> {
 
     // إعداد خاص بالـ Python (تثبيت الحزم الإضافية و venv)
     if case.lang == "python" {
-        prepare_python(ws, case)?;
+        prepare_python(ws, case, replay).await?;
     }
 
     // إعداد خاص بالـ Rust
@@ -312,6 +312,12 @@ fn prepare_workspace(ws: &Path, case: &SweCase) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn python_live_install_packages(case: &SweCase) -> Vec<&'static str> {
+    let mut packages = vec!["pytest"];
+    packages.extend(case.extra_deps.iter().copied());
+    packages
 }
 
 fn prepare_go(ws: &Path, case: &SweCase) -> Result<()> {
@@ -334,7 +340,16 @@ fn prepare_go(ws: &Path, case: &SweCase) -> Result<()> {
     Ok(())
 }
 
-fn prepare_python(ws: &Path, case: &SweCase) -> Result<()> {
+async fn prepare_python(ws: &Path, case: &SweCase, replay: bool) -> Result<()> {
+    if replay {
+        let extra_deps: Vec<String> = case.extra_deps.iter().map(|dep| dep.to_string()).collect();
+        crate::scaffold_engine::restore_python_venv_from_cache(ws, &extra_deps, true)
+            .await
+            .map(|_| ())
+            .map_err(|msg| anyhow!(msg))?;
+        return Ok(());
+    }
+
     // إنشاء venv وتثبيت الحزم الإضافية
     let venv_dir = ws.join("venv");
     if !venv_dir.exists() {
@@ -344,13 +359,7 @@ fn prepare_python(ws: &Path, case: &SweCase) -> Result<()> {
             .output();
     }
 
-    // Always install pytest
-    let _ = std::process::Command::new(ws.join("venv/bin/pip3").to_str().unwrap_or("pip3"))
-        .args(["install", "-q", "pytest"])
-        .current_dir(ws)
-        .output();
-
-    for dep in case.extra_deps {
+    for dep in python_live_install_packages(case) {
         let _ = std::process::Command::new(ws.join("venv/bin/pip3").to_str().unwrap_or("pip3"))
             .args(["install", "-q", dep])
             .current_dir(ws)
@@ -940,4 +949,33 @@ pub fn all_cases() -> Vec<SweCase> {
             extra_deps: &[],
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    static PY_REQUESTS_DEPS: &[&str] = &["requests"];
+
+    #[test]
+    fn prepare_python_live_mode_installs_only_pytest_and_case_deps() {
+        let case = SweCase {
+            id: "PY-T",
+            lang: "python",
+            title: "test",
+            difficulty: Difficulty::Easy,
+            source_file: "main.py",
+            source_code: "print('ok')\n",
+            test_file: "test_main.py",
+            test_code: "def test_ok(): assert True\n",
+            extra_deps: PY_REQUESTS_DEPS,
+        };
+
+        let packages = python_live_install_packages(&case);
+        assert_eq!(packages, vec!["pytest", "requests"]);
+        assert!(!packages.contains(&"flask"));
+        assert!(!packages.contains(&"fastapi"));
+        assert!(!packages.contains(&"uvicorn[standard]"));
+        assert!(!packages.contains(&"httpx"));
+    }
 }
