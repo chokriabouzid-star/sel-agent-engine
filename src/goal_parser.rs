@@ -179,6 +179,7 @@ fn detect_kind(workspace: &std::path::Path, goal: &str) -> ProjectKind {
     // If the goal mentions Flask/pytest AND negates TypeScript, Python wins.
     if !has_explicit_negation(&g, "python")
         && (g.contains("fast api")
+            || g.contains(".py")
             || contains_any_goal_token(&g, &["python", "pytest", "flask", "fastapi", "django"]))
     {
         return ProjectKind::Python;
@@ -355,6 +356,17 @@ mod tests {
         assert_eq!(g.kind, ProjectKind::TypeScript);
         assert_eq!(g.sub_kind, SubKind::Express);
         assert!(g.extra_deps.contains(&"express".to_string()));
+    }
+
+    #[test]
+    fn test_smoke_py_binary_search_detected_by_py_extension() {
+        let g = parse(
+            fake_ws(),
+            "Fix this broken binary search implementation. The function should return the index of target in a sorted list, or -1 if not found. Write binary_search.py with the fixed implementation and test_binary_search.py that tests: found in middle, found at start, found at end, not found, empty list.",
+        );
+        assert_eq!(g.kind, ProjectKind::Python);
+        assert_eq!(g.sub_kind, SubKind::Plain);
+        assert!(g.extra_deps.is_empty());
     }
 
     #[test]
