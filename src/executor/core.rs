@@ -167,10 +167,21 @@ impl SafeExecutor {
             ShellPolicyDecision::Execute { prog, args } => (prog, args),
         };
 
+        let prog_to_exec = if prog.contains('/') {
+            let abs = self.workspace.join(&prog);
+            if abs.exists() {
+                abs.to_string_lossy().to_string()
+            } else {
+                prog.clone()
+            }
+        } else {
+            prog.clone()
+        };
+
         let start = Instant::now();
         let out = tokio::time::timeout(
             Duration::from_secs(self.timeout_secs),
-            TCmd::new(&prog)
+            TCmd::new(&prog_to_exec)
                 .args(&args)
                 .current_dir(&self.workspace)
                 .output(),
