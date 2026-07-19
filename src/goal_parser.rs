@@ -175,17 +175,8 @@ fn detect_kind(workspace: &std::path::Path, goal: &str) -> ProjectKind {
 
     let g = goal.to_lowercase();
 
-    // Python is checked FIRST — it is more explicit than TypeScript.
-    // If the goal mentions Flask/pytest AND negates TypeScript, Python wins.
-    if !has_explicit_negation(&g, "python")
-        && (g.contains("fast api")
-            || g.contains(".py")
-            || contains_any_goal_token(&g, &["python", "pytest", "flask", "fastapi", "django"]))
-    {
-        return ProjectKind::Python;
-    }
-
-    // TypeScript / Node — only if NOT explicitly negated
+    // TypeScript / Node — evaluate first so explicit TS signals
+    // are not overridden by framework mentions like "FastAPI endpoint".
     let ts_signals = (contains_goal_token(&g, "typescript")
         && !has_explicit_negation(&g, "typescript"))
         || (contains_goal_token(&g, "ts") && !has_explicit_negation(&g, "typescript"))
@@ -193,6 +184,15 @@ fn detect_kind(workspace: &std::path::Path, goal: &str) -> ProjectKind {
         || (contains_goal_token(&g, "express") && !has_explicit_negation(&g, "express"))
         || (contains_goal_token(&g, "react") && !has_explicit_negation(&g, "react"))
         || (contains_goal_token(&g, "jest") && !has_explicit_negation(&g, "jest"));
+
+    let fastapi_signals = g.contains("fast api") || contains_goal_token(&g, "fastapi");
+    let python_signals = g.contains(".py")
+        || contains_any_goal_token(&g, &["python", "pytest", "flask", "django"])
+        || (fastapi_signals && !ts_signals);
+
+    if !has_explicit_negation(&g, "python") && python_signals {
+        return ProjectKind::Python;
+    }
 
     if ts_signals {
         return ProjectKind::TypeScript;
@@ -356,6 +356,17 @@ mod tests {
         assert_eq!(g.kind, ProjectKind::TypeScript);
         assert_eq!(g.sub_kind, SubKind::Express);
         assert!(g.extra_deps.contains(&"express".to_string()));
+    }
+
+    #[test]
+    fn test_fastapi_client_goal_prefers_typescript_when_ts_is_explicit() {
+        let g = parse(
+            fake_ws(),
+            "Write a TypeScript client in api.ts for a FastAPI endpoint. Use axios.",
+        );
+        assert_eq!(g.kind, ProjectKind::TypeScript);
+        assert_eq!(g.sub_kind, SubKind::Plain);
+        assert!(g.extra_deps.contains(&"axios".to_string()));
     }
 
     #[test]
