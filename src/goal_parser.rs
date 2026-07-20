@@ -370,6 +370,18 @@ mod tests {
     }
 
     #[test]
+    fn test_typescript_client_for_fastapi_backend_detected_as_typescript() {
+        let g = parse(
+            fake_ws(),
+            "Write a TypeScript client in api.ts for a FastAPI endpoint. \
+             It should have a class ApiClient with a method getUser(id: number). \
+             Use axios. Write api.test.ts to test successful response and 404 error. \
+             Use jest.mocked() instead of casting.",
+        );
+        assert_eq!(g.kind, ProjectKind::TypeScript);
+    }
+
+    #[test]
     fn test_smoke_py_binary_search_detected_by_py_extension() {
         let g = parse(
             fake_ws(),
