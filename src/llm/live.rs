@@ -258,9 +258,10 @@ struct Usage {
 
 #[derive(Debug, PartialEq)]
 enum ErrorKind {
-    DailyLimit, // HTTP 403 quota, 86400s exceeded
-    RpmLimit,   // HTTP 429 rate limit
-    KeyExpired, // HTTP 400 API_KEY_INVALID, API key expired
+    DailyLimit,       // HTTP 403 quota, 86400s exceeded
+    RpmLimit,         // HTTP 429 rate limit
+    KeyExpired, // explicit evidence only: api_key_invalid / api key expired / api key not valid / invalid_api_key
+    ProviderRejected, // deterministic reject: HTTP 400/404, or 401 WITHOUT explicit key-invalidity evidence — NOT proof of a dead key or exhausted quota
     Other,
 }
 
@@ -278,15 +279,17 @@ fn classify_error(err: &str) -> ErrorKind {
         }
     }
 
-    // Check for expired/invalid keys first
+    // KeyExpired: EXPLICIT key-invalidity evidence only. Narrowed 2026 — a bare
+    // "unauthorized" or bare HTTP 401 alone is NOT sufficient proof the key
+    // itself is dead (e.g. "401 User not found" is a provider-side rejection,
+    // not a confirmed dead key). See ErrorKind::ProviderRejected below for that.
     let is_key_error_msg = lower.contains("api_key_invalid")
         || lower.contains("api key expired")
         || lower.contains("api key not valid")
         || lower.contains("api key e")
-        || lower.contains("invalid_api_key")
-        || lower.contains("unauthorized");
+        || lower.contains("invalid_api_key");
 
-    if is_key_error_msg || status == 401 {
+    if is_key_error_msg {
         return ErrorKind::KeyExpired;
     }
 
@@ -296,8 +299,6 @@ fn classify_error(err: &str) -> ErrorKind {
         || lower.contains("quota")
         || lower.contains("daily limit")
         || lower.contains("per day")
-        || lower.contains("404")
-        || lower.contains("not_found")
         || (status == 403 && lower.contains("quota"))
     {
         return ErrorKind::DailyLimit;
@@ -312,6 +313,17 @@ fn classify_error(err: &str) -> ErrorKind {
     {
         return ErrorKind::RpmLimit;
     }
+
+    // ProviderRejected: deterministic rejection that will NOT succeed on retry,
+    // and is NOT proof of a dead key or exhausted quota:
+    // - HTTP 400 (request rejected as currently formed for this provider)
+    // - HTTP 404 / "not_found" (wrong model/endpoint)
+    // - HTTP 401 that reached here WITHOUT matching an explicit key-invalidity
+    //   phrase above (e.g. "User not found")
+    if status == 400 || status == 404 || status == 401 || lower.contains("not_found") {
+        return ErrorKind::ProviderRejected;
+    }
+
     ErrorKind::Other
 }
 
@@ -439,6 +451,20 @@ impl LLMProvider for LiveProvider {
                                     );
                                     break;
                                 }
+                            }
+                            ErrorKind::ProviderRejected => {
+                                // Deterministic reject — do NOT touch key_pool at all
+                                // (the key is not proven dead). Skip this provider
+                                // for the rest of THIS run only.
+                                if let Ok(mut t) = self.tracker.lock() {
+                                    t.mark_rejected(&provider.name);
+                                }
+                                last_error = Some(e);
+                                self.active_index.store(
+                                    (idx + 1) % self.providers.len(),
+                                    std::sync::atomic::Ordering::SeqCst,
+                                );
+                                break;
                             }
                             ErrorKind::RpmLimit => {
                                 rpm_waits += 1;
@@ -609,5 +635,57 @@ impl LiveProvider {
             println!("   🔌 Provider:  {}", p.name);
             println!("   🤖 Model:     {}", p.model);
         }
+    }
+}
+
+#[cfg(test)]
+mod classify_error_tests {
+    use super::*;
+
+    #[test]
+    fn ambiguous_401_without_key_evidence_is_provider_rejected_not_key_expired() {
+        // Exact string observed in the ratelimit task failure, 2026-07-XX
+        let err = r#"HTTP 401 Unauthorized: {"error":{"message":"User not found.","code":401}}"#;
+        assert_eq!(classify_error(err), ErrorKind::ProviderRejected);
+    }
+
+    #[test]
+    fn explicit_key_invalid_message_is_still_key_expired() {
+        let err =
+            r#"HTTP 400 Bad Request: {"error":"API key not valid. Please pass a valid API key."}"#;
+        assert_eq!(classify_error(err), ErrorKind::KeyExpired);
+    }
+
+    #[test]
+    fn gemini_deterministic_400_is_provider_rejected() {
+        // Exact truncated string observed repeated identically across 4
+        // independent tasks in the same session, 2026-07-XX
+        let err = "HTTP 400 Bad Request: [{\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"Please pa";
+        assert_eq!(classify_error(err), ErrorKind::ProviderRejected);
+    }
+
+    #[test]
+    fn genuine_daily_quota_message_is_still_daily_limit() {
+        let err = "HTTP 403 Forbidden: Quota exceeded for quota metric 'GenerateRequestsPerDayPerProjectPerModel'";
+        assert_eq!(classify_error(err), ErrorKind::DailyLimit);
+    }
+
+    #[test]
+    fn genuine_rpm_message_is_still_rpm_limit() {
+        let err = "HTTP 429 Too Many Requests: Rate limit reached for requests";
+        assert_eq!(classify_error(err), ErrorKind::RpmLimit);
+    }
+
+    #[test]
+    fn not_found_model_is_provider_rejected_not_daily_limit() {
+        let err = "HTTP 404 Not Found: the model does not exist or you do not have access to it";
+        assert_eq!(classify_error(err), ErrorKind::ProviderRejected);
+    }
+
+    #[test]
+    fn generic_transient_network_error_is_still_other() {
+        // Exact string observed in logs: transient connection failure
+        let err = "error sending request for url (https://api.groq.com/openai/v1/chat/completions)";
+        assert_eq!(classify_error(err), ErrorKind::Other);
     }
 }
