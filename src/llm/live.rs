@@ -453,18 +453,29 @@ impl LLMProvider for LiveProvider {
                                 }
                             }
                             ErrorKind::ProviderRejected => {
-                                // Deterministic reject — do NOT touch key_pool at all
-                                // (the key is not proven dead). Skip this provider
-                                // for the rest of THIS run only.
-                                if let Ok(mut t) = self.tracker.lock() {
-                                    t.mark_rejected(&provider.name);
+                                // Try other keys in THIS provider's pool first
+                                // (mirrors KeyExpired/DailyLimit pattern) before
+                                // giving up on the whole provider. Only the
+                                // rejected key is skipped, never persisted.
+                                let mut pool = match provider.key_pool.lock() {
+                                    Ok(p) => p,
+                                    Err(_) => break,
+                                };
+                                pool.mark_rejected_this_run();
+                                if pool.has_available() {
+                                    attempt = 1;
+                                    continue;
+                                } else {
+                                    if let Ok(mut t) = self.tracker.lock() {
+                                        t.mark_rejected(&provider.name);
+                                    }
+                                    last_error = Some(e);
+                                    self.active_index.store(
+                                        (idx + 1) % self.providers.len(),
+                                        std::sync::atomic::Ordering::SeqCst,
+                                    );
+                                    break;
                                 }
-                                last_error = Some(e);
-                                self.active_index.store(
-                                    (idx + 1) % self.providers.len(),
-                                    std::sync::atomic::Ordering::SeqCst,
-                                );
-                                break;
                             }
                             ErrorKind::RpmLimit => {
                                 rpm_waits += 1;
