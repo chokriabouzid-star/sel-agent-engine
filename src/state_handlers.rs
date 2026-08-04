@@ -712,6 +712,23 @@ pub async fn do_executing(
             ctx.failed_steps.push(fail);
             Ok(AgentState::Repairing)
         } else {
+            // GUARD: Prevent false success after MissingTests repair with dummy test
+            if ctx.repair_attempts > 0 && ctx.mutations_total == 0 {
+                let had_missing_tests = ctx.failed_steps.iter().any(|f| {
+                    f.label == "run_tests"
+                        && (f.stderr.contains("running 0 tests") || f.stderr.contains("0 passed"))
+                });
+                if had_missing_tests {
+                    ctx.failed_steps.push(FailedStep {
+                    label: "mutation_check".into(),
+                    stderr: "MissingTests repair produced no testable code — mutation found no logic to verify (possible dummy test)".into(),
+                    step_index: 0,
+                    exit_code: 1,
+                    culprit_file: None,
+                });
+                    return Ok(AgentState::Repairing);
+                }
+            }
             ctx.save_hashes(&executor.workspace);
             println!("\n✅ Goal complete! Tests passed.");
             println!("SEL_SUCCESS");
