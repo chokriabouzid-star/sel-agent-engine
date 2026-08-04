@@ -58,3 +58,4 @@ swe *.txt
 # local/manual patch backups
 *.bak
 *.bak*
+test_results.txt

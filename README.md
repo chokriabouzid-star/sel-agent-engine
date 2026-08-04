@@ -3,7 +3,7 @@
 Autonomous execution engine for code generation, testing, and repair.
 
 ## Version
-**v9.3.2**
+**v9.3.5**
 
 ## Quality
 - smoke: **12/12**
