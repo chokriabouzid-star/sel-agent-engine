@@ -515,6 +515,15 @@ fn try_auto_import_fix(plan: &mut Vec<Cmd>, stderr: &str) -> bool {
     false
 }
 
+// ============================================================================
+// BENCHMARK-SPECIFIC DETERMINISTIC FIX
+// This function provides a pre-cooked fix for the "go_worker_pool" benchmark
+// case (ProcessJobs with edge cases: workers=0, workers=-1).
+// It is NOT general AI behaviour — it is a deterministic shortcut for a known
+// benchmark scenario to avoid wasting LLM calls on a solved problem.
+// See: docs/BENCHMARK_SHORTCUTS.md for full rationale.
+// ============================================================================
+
 fn try_semantic_go_worker_pool_fix(
     plan: &mut Vec<Cmd>,
     ctx: &mut crate::types::ExecutionContext,
@@ -666,6 +675,13 @@ fn try_semantic_go_worker_pool_fix(
 }
 
 fn try_semantic_ts_retry_fix(
+// ============================================================================
+// BENCHMARK-SPECIFIC DETERMINISTIC FIX
+// This function provides a pre-cooked fix for the "ts_retry" benchmark case.
+// It handles Promise rejection warnings and timeout edge cases deterministically.
+// It is NOT general AI behaviour — see docs/BENCHMARK_SHORTCUTS.md.
+// ============================================================================
+
     plan: &mut Vec<Cmd>,
     ctx: &mut crate::types::ExecutionContext,
     workspace: &Path,
@@ -720,6 +736,13 @@ fn try_semantic_ts_retry_fix(
         content: retry_ts.to_string(),
     });
     plan.push(Cmd::RunTests {
+// ============================================================================
+// BENCHMARK-SPECIFIC DETERMINISTIC FIX
+// This function provides a pre-cooked fix for the "ts_api_client" benchmark case.
+// It handles TS2345/TS2459 type errors with a deterministic ApiClient implementation.
+// It is NOT general AI behaviour — see docs/BENCHMARK_SHORTCUTS.md.
+// ============================================================================
+
         target: "npm test".to_string(),
     });
     ctx.failed_steps.clear();
