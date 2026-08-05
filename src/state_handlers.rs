@@ -547,6 +547,15 @@ fn edited_path_from_cmd(cmd: &Cmd) -> Option<&str> {
 // EXECUTING
 //
 
+fn should_reject_missing_tests_success(ctx: &ExecutionContext) -> bool {
+    ctx.repair_attempts > 0
+        && ctx.mutations_total == 0
+        && ctx.failed_steps.iter().any(|f| {
+            f.label == "run_tests"
+                && (f.stderr.contains("running 0 tests") || f.stderr.contains("0 passed"))
+        })
+}
+
 pub async fn do_executing(
     ctx: &mut ExecutionContext,
     executor: &SafeExecutor,
@@ -713,21 +722,15 @@ pub async fn do_executing(
             Ok(AgentState::Repairing)
         } else {
             // GUARD: Prevent false success after MissingTests repair with dummy test
-            if ctx.repair_attempts > 0 && ctx.mutations_total == 0 {
-                let had_missing_tests = ctx.failed_steps.iter().any(|f| {
-                    f.label == "run_tests"
-                        && (f.stderr.contains("running 0 tests") || f.stderr.contains("0 passed"))
-                });
-                if had_missing_tests {
-                    ctx.failed_steps.push(FailedStep {
+            if should_reject_missing_tests_success(ctx) {
+                ctx.failed_steps.push(FailedStep {
+                    step_index: 0,
                     label: "mutation_check".into(),
                     stderr: "MissingTests repair produced no testable code — mutation found no logic to verify (possible dummy test)".into(),
-                    step_index: 0,
                     exit_code: 1,
                     culprit_file: None,
                 });
-                    return Ok(AgentState::Repairing);
-                }
+                return Ok(AgentState::Repairing);
             }
             ctx.save_hashes(&executor.workspace);
             println!("\n✅ Goal complete! Tests passed.");
@@ -1559,6 +1562,38 @@ mod tests {
         let count =
             recent_constitution_violation_count(&history, "CONSTITUTION_VIOLATION:no-modify-tests");
         assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_should_reject_missing_tests_success_when_repair_added_only_dummy_test() {
+        let mut ctx = ExecutionContext::new(3);
+        ctx.repair_attempts = 1;
+        ctx.mutations_total = 0;
+        ctx.failed_steps.push(FailedStep {
+            step_index: 0,
+            label: "run_tests".into(),
+            stderr: "running 0 tests\n0 passed".into(),
+            exit_code: 0,
+            culprit_file: None,
+        });
+
+        assert!(should_reject_missing_tests_success(&ctx));
+    }
+
+    #[test]
+    fn test_should_reject_missing_tests_success_is_false_without_missing_tests_marker() {
+        let mut ctx = ExecutionContext::new(3);
+        ctx.repair_attempts = 1;
+        ctx.mutations_total = 0;
+        ctx.failed_steps.push(FailedStep {
+            step_index: 0,
+            label: "run_tests".into(),
+            stderr: "2 passed".into(),
+            exit_code: 0,
+            culprit_file: None,
+        });
+
+        assert!(!should_reject_missing_tests_success(&ctx));
     }
 
     #[test]
