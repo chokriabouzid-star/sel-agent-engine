@@ -1,6 +1,6 @@
 # سجل استقرار المشروع — Stability Ledger
 
-**آخر تحديث:** 2026-07-20 (إغلاق القضية #1 — انحراف لغوي صامت)
+**آخر تحديث:** 2026-08-08 (إغلاق MissingTests — placeholder + skipped في Rust)
 
 ---
 
@@ -18,6 +18,22 @@
 | smoke_ts_fastapi_client | ✅ | TypeScript صحيح، 68s، repairs:0 |
 
 ---
+
+## القضايا المُغلَقة
+
+### ✅ 2026-08-08 — MissingTests (Rust): منع نجاح كاذب بعد حقن `test_stub_placeholder` مع `Mutation skipped`
+
+**السبب الجذري:** إصلاح `MissingTests` في `src/decision/checklist.rs` يحقن اختباراً وهمياً باسم `test_stub_placeholder` ثم يمسح `ctx.failed_steps`. الحارس القديم في `src/state_handlers.rs` كان يعتمد على وجود `"running 0 tests"` أو `"0 passed"` داخل `failed_steps` مع `mutations_total == 0`، لذلك كان يمكن أن يفوّت سيناريو: **اختبار وهمي فقط + لا طفرات قابلة للتطبيق (`Skipped`)**.
+
+**الإصلاح:** توسيع `should_reject_missing_tests_success()` بحيث يرفض النجاح فقط عندما:
+- توجد محاولة إصلاح فعلية،
+- و`skip_mutation == false`,
+- و`mutations_total == 0`,
+- وداخل Cargo workspace تكون كل مؤشرات الاختبارات الموجودة هي `test_stub_placeholder` فقط، بلا اختبار حقيقي إضافي.
+
+**الدليل:**
+- وحدات: `cargo test --quiet should_reject_missing_tests_success` → `5 passed; 0 failed`
+- حيّاً (Rust crate موجود مسبقاً): بعد `running 0 tests` ثم `Pre-Repair 3c: injected #[cfg(test)] stub into "lib.rs"` ثم `1 passed, 0 failed` و`Mutation skipped for src/lib.rs: No mutable patterns found` انتقل المحرك إلى `Repairing` ولم يطبع `SEL_SUCCESS` في تلك المرحلة.
 
 ## القضايا المفتوحة — بترتيب الأولوية
 
@@ -59,6 +75,7 @@
 
 ## التغييرات الأخيرة
 
+**2026-08-08:** إغلاق فجوة MissingTests في Rust (`test_stub_placeholder` + `Mutation skipped`) عبر تضييق `should_reject_missing_tests_success()` وإضافة اختبارات وحدوية + تحقق حي يثبت الانتقال إلى `Repairing` بدل `SEL_SUCCESS`.
 **2026-07-20:** إغلاق القضية #1 — إصلاح `detect_kind()` في `goal_parser.rs` + اختبار `test_typescript_client_for_fastapi_backend_detected_as_typescript`. كوميت `f9be265`.
 **2026-07-17:** تشغيلة حية كاملة (494 اختباراً + 5 بوابات) — اكتشاف القضية #1.
 **2026-07-10:** بوابة كاملة خضراء. تاغ `v9.3.5-green-2026-07-10`.

@@ -547,13 +547,42 @@ fn edited_path_from_cmd(cmd: &Cmd) -> Option<&str> {
 // EXECUTING
 //
 
-fn should_reject_missing_tests_success(ctx: &ExecutionContext) -> bool {
-    ctx.repair_attempts > 0
-        && ctx.mutations_total == 0
-        && ctx.failed_steps.iter().any(|f| {
-            f.label == "run_tests"
-                && (f.stderr.contains("running 0 tests") || f.stderr.contains("0 passed"))
-        })
+fn should_reject_missing_tests_success(ctx: &ExecutionContext, workspace: &std::path::Path) -> bool {
+    if ctx.repair_attempts == 0 || ctx.skip_mutation || ctx.mutations_total > 0 {
+        return false;
+    }
+
+    let cargo_ws = crate::executor::autofix::find_cargo_workspace(workspace);
+    if cargo_ws.join("Cargo.toml").exists() {
+        let mut placeholder_count = 0usize;
+        let mut test_marker_count = 0usize;
+
+        for entry in walkdir::WalkDir::new(&cargo_ws)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+                continue;
+            }
+
+            let Ok(content) = std::fs::read_to_string(path) else {
+                continue;
+            };
+
+            placeholder_count += content.matches("test_stub_placeholder").count();
+            test_marker_count += content.matches("test]").count();
+        }
+
+        if placeholder_count > 0 && test_marker_count == placeholder_count {
+            return true;
+        }
+    }
+
+    ctx.failed_steps.iter().any(|f| {
+        f.label == "run_tests"
+            && (f.stderr.contains("running 0 tests") || f.stderr.contains("0 passed"))
+    })
 }
 
 pub async fn do_executing(
@@ -722,7 +751,7 @@ pub async fn do_executing(
             Ok(AgentState::Repairing)
         } else {
             // GUARD: Prevent false success after MissingTests repair with dummy test
-            if should_reject_missing_tests_success(ctx) {
+            if should_reject_missing_tests_success(ctx, &executor.workspace) {
                 ctx.failed_steps.push(FailedStep {
                     step_index: 0,
                     label: "mutation_check".into(),
@@ -1564,6 +1593,31 @@ mod tests {
         assert_eq!(count, 2);
     }
 
+    fn temp_rust_workspace(src: &str) -> std::path::PathBuf {
+        let unique = format!(
+            "sel-missing-tests-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+
+        let dir = std::env::temp_dir().join(unique);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"stub_guard\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("src/lib.rs"), src).unwrap();
+        dir
+    }
+
+    fn remove_temp_workspace(path: &std::path::Path) {
+        let _ = std::fs::remove_dir_all(path);
+    }
+
     #[test]
     fn test_should_reject_missing_tests_success_when_repair_added_only_dummy_test() {
         let mut ctx = ExecutionContext::new(3);
@@ -1577,7 +1631,56 @@ mod tests {
             culprit_file: None,
         });
 
-        assert!(should_reject_missing_tests_success(&ctx));
+        assert!(should_reject_missing_tests_success(&ctx, std::path::Path::new(".")));
+    }
+
+    #[test]
+    fn test_should_reject_missing_tests_success_when_workspace_has_only_placeholder_test() {
+        let workspace = temp_rust_workspace(
+            "pub const VERSION: &str = \"1.0.0\";\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn test_stub_placeholder() {\n        assert!(true);\n    }\n}\n",
+        );
+
+        let mut ctx = ExecutionContext::new(3);
+        ctx.repair_attempts = 1;
+        ctx.mutations_total = 0;
+
+        let rejected = should_reject_missing_tests_success(&ctx, &workspace);
+        remove_temp_workspace(&workspace);
+
+        assert!(rejected);
+    }
+
+    #[test]
+    fn test_should_reject_missing_tests_success_is_false_when_real_test_exists() {
+        let workspace = temp_rust_workspace(
+            "pub const VERSION: &str = \"1.0.0\";\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn test_stub_placeholder() {\n        assert!(true);\n    }\n\n    #[test]\n    fn test_version_matches() {\n        assert_eq!(VERSION, \"1.0.0\");\n    }\n}\n",
+        );
+
+        let mut ctx = ExecutionContext::new(3);
+        ctx.repair_attempts = 1;
+        ctx.mutations_total = 0;
+
+        let rejected = should_reject_missing_tests_success(&ctx, &workspace);
+        remove_temp_workspace(&workspace);
+
+        assert!(!rejected);
+    }
+
+    #[test]
+    fn test_should_reject_missing_tests_success_is_false_when_skip_mutation_is_enabled() {
+        let workspace = temp_rust_workspace(
+            "pub const VERSION: &str = \"1.0.0\";\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn test_stub_placeholder() {\n        assert!(true);\n    }\n}\n",
+        );
+
+        let mut ctx = ExecutionContext::new(3);
+        ctx.repair_attempts = 1;
+        ctx.skip_mutation = true;
+        ctx.mutations_total = 0;
+
+        let rejected = should_reject_missing_tests_success(&ctx, &workspace);
+        remove_temp_workspace(&workspace);
+
+        assert!(!rejected);
     }
 
     #[test]
@@ -1593,7 +1696,7 @@ mod tests {
             culprit_file: None,
         });
 
-        assert!(!should_reject_missing_tests_success(&ctx));
+        assert!(!should_reject_missing_tests_success(&ctx, std::path::Path::new(".")));
     }
 
     #[test]
