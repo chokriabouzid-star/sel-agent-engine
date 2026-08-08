@@ -61,7 +61,7 @@ pub async fn run_plan(
 
     for (i, task) in tasks.iter().enumerate() {
         println!("\n Task {}/{} ", i + 1, tasks.len());
-        println!("    {}", &task.chars().take(80).collect::<String>());
+        println!("    {}", task.chars().take(80).collect::<String>());
 
         let pb = indicatif::ProgressBar::new_spinner();
         pb.set_style(
