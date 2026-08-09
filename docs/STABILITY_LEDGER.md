@@ -1,16 +1,6 @@
 # سجل استقرار المشروع — Stability Ledger
 
-**آخر تحديث:** 2026-08-08 (MissingTests: إصلاح جزئي + فتح تشخيص snapshot/stash)
-
----
-
-## ⚠️ توقف — لا تثق بأي SEL_SUCCESS حي حتى إشعار آخر
-
-مؤكَّد بدليل مباشر (2026-08-09): `initial_snapshot` في `agent.rs` لا يُعطَّل على مسار `Done`،
-فيُعاد الـ workspace إلى baseline الأصلي عند `Drop` حتى بعد نجاح حقيقي. تأكّد ذلك
-بقراءة `Drop for Snapshot` نفسه، وباختبار نجاح من أول محاولة انتهى بـ`SEL_SUCCESS`
-ثم اختفى `src/lib.rs` تماماً من `/tmp/sel_first_try_probe/` بعد خروج العملية.
-لا تُصدَّق أي نتيجة "نجاح" من تشغيلة حية حتى إغلاق هذا البند.
+**آخر تحديث:** 2026-08-09 (إغلاق initial_snapshot على مسار Done + تثبيت سلامة SEL_SUCCESS الحي)
 
 ---
 
@@ -28,11 +18,45 @@
 | smoke_ts_fastapi_client | ✅ | TypeScript صحيح، 68s، repairs:0 |
 
 ---
-### 🟡 2026-08-08 — MissingTests (Rust): إصلاح جزئي مثبت، السلامة الكاملة غير مؤكَّدة
+## القضايا المُغلَقة
 
-**ما تحقق فعلياً:** توسيع `should_reject_missing_tests_success()` يمنع بنجاح مرور `test_stub_placeholder` وحده + `Mutation skipped` مباشرة إلى `SEL_SUCCESS` في المحاولة الأولى للحارس — مؤكَّد بـ3 اختبارات وحدوية جديدة (placeholder فقط → رفض، +اختبار حقيقي → سماح، `skip_mutation` → سماح) ودليل حي: انتقال فعلي إلى `Repairing` بدل `SEL_SUCCESS`.
+### ✅ 2026-08-09 — `initial_snapshot` على مسار `Done`: منع `Drop` من محو العمل الناجح بعد `SEL_SUCCESS`
 
-**ما لم يثبت بعد — 🔴 يستدعي تشخيصاً منفصلاً فوراً، أعلى أولوية حالياً:** نفس التحقق الحي انتهى لاحقاً بـ`SEL_SUCCESS` بينما الملف النهائي على القرص لا يحتوي أي اختبار (`pub const VERSION = "1.0.0"` بلا `#[test]`). الاشتباه: عملية snapshot/stash لاحقة قد تُعيد الـworkspace لحالة سبقت التحقق الذي بُني عليه قرار النجاح، بلا إعادة تحقق من الحالة الفعلية النهائية. **لا يُعتبر هذا البند مغلقاً حتى تُفحَص آلية `snapshot.rs` مباشرة.**
+**السبب الجذري:** `Agent::run()` كان ينشئ `self.initial_snapshot = Some(Snapshot::take(&ws))` عند بداية الجلسة. هذا الـ snapshot يبقى `active: true`، ويُستهلك فقط في مسار `Failed` عبر `rollback()`. في مسار `Done` لم يكن يُستدعَى `commit()` مطلقاً. عند خروج `run()` ووقوع `Drop` على `Agent`، كان `Drop for Snapshot` ينفّذ `git reset --hard` + `git clean -fd` (+ `stash apply/drop` إن وُجد)، فيُرجع الـ workspace إلى baseline أو يمحو الملفات الجديدة كلياً **حتى بعد نجاح حقيقي كامل وإعلان `SEL_SUCCESS`**.
+
+**الإصلاح:** إضافة:
+- `if let Some(mut snap) = self.initial_snapshot.take() { snap.commit(); }`
+في بداية فرع `AgentState::Done` داخل `src/agent.rs`، وبنفس نمط `.rollback()` الموجود مسبقاً في مسار `Failed`. لم يُلمَس `src/snapshot.rs`.
+
+**الدليل الحاسم قبل الإصلاح:** تشغيل حي من أول محاولة على `/tmp/sel_first_try_probe` انتهى بـ`1 passed, 0 failed` ثم `SEL_SUCCESS`، لكن بعد خروج العملية مباشرة:
+- `cat: /tmp/sel_first_try_probe/src/lib.rs: No such file or directory`
+
+**الدليل الحاسم بعد الإصلاح:**
+- تشغيل حي مماثل على `/tmp/sel_first_try_probe_v2` انتهى بـ`SEL_SUCCESS`
+- وبقي `/tmp/sel_first_try_probe_v2/src/lib.rs` موجوداً بعد خروج العملية
+- ومحتواه كان:
+  - `pub fn add(a: i32, b: i32) -> i32 { a + b }`
+  - مع اختبار `test_add`
+- مسار الفشل بقي سليماً: `/tmp/sel_failed_path_check/main.rs` عاد إلى `fn main() {}`
+- `scripts/regression_gate.sh core` → PASS
+- تحقق replay إضافي بعد الإصلاح: `sel_smoke_test.sh ./target/release/sel-agent --replay` → `12 / 12`
+
+**نطاق الضرر قبل الإصلاح:** أي `SEL_SUCCESS` حي سابق في تاريخ المشروع كان يمكن ألا يترك عملاً محفوظاً فعلياً على القرص بعد خروج العملية، لأن استعادة `initial_snapshot` كانت تحدث بعد النجاح على مستوى الجلسة كلها.
+
+### ✅ 2026-08-08 — MissingTests (Rust): منع نجاح كاذب بعد حقن `test_stub_placeholder` مع `Mutation skipped`
+
+**السبب الجذري:** إصلاح `MissingTests` في `src/decision/checklist.rs` يحقن اختباراً وهمياً باسم `test_stub_placeholder` ثم يمسح `ctx.failed_steps`. الحارس القديم في `src/state_handlers.rs` كان يعتمد على وجود `"running 0 tests"` أو `"0 passed"` داخل `failed_steps` مع `mutations_total == 0`، لذلك كان يمكن أن يفوّت سيناريو: **اختبار وهمي فقط + لا طفرات قابلة للتطبيق (`Skipped`)**.
+
+**الإصلاح:** توسيع `should_reject_missing_tests_success()` بحيث يرفض النجاح فقط عندما:
+- توجد محاولة إصلاح فعلية،
+- و`skip_mutation == false`,
+- و`mutations_total == 0`,
+- وداخل Cargo workspace تكون كل مؤشرات الاختبارات الموجودة هي `test_stub_placeholder` فقط، بلا اختبار حقيقي إضافي.
+
+**الدليل:**
+- وحدات: `cargo test --quiet should_reject_missing_tests_success` → `5 passed; 0 failed`
+- حيّاً: بعد `running 0 tests` ثم `Pre-Repair 3c: injected #[cfg(test)] stub into "lib.rs"` ثم `1 passed, 0 failed` و`Mutation skipped for src/lib.rs: No mutable patterns found` انتقل المحرك إلى `Repairing` بدل `SEL_SUCCESS`
+- بعد إصلاح `initial_snapshot` في 2026-08-09 زال الالتباس الأوسع، فتأكد أن هذا البند نفسه كان مُصلَحاً بالفعل على مستوى منطق MissingTests
 
 
 ## القضايا المفتوحة — بترتيب الأولوية
@@ -75,6 +99,7 @@
 
 ## التغييرات الأخيرة
 
+**2026-08-09:** إغلاق أخطر خلل حي مُثبت حتى الآن: `initial_snapshot` كان يُستعاد في `Drop` بعد `SEL_SUCCESS`، فيمحو أو يرجع العمل الناجح إلى baseline. الإصلاح: `commit()` صريح في `AgentState::Done` داخل `src/agent.rs`. الدليل الحاسم: قبل الإصلاح اختفى `src/lib.rs` تماماً بعد نجاح كامل؛ بعد الإصلاح بقي الملف على القرص، مع بقاء مسار `Failed` سليماً ومرور `regression_gate core` و`smoke replay 12/12`.
 **2026-08-08:** إصلاح جزئي لفجوة MissingTests في Rust (`test_stub_placeholder` + `Mutation skipped`) مع فتح تشخيص عاجل ومستقل لمسار `snapshot/stash` لأن تطابق حالة الـworkspace النهائية مع لحظة `SEL_SUCCESS` لم يُثبت بعد.
 **2026-07-20:** إغلاق القضية #1 — إصلاح `detect_kind()` في `goal_parser.rs` + اختبار `test_typescript_client_for_fastapi_backend_detected_as_typescript`. كوميت `f9be265`.
 **2026-07-17:** تشغيلة حية كاملة (494 اختباراً + 5 بوابات) — اكتشاف القضية #1.

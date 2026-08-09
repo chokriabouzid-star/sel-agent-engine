@@ -480,6 +480,10 @@ impl Agent {
                 }
 
                 AgentState::Done => {
+                    if let Some(mut snap) = self.initial_snapshot.take() {
+                        snap.commit();
+                    }
+
                     let repairs = self.ctx.repair_attempts.saturating_sub(1);
 
                     let elapsed = self
