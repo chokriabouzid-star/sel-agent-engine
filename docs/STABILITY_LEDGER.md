@@ -1,6 +1,6 @@
 # سجل استقرار المشروع — Stability Ledger
 
-**آخر تحديث:** 2026-08-09 (إغلاق initial_snapshot على مسار Done + تثبيت سلامة SEL_SUCCESS الحي)
+**آخر تحديث:** 2026-08-10 (إزالة override الصامت لـ max_repairs وتثبيت --max-repairs كعقد صارم)
 
 ---
 
@@ -19,6 +19,32 @@
 
 ---
 ## القضايا المُغلَقة
+
+### ✅ 2026-08-10 — إزالة الرفع الصامت لـ `max_repairs` عبر heuristic نصي في `do_repairing`
+
+**السبب الجذري:** `src/state_handlers.rs` كان يشتق `dynamic_max_repairs` من `ctx.max_repairs` ثم يرفعه إلى 5 عند وجود كلمات مثل `typescript` أو `node.js` أو `jest` أو `http server` أو `httptest` أو (`go` + `http`) داخل نص الهدف، بلا فهم للنفي، وبلا احترام صارم لقيمة `--max-repairs` التي مررها المستخدم. هذا أدى إلى ظهور لوج من نوع `Repairing (Attempt 1/5)` رغم أن البانر نفسه يطبع `Max repairs: 1`.
+
+**الإصلاح:** حذف `dynamic_max_repairs` والـ heuristic كاملاً، والاكتفاء بـ:
+- `FailureKind::InfraError => 0`
+- وكل ما عدا ذلك يستخدم `ctx.max_repairs` مباشرة
+
+**لماذا الإزالة الكاملة صحيحة:** أوامر البانش الفرعية التي تحتاج سقفاً أعلى لديها أصلاً قيم CLI افتراضية مستقلة (`bench-swe`, `bench-sel`, `bench-sel-v11`, `bench-real-world` تستخدم 5 افتراضياً)، لذلك override صامت داخل مسار `run` لم يعد مبرَّراً.
+
+**الدليل قبل الإصلاح:**
+- تشغيل حي طبع:
+  - `Max repairs: 1`
+  - `Repairing (Attempt 1/5)...`
+  - `Repairing (Attempt 2/5)...`
+- وكان الهدف يحتوي نصاً منفياً:
+  - `Do not create Python, JavaScript, or TypeScript files.`
+
+**الدليل بعد الإصلاح:**
+- تشغيل حي جديد بهدف يحتوي نفس الإشارة المنفية إلى TypeScript طبع:
+  - `Max repairs: 1`
+  - `Repairing (Attempt 1/1)...`
+- ولم يظهر `/5`
+- `cargo check` و`cargo test` مرّا
+- `scripts/regression_gate.sh core` → PASS
 
 ### ✅ 2026-08-09 — `initial_snapshot` على مسار `Done`: منع `Drop` من محو العمل الناجح بعد `SEL_SUCCESS`
 
@@ -99,6 +125,7 @@
 
 ## التغييرات الأخيرة
 
+**2026-08-10:** إزالة الرفع الصامت لـ `max_repairs` داخل `src/state_handlers.rs`. `--max-repairs` أصبح الآن عقداً صارماً في مسار `run`، ولم يعد مجرد ذكرٍ منفي لـ TypeScript/HTTP/Jest قادراً على رفع السقف إلى 5. الدليل: قبل الإصلاح ظهر `Attempt 1/5` رغم `Max repairs: 1`، وبعده ظهر `Attempt 1/1` مع مرور `regression_gate core`.
 **2026-08-09:** إغلاق أخطر خلل حي مُثبت حتى الآن: `initial_snapshot` كان يُستعاد في `Drop` بعد `SEL_SUCCESS`، فيمحو أو يرجع العمل الناجح إلى baseline. الإصلاح: `commit()` صريح في `AgentState::Done` داخل `src/agent.rs`. الدليل الحاسم: قبل الإصلاح اختفى `src/lib.rs` تماماً بعد نجاح كامل؛ بعد الإصلاح بقي الملف على القرص، مع بقاء مسار `Failed` سليماً ومرور `regression_gate core` و`smoke replay 12/12`.
 **2026-08-08:** إصلاح جزئي لفجوة MissingTests في Rust (`test_stub_placeholder` + `Mutation skipped`) مع فتح تشخيص عاجل ومستقل لمسار `snapshot/stash` لأن تطابق حالة الـworkspace النهائية مع لحظة `SEL_SUCCESS` لم يُثبت بعد.
 **2026-07-20:** إغلاق القضية #1 — إصلاح `detect_kind()` في `goal_parser.rs` + اختبار `test_typescript_client_for_fastapi_backend_detected_as_typescript`. كوميت `f9be265`.

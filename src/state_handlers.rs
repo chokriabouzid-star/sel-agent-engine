@@ -1051,22 +1051,9 @@ pub async fn do_repairing(
 
     ctx.repair_attempts += 1;
 
-    let mut dynamic_max_repairs = ctx.max_repairs;
-    let goal_lower = goal.to_lowercase();
-    if goal_lower.contains("typescript")
-        || goal_lower.contains("node.js")
-        || goal_lower.contains("jest")
-        || goal_lower.contains("http server")
-        || goal_lower.contains("httptest")
-        || (goal_lower.contains("go") && goal_lower.contains("http"))
-    {
-        dynamic_max_repairs = dynamic_max_repairs.max(5);
-    }
-
     let repair_limit = match failure_kind {
-        FailureKind::PatchError => dynamic_max_repairs,
         FailureKind::InfraError => 0,
-        _ => dynamic_max_repairs,
+        _ => ctx.max_repairs,
     };
     if ctx.repair_attempts > repair_limit {
         let diag_report = crate::diagnostic::analyze(&all_err);
