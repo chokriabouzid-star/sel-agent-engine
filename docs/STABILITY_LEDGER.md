@@ -125,6 +125,7 @@
 
 ## التغييرات الأخيرة
 
+**2026-08-10:** جعل رسائل `CONSTITUTION_VIOLATION` خاصة بكل قاعدة في `src/constitution.rs` بدل نص ثابت عن "test contract" لكل الانتهاكات. الإصلاح: إضافة `Violation::critical_instruction()` مع `match` على `rule_id` ورسائل منفصلة للقواعد السبع. الدليل: في تحقق حي، `no-empty-write` صار يطبع `You attempted to write empty or blank content to a source file...`، و`no-dangerous-command` صار يطبع `You attempted to run a dangerous shell command...` بدل نص الاختبارات، مع مرور `cargo test`, `cargo build --release`, و`regression_gate core`.
 **2026-08-10:** إزالة الرفع الصامت لـ `max_repairs` داخل `src/state_handlers.rs`. `--max-repairs` أصبح الآن عقداً صارماً في مسار `run`، ولم يعد مجرد ذكرٍ منفي لـ TypeScript/HTTP/Jest قادراً على رفع السقف إلى 5. الدليل: قبل الإصلاح ظهر `Attempt 1/5` رغم `Max repairs: 1`، وبعده ظهر `Attempt 1/1` مع مرور `regression_gate core`.
 **2026-08-09:** إغلاق أخطر خلل حي مُثبت حتى الآن: `initial_snapshot` كان يُستعاد في `Drop` بعد `SEL_SUCCESS`، فيمحو أو يرجع العمل الناجح إلى baseline. الإصلاح: `commit()` صريح في `AgentState::Done` داخل `src/agent.rs`. الدليل الحاسم: قبل الإصلاح اختفى `src/lib.rs` تماماً بعد نجاح كامل؛ بعد الإصلاح بقي الملف على القرص، مع بقاء مسار `Failed` سليماً ومرور `regression_gate core` و`smoke replay 12/12`.
 **2026-08-08:** إصلاح جزئي لفجوة MissingTests في Rust (`test_stub_placeholder` + `Mutation skipped`) مع فتح تشخيص عاجل ومستقل لمسار `snapshot/stash` لأن تطابق حالة الـworkspace النهائية مع لحظة `SEL_SUCCESS` لم يُثبت بعد.

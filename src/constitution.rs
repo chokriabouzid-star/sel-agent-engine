@@ -23,12 +23,29 @@ pub struct Violation {
     pub detail: String,
 }
 
+impl Violation {
+    fn critical_instruction(&self) -> &'static str {
+        match self.rule_id {
+            1 => "CRITICAL INSTRUCTION: You attempted to modify a test file. The test contract is fixed and CANNOT be modified. You MUST fix the SOURCE code ONLY. Do NOT output write_file for tests.",
+            2 => "CRITICAL INSTRUCTION: You attempted to write empty or blank content to a source file. Do NOT erase the file. Replace it with valid implementation content instead.",
+            3 => "CRITICAL INSTRUCTION: You attempted to write binary or null-byte content into a text source file. Output plain text source code only, with no null bytes.",
+            4 => "CRITICAL INSTRUCTION: You attempted to write outside the workspace to a protected system path. Only write workspace files using safe relative paths.",
+            5 => "CRITICAL INSTRUCTION: You attempted to overwrite go.mod. This file is protected and managed by workspace setup. Do NOT regenerate or replace it.",
+            6 => "CRITICAL INSTRUCTION: You attempted to run a dangerous shell command. Destructive filesystem or system-wide commands are forbidden. Propose a safe, narrowly scoped alternative.",
+            7 => "CRITICAL INSTRUCTION: You attempted to make a network call during test execution. Network access is forbidden here. Use local files, mocks, or already-available dependencies only.",
+            _ => "CRITICAL INSTRUCTION: You attempted to violate a hard constraint. Respect the constitution and propose a safe alternative.",
+        }
+    }
+}
+
 impl std::fmt::Display for Violation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "CONSTITUTION_VIOLATION:{}\nCRITICAL INSTRUCTION: You attempted to violate a hard constraint. The test contract is fixed and CANNOT be modified. You MUST fix the SOURCE code ONLY. Do NOT output write_file for tests.\nDetail: {}",
-            self.rule_name, self.detail
+            "CONSTITUTION_VIOLATION:{}\n{}\nDetail: {}",
+            self.rule_name,
+            self.critical_instruction(),
+            self.detail
         )
     }
 }
@@ -401,5 +418,92 @@ PROTOCOL RULES (mandatory in every plan):
         let v = result.unwrap_err();
         assert!(!v.rule_name.is_empty());
         assert!(v.to_string().contains(v.rule_name));
+    }
+
+    #[test]
+    fn test_violation_messages_are_rule_specific() {
+        let cases = vec![
+            (
+                Violation {
+                    rule_id: 1,
+                    rule_name: "no-modify-tests",
+                    detail: "detail".into(),
+                },
+                "You attempted to modify a test file.",
+                true,
+            ),
+            (
+                Violation {
+                    rule_id: 2,
+                    rule_name: "no-empty-write",
+                    detail: "detail".into(),
+                },
+                "You attempted to write empty or blank content to a source file.",
+                false,
+            ),
+            (
+                Violation {
+                    rule_id: 3,
+                    rule_name: "no-binary-in-text",
+                    detail: "detail".into(),
+                },
+                "You attempted to write binary or null-byte content into a text source file.",
+                false,
+            ),
+            (
+                Violation {
+                    rule_id: 4,
+                    rule_name: "no-system-path-write",
+                    detail: "detail".into(),
+                },
+                "You attempted to write outside the workspace to a protected system path.",
+                false,
+            ),
+            (
+                Violation {
+                    rule_id: 5,
+                    rule_name: "no-overwrite-go-mod",
+                    detail: "detail".into(),
+                },
+                "You attempted to overwrite go.mod.",
+                false,
+            ),
+            (
+                Violation {
+                    rule_id: 6,
+                    rule_name: "no-dangerous-command",
+                    detail: "detail".into(),
+                },
+                "You attempted to run a dangerous shell command.",
+                false,
+            ),
+            (
+                Violation {
+                    rule_id: 7,
+                    rule_name: "no-network-in-test",
+                    detail: "detail".into(),
+                },
+                "You attempted to make a network call during test execution.",
+                false,
+            ),
+        ];
+
+        for (violation, expected, allows_test_contract_text) in cases {
+            let msg = violation.to_string();
+            assert!(
+                msg.contains(expected),
+                "rule {} missing expected text: {}",
+                violation.rule_id,
+                msg
+            );
+            if !allows_test_contract_text {
+                assert!(
+                    !msg.contains("The test contract is fixed and CANNOT be modified."),
+                    "rule {} incorrectly reused test-contract text: {}",
+                    violation.rule_id,
+                    msg
+                );
+            }
+        }
     }
 }
