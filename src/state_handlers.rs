@@ -547,8 +547,11 @@ fn edited_path_from_cmd(cmd: &Cmd) -> Option<&str> {
 // EXECUTING
 //
 
-fn should_reject_missing_tests_success(ctx: &ExecutionContext, workspace: &std::path::Path) -> bool {
-    if ctx.repair_attempts == 0 || ctx.skip_mutation || ctx.mutations_total > 0 {
+fn should_reject_missing_tests_success(
+    ctx: &ExecutionContext,
+    workspace: &std::path::Path,
+) -> bool {
+    if ctx.skip_mutation || ctx.mutations_total > 0 {
         return false;
     }
 
@@ -565,11 +568,9 @@ fn should_reject_missing_tests_success(ctx: &ExecutionContext, workspace: &std::
             if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
                 continue;
             }
-
             let Ok(content) = std::fs::read_to_string(path) else {
                 continue;
             };
-
             placeholder_count += content.matches("test_stub_placeholder").count();
             test_marker_count += content.matches("test]").count();
         }
@@ -578,6 +579,149 @@ fn should_reject_missing_tests_success(ctx: &ExecutionContext, workspace: &std::
             return true;
         }
     }
+
+    let mut local_stems = Vec::new();
+    let mut test_files = Vec::new();
+
+    for entry in walkdir::WalkDir::new(workspace)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if !["rs", "py", "go", "ts", "js"].contains(&ext) {
+            continue;
+        }
+
+        let path_str = path.to_string_lossy();
+        if path_str.contains("/venv/")
+            || path_str.contains("/node_modules/")
+            || path_str.contains("/target/")
+        {
+            continue;
+        }
+
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        if name.contains("test") || name.ends_with(".spec.ts") || name.ends_with(".spec.js") {
+            test_files.push(path.to_path_buf());
+        } else {
+            if let Some(stem) = path.file_stem() {
+                local_stems.push(stem.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    let mut has_real_assertions = false;
+    let mut has_local_imports = false;
+
+    for test_path in &test_files {
+        let ext = test_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let Ok(content) = std::fs::read_to_string(test_path) else {
+            continue;
+        };
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            match ext {
+                "py" => {
+                    if (trimmed.starts_with("assert ")
+                        && !trimmed.starts_with("assert True")
+                        && !trimmed.starts_with("assert 1 == 1"))
+                        || trimmed.starts_with("self.assert")
+                    {
+                        has_real_assertions = true;
+                    }
+                    for stem in &local_stems {
+                        if line.contains(&format!("import {}", stem))
+                            || line.contains(&format!("from {}", stem))
+                        {
+                            has_local_imports = true;
+                        }
+                    }
+                }
+                "ts" | "js" => {
+                    if trimmed.contains("expect(")
+                        || trimmed.contains("assert.")
+                        || trimmed.contains("assert(")
+                        || trimmed.contains("console.assert")
+                    {
+                        has_real_assertions = true;
+                    }
+                    for stem in &local_stems {
+                        if line.contains(&format!("from './{}'", stem))
+                            || line.contains(&format!("from \"./{}\"", stem))
+                            || line.contains(&format!("require('./{}')", stem))
+                            || line.contains(&format!("require(\"./{}\")", stem))
+                        {
+                            has_local_imports = true;
+                        }
+                    }
+                }
+                "rs" => {
+                    if trimmed.contains("assert!(")
+                        || trimmed.contains("assert_eq!(")
+                        || trimmed.contains("assert_ne!(")
+                    {
+                        has_real_assertions = true;
+                    }
+                }
+                "go" => {
+                    if trimmed.contains("t.Error")
+                        || trimmed.contains("t.Fatal")
+                        || trimmed.contains("t.Fail")
+                    {
+                        has_real_assertions = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if test_files.is_empty() {
+        for entry in walkdir::WalkDir::new(workspace)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext == "rs" || ext == "go" || ext == "py" {
+                let Ok(content) = std::fs::read_to_string(path) else {
+                    continue;
+                };
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if (ext == "rs"
+                        && (trimmed.contains("assert!(")
+                            || trimmed.contains("assert_eq!(")
+                            || trimmed.contains("assert_ne!(")))
+                        || (ext == "go"
+                            && (trimmed.contains("t.Error")
+                                || trimmed.contains("t.Fatal")
+                                || trimmed.contains("t.Fail")))
+                        || (ext == "py"
+                            && ((trimmed.starts_with("assert ")
+                                && !trimmed.starts_with("assert True")
+                                && !trimmed.starts_with("assert 1 == 1"))
+                                || trimmed.starts_with("self.assert")))
+                    {
+                        has_real_assertions = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // 5.1 ONLY: We gathered variables but we ONLY return the legacy logic.
+    // We will activate the actual rejection in 5.2.
+    let _ = has_real_assertions;
+    let _ = has_local_imports;
 
     ctx.failed_steps.iter().any(|f| {
         f.label == "run_tests"
@@ -1618,7 +1762,10 @@ mod tests {
             culprit_file: None,
         });
 
-        assert!(should_reject_missing_tests_success(&ctx, std::path::Path::new(".")));
+        assert!(should_reject_missing_tests_success(
+            &ctx,
+            std::path::Path::new(".")
+        ));
     }
 
     #[test]
@@ -1683,7 +1830,10 @@ mod tests {
             culprit_file: None,
         });
 
-        assert!(!should_reject_missing_tests_success(&ctx, std::path::Path::new(".")));
+        assert!(!should_reject_missing_tests_success(
+            &ctx,
+            std::path::Path::new(".")
+        ));
     }
 
     #[test]
