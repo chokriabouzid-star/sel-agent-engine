@@ -718,10 +718,19 @@ fn should_reject_missing_tests_success(
         }
     }
 
-    // 5.1 ONLY: We gathered variables but we ONLY return the legacy logic.
-    // We will activate the actual rejection in 5.2.
-    let _ = has_real_assertions;
-    let _ = has_local_imports;
+    let is_scripting = test_files.iter().any(|p| {
+        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+        ext == "py" || ext == "ts" || ext == "js"
+    });
+
+    if is_scripting {
+        if !has_real_assertions {
+            return true;
+        }
+        if !local_stems.is_empty() && !has_local_imports {
+            return true;
+        }
+    }
 
     ctx.failed_steps.iter().any(|f| {
         f.label == "run_tests"
@@ -805,6 +814,16 @@ pub async fn do_executing(
                     ctx.failed_steps.push(fail);
                     return Ok(AgentState::Repairing);
                 } else {
+                    if should_reject_missing_tests_success(ctx, &executor.workspace) {
+                        ctx.failed_steps.push(FailedStep {
+                            step_index: i,
+                            label: "mutation_check".into(),
+                            stderr: "Superficial success rejected: The implementation lacks mutable logic (Mutation Skipped) AND the tests lack real assertions or valid local imports. Implement actual logic.".into(),
+                            exit_code: 1,
+                            culprit_file: None,
+                        });
+                        return Ok(AgentState::Repairing);
+                    }
                     ctx.save_hashes(&executor.workspace);
                     let msg = if let Cmd::Done { message } = cmd {
                         message
@@ -899,7 +918,7 @@ pub async fn do_executing(
                 ctx.failed_steps.push(FailedStep {
                     step_index: 0,
                     label: "mutation_check".into(),
-                    stderr: "MissingTests repair produced no testable code — mutation found no logic to verify (possible dummy test)".into(),
+                    stderr: "Superficial success rejected: The implementation lacks mutable logic (Mutation Skipped) AND the tests lack real assertions or valid local imports. Implement actual logic.".into(),
                     exit_code: 1,
                     culprit_file: None,
                 });
@@ -2019,5 +2038,82 @@ mod tests {
         assert!(ctx.plan_risk_triggered);
         assert_eq!(ctx.plan_risk_reasons, second_issues);
         assert_eq!(ctx.commands_before_replan, 2);
+    }
+
+    #[test]
+    fn test_should_reject_missing_tests_success_when_superficial_python_success() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.py"), "print('SEL_TEST_PASSED')").unwrap();
+        std::fs::write(
+            dir.path().join("test_main.py"),
+            "def test_pass():\n    assert True\n",
+        )
+        .unwrap();
+
+        let mut ctx = ExecutionContext::new(1);
+        ctx.mutations_total = 0; // Simulate Mutation Skipped
+
+        assert!(should_reject_missing_tests_success(&ctx, dir.path()));
+    }
+
+    #[test]
+    fn test_should_not_reject_success_when_typescript_has_real_assertions_and_imports() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("debounce.ts"), "export const x = 1;").unwrap();
+        std::fs::write(
+            dir.path().join("debounce.spec.ts"),
+            "import { x } from './debounce';\nexpect(x).toBe(1);\n",
+        )
+        .unwrap();
+
+        let mut ctx = ExecutionContext::new(1);
+        ctx.mutations_total = 0; // Simulate Mutation Skipped but valid code (like reverse_list or debounce)
+
+        assert!(!should_reject_missing_tests_success(&ctx, dir.path()));
+    }
+
+    #[test]
+    fn test_should_not_reject_success_when_python_has_real_assertions_and_imports() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.py"), "def validate(x): return x > 0\n").unwrap();
+        std::fs::write(
+            dir.path().join("test_main.py"),
+            "from main import validate\ndef test_validate():\n    assert validate(1) == True\n",
+        ).unwrap();
+
+        let mut ctx = ExecutionContext::new(1);
+        ctx.mutations_total = 0;
+
+        assert!(!should_reject_missing_tests_success(&ctx, dir.path()));
+    }
+
+    #[test]
+    fn test_should_reject_success_when_python_has_assertions_but_no_import() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.py"), "def validate(x): return x > 0\n").unwrap();
+        std::fs::write(
+            dir.path().join("test_main.py"),
+            "def test_math():\n    assert 2 + 2 == 4\n",
+        ).unwrap();
+
+        let mut ctx = ExecutionContext::new(1);
+        ctx.mutations_total = 0;
+
+        assert!(should_reject_missing_tests_success(&ctx, dir.path()));
+    }
+
+    #[test]
+    fn test_should_not_reject_go_quickfix_style_success_when_mutation_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.go"), "package main\nimport \"fmt\"\nfunc Print() { fmt.Println(\"ok\") }\n").unwrap();
+        std::fs::write(
+            dir.path().join("main_test.go"),
+            "package main\nimport \"testing\"\nfunc TestPrint(t *testing.T) { Print() }\n",
+        ).unwrap();
+
+        let mut ctx = ExecutionContext::new(1);
+        ctx.mutations_total = 0;
+
+        assert!(!should_reject_missing_tests_success(&ctx, dir.path()));
     }
 }
