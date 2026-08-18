@@ -12,7 +12,6 @@ __pycache__/
 audit_scan.sh
 .sel_memory.json
 .sel_hashes
-fixtures/trajectories/
 fixtures/quickfix/
 *.swp
 .env
