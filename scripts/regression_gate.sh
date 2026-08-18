@@ -58,7 +58,7 @@ if [[ "$MODE" == "full" ]]; then
   need_match_regex "bench-real-world" "14/14" /tmp/sel_bench_real.log
 
   echo "==> smoke replay"
-  bash sel_smoke_test.sh "$BIN" --replay 2>&1 | tee /tmp/sel_smoke.log >/dev/null
+  bash "$(dirname "$0")/sel_smoke_test.sh" "$BIN" --replay 2>&1 | tee /tmp/sel_smoke.log > /dev/null
   if sanitize_log /tmp/sel_smoke.log | grep -Eq '12 / 12|12/12|النجاح:[[:space:]]+100%'; then
     echo "✅ smoke matched 12/12"
   else

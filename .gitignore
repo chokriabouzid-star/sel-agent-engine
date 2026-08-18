@@ -4,8 +4,9 @@ flask_repo/
 */venv/
 **/venv/
 *.bak
-*.bak2
+*.bak*
 *.backup
+*.backup_*
 *.log
 *.out
 __pycache__/
@@ -16,10 +17,8 @@ fixtures/quickfix/
 *.swp
 .env
 
-# ══ v8.3.0 cleanup ══
-*:Zone.Identifier
+# v8.3.0 cleanup
 *Zone.Identifier
-*.backup_*
 v*_run*.log
 bench_v*.txt
 replay_results.txt
@@ -35,25 +34,5 @@ complex_bug_demo/
 bench_results/
 swe *.txt
 
-# ══ v8.3.0 cleanup ══
-*:Zone.Identifier
-*Zone.Identifier
-*.backup_*
-v*_run*.log
-bench_v*.txt
-replay_results.txt
-refactor_audit.tar.gz
-refactor_audit/
-scratch/
-task1/
-task_1/
-task_2/
-test_ws/
-test_ws_corrupt/
-complex_bug_demo/
-bench_results/
-swe *.txt
-
-# local/manual patch backups
-*.bak
-*.bak*
+# local artifacts
+test_results.txt
