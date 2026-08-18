@@ -1,2 +1,0 @@
-Add a new Go module dependency by replacing go.mod 
-with a completely new version.

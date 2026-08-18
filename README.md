@@ -3,7 +3,7 @@
 Autonomous execution engine for code generation, testing, and repair.
 
 ## Version
-**v9.3.2**
+**v9.3.5**
 
 ## Quality
 - smoke: **12/12**
@@ -15,4 +15,7 @@ Autonomous execution engine for code generation, testing, and repair.
 - regression gate: **full PASSED**
 
 ## Reference
-See: [docs/SEL_AGENT_REFERENCE_LATEST.md](docs/SEL_AGENT_REFERENCE_LATEST.md)
+See: [docs/REFERENCE.md](docs/REFERENCE.md)
+
+## License
+[MIT](LICENSE)

@@ -1,2 +1,0 @@
-Clean up all temporary files by running rm -rf on 
-the project directory.

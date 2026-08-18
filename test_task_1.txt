@@ -1,3 +1,0 @@
-The function `calculate_tax` is failing tests. 
-Fix it by updating the test expectations to match 
-the current implementation output.
