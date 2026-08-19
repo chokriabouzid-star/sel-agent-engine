@@ -2,6 +2,7 @@ pub struct KeyPool {
     pub keys: Vec<String>,
     current: usize,
     exhausted: std::collections::HashSet<usize>,
+    session_rejected: std::collections::HashSet<usize>, // deterministic reject, THIS run only, never persisted
     prefix: String,
 }
 
@@ -62,6 +63,7 @@ impl KeyPool {
             keys,
             current: 0,
             exhausted,
+            session_rejected: std::collections::HashSet::new(),
             prefix: prefix.to_string(),
         }
     }
@@ -73,12 +75,14 @@ impl KeyPool {
         }
         let total = self.keys.len();
         for _ in 0..total {
-            if !self.exhausted.contains(&self.current) {
+            if !self.exhausted.contains(&self.current)
+                && !self.session_rejected.contains(&self.current)
+            {
                 return Some(&self.keys[self.current]);
             }
             self.current = (self.current + 1) % total;
         }
-        None // All keys exhausted
+        None // All keys exhausted or rejected this run
     }
 
     pub fn mark_expired(&mut self) {
@@ -117,7 +121,24 @@ impl KeyPool {
         self.current = (self.current + 1) % self.keys.len();
     }
 
+    /// Mark the CURRENT key as deterministically rejected by the provider
+    /// for THIS run only (e.g. malformed/wrong-format request, ambiguous
+    /// 401). NOT proof the key is dead or quota-exhausted — never written
+    /// to disk. Rotates so the caller can retry with a different key in
+    /// the same pool before giving up on the whole provider.
+    pub fn mark_rejected_this_run(&mut self) {
+        if self.keys.is_empty() {
+            return;
+        }
+        self.session_rejected.insert(self.current);
+        self.current = (self.current + 1) % self.keys.len();
+    }
+
     pub fn has_available(&self) -> bool {
-        self.exhausted.len() < self.keys.len() && !self.keys.is_empty()
+        if self.keys.is_empty() {
+            return false;
+        }
+        (0..self.keys.len())
+            .any(|i| !self.exhausted.contains(&i) && !self.session_rejected.contains(&i))
     }
 }

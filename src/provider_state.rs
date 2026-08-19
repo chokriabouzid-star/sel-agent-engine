@@ -126,54 +126,54 @@ mod tests {
     fn test_mark_and_detect_exhausted() {
         let mut cache = ProviderStateCache::default();
 
-        assert!(!cache.is_key_exhausted("groq", 0));
+        assert!(!cache.is_key_exhausted("GROQ_API_KEY", 0));
 
-        cache.mark_exhausted("groq", 0);
-        assert!(cache.is_key_exhausted("groq", 0));
+        cache.mark_exhausted("GROQ_API_KEY", 0);
+        assert!(cache.is_key_exhausted("GROQ_API_KEY", 0));
     }
 
     #[test]
     fn test_available_count() {
         let mut cache = ProviderStateCache::default();
-        cache.mark_exhausted("gemini", 0);
-        cache.mark_exhausted("gemini", 1);
-        assert_eq!(cache.available_key_count("gemini", 4), 2);
+        cache.mark_exhausted("GEMINI_API_KEY", 0);
+        cache.mark_exhausted("GEMINI_API_KEY", 1);
+        assert_eq!(cache.available_key_count("GEMINI_API_KEY", 4), 2);
     }
 
     #[test]
     fn test_serialize_deserialize() {
         let mut cache = ProviderStateCache::default();
-        cache.mark_exhausted("groq", 0);
-        cache.mark_exhausted("cerebras", 2);
+        cache.mark_exhausted("GROQ_API_KEY", 0);
+        cache.mark_exhausted("CEREBRAS_API_KEY", 2);
 
         let json = serde_json::to_string(&cache).expect("serialize ProviderStateCache in test");
         let loaded: ProviderStateCache =
             serde_json::from_str(&json).expect("deserialize ProviderStateCache in test");
 
-        assert!(loaded.is_key_exhausted("groq", 0));
-        assert!(loaded.is_key_exhausted("cerebras", 2));
-        assert!(!loaded.is_key_exhausted("gemini", 0));
+        assert!(loaded.is_key_exhausted("GROQ_API_KEY", 0));
+        assert!(loaded.is_key_exhausted("CEREBRAS_API_KEY", 2));
+        assert!(!loaded.is_key_exhausted("GEMINI_API_KEY", 0));
     }
 
     #[test]
     fn test_preflight_with_burned_keys() {
         let mut cache = ProviderStateCache::default();
         for i in 0..4 {
-            cache.mark_exhausted("groq", i);
+            cache.mark_exhausted("GROQ_API_KEY", i);
         }
         for i in 0..4 {
-            cache.mark_exhausted("gemini", i);
+            cache.mark_exhausted("GEMINI_API_KEY", i);
         }
         for i in 0..4 {
-            cache.mark_exhausted("cerebras", i);
+            cache.mark_exhausted("CEREBRAS_API_KEY", i);
         }
 
         let providers = vec![
-            ("groq", 4),
-            ("gemini", 4),
-            ("cerebras", 4),
-            ("openrouter", 1),
-            ("github", 1),
+            ("GROQ_API_KEY", 4),
+            ("GEMINI_API_KEY", 4),
+            ("CEREBRAS_API_KEY", 4),
+            ("OPENROUTER_API_KEY", 1),
+            ("GITHUB_TOKEN", 1),
         ];
 
         let remaining = cache.estimated_remaining_calls(&providers);

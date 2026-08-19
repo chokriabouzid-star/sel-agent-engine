@@ -193,16 +193,12 @@ pub fn preflight_quota_check(task_count: usize, provider: &dyn LLMProvider) {
         let openrouter_keys = crate::llm::key_pool::KeyPool::from_env("OPENROUTER_API_KEY")
             .keys
             .len();
-        let github_keys = crate::llm::key_pool::KeyPool::from_env("GITHUB_TOKEN")
-            .keys
-            .len();
 
         let providers = vec![
             ("GROQ_API_KEY", groq_keys),
             ("GEMINI_API_KEY", gemini_keys),
             ("CEREBRAS_API_KEY", cerebras_keys),
             ("OPENROUTER_API_KEY", openrouter_keys),
-            ("GITHUB_TOKEN", github_keys),
         ];
 
         let remaining = cache.estimated_remaining_calls(&providers);

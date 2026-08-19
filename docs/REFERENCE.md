@@ -402,10 +402,9 @@ pub struct Pattern {
 | # | المزود | النموذج | الدور |
 |---|--------|---------|-------|
 | 1 | Groq | llama-3.3-70b-versatile | افتراضي |
-| 2 | Gemini | gemini-2.0-flash | fallback |
-| 3 | Cerebras | llama-3.3-70b | fallback |
+| 2 | Gemini | models/gemini-3.6-flash | fallback |
+| 3 | Cerebras | gpt-oss-120b | fallback |
 | 4 | OpenRouter | متعدد | fallback |
-| 5 | GitHub Models | متعدد | fallback أخير |
 
 ---
 
@@ -463,7 +462,6 @@ pub struct Pattern {
 | `GEMINI_API_KEY` | مفتاح Gemini (fallback) | موصى به |
 | `CEREBRAS_API_KEY` | مفتاح Cerebras (fallback) | اختياري |
 | `OPENROUTER_API_KEY` | مفتاح OpenRouter (fallback) | اختياري |
-| `GITHUB_TOKEN` | GitHub Models (fallback أخير) | اختياري |
 | `SEL_BENCH_MODE` | تفعيل bench-only semantic fixes | اختياري |
 | `SEL_MAX_REPAIRS` | الحد الأقصى لمحاولات الإصلاح | افتراضي: `5` |
 | `SEL_WORKSPACE` | مسار workspace مخصص | اختياري |

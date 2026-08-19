@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct LimitTracker {
     daily_dead: HashSet<String>,                            //
     rpm_dead_until: std::collections::HashMap<String, u64>, //  X
+    rejected_this_session: HashSet<String>, // deterministic provider rejections — never persisted to disk, cleared on next process run
 }
 
 impl Default for LimitTracker {
@@ -17,6 +18,7 @@ impl LimitTracker {
         Self {
             daily_dead: HashSet::new(),
             rpm_dead_until: std::collections::HashMap::new(),
+            rejected_this_session: HashSet::new(),
         }
     }
 
@@ -34,8 +36,24 @@ impl LimitTracker {
         eprintln!(" [{}] RPM limit  cooling {}s", provider, wait_secs);
     }
 
+    /// Provider rejected the request deterministically (bad request / wrong
+    /// model-or-endpoint / ambiguous 401 without explicit key-invalidity
+    /// evidence). This is NOT proof of quota exhaustion or a dead key.
+    /// Skipped only for the rest of THIS process run — never written to disk,
+    /// so the next `sel-agent` invocation retries this provider fresh.
+    pub fn mark_rejected(&mut self, provider: &str) {
+        eprintln!(
+            "   ⚠️  [{}] rejected the request (non-quota) — skipping for rest of this run",
+            provider
+        );
+        self.rejected_this_session.insert(provider.to_string());
+    }
+
     pub fn is_available(&self, provider: &str) -> bool {
         if self.daily_dead.contains(provider) {
+            return false;
+        }
+        if self.rejected_this_session.contains(provider) {
             return false;
         }
         if let Some(&until) = self.rpm_dead_until.get(provider) {

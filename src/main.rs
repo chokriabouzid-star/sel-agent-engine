@@ -244,7 +244,6 @@ async fn main() -> Result<()> {
                 ("CEREBRAS_API_KEY", "Cerebras"),
                 ("GEMINI_API_KEY", "Gemini"),
                 ("OPENROUTER_API_KEY", "OpenRouter"),
-                ("GITHUB_TOKEN", "GitHub"),
                 ("SEL_API_KEY", "SEL"),
             ];
             for (env_key, label) in &providers {

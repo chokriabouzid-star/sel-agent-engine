@@ -16,8 +16,7 @@ impl Provider {
     fn cerebras() -> Self {
         Provider {
             name: "Cerebras".into(),
-            model: std::env::var("CEREBRAS_MODEL")
-                .unwrap_or_else(|_| "qwen-3-235b-a22b-instruct-2507".into()),
+            model: std::env::var("CEREBRAS_MODEL").unwrap_or_else(|_| "gpt-oss-120b".into()),
             endpoint: "https://api.cerebras.ai/v1/chat/completions".into(),
             key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env(
                 "CEREBRAS_API_KEY",
@@ -25,21 +24,11 @@ impl Provider {
         }
     }
 
-    fn github() -> Self {
-        Provider {
-            name: "GitHub".into(),
-            model: std::env::var("GITHUB_MODEL").unwrap_or_else(|_| "gpt-4o".into()),
-            endpoint: "https://models.inference.ai.azure.com/chat/completions".into(),
-            key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env(
-                "GITHUB_TOKEN",
-            ))),
-        }
-    }
-
     fn gemini() -> Self {
         Provider {
             name: "Gemini".into(),
-            model: std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.0-flash".into()),
+            model: std::env::var("GEMINI_MODEL")
+                .unwrap_or_else(|_| "models/gemini-3.6-flash".into()),
             endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
                 .into(),
             key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env(
@@ -152,13 +141,14 @@ impl LiveProvider {
         let mut missing_keys = Vec::new();
         let mut exhausted_providers = Vec::new();
 
-        // : Groq  Gemini  Cerebras  OpenRouter  GitHub
+        // Provider order: Groq -> Gemini -> Cerebras -> OpenRouter
+        // GitHub Models removed from fallback chain on 2026-08-18:
+        // legacy endpoint returned 404, new endpoint returned 410 retirement brownout.
         let candidates = vec![
             ("GROQ_API_KEY", Provider::groq()),
             ("GEMINI_API_KEY", Provider::gemini()),
             ("CEREBRAS_API_KEY", Provider::cerebras()),
             ("OPENROUTER_API_KEY", Provider::openrouter()),
-            ("GITHUB_TOKEN", Provider::github()),
         ];
 
         for (env_name, p) in candidates {
@@ -261,9 +251,10 @@ struct Usage {
 
 #[derive(Debug, PartialEq)]
 enum ErrorKind {
-    DailyLimit, // HTTP 403 quota, 86400s exceeded
-    RpmLimit,   // HTTP 429 rate limit
-    KeyExpired, // HTTP 400 API_KEY_INVALID, API key expired
+    DailyLimit,       // HTTP 403 quota / HTTP 402 payment required
+    RpmLimit,         // HTTP 429 rate limit
+    KeyExpired,       // explicit invalid-key/account evidence from provider
+    ProviderRejected, // deterministic reject: wrong model/endpoint/request for this provider
     Other,
 }
 
@@ -281,15 +272,18 @@ fn classify_error(err: &str) -> ErrorKind {
         }
     }
 
-    // Check for expired/invalid keys first
+    // KeyExpired: EXPLICIT invalid-key/account evidence only.
     let is_key_error_msg = lower.contains("api_key_invalid")
         || lower.contains("api key expired")
         || lower.contains("api key not valid")
         || lower.contains("api key e")
         || lower.contains("invalid_api_key")
-        || lower.contains("unauthorized");
+        || lower.contains("unauthorized")
+        || lower.contains("wrong api key")
+        || lower.contains("please pass a valid api key")
+        || lower.contains("user not found");
 
-    if is_key_error_msg || status == 401 {
+    if is_key_error_msg {
         return ErrorKind::KeyExpired;
     }
 
@@ -299,9 +293,10 @@ fn classify_error(err: &str) -> ErrorKind {
         || lower.contains("quota")
         || lower.contains("daily limit")
         || lower.contains("per day")
-        || lower.contains("404")
-        || lower.contains("not_found")
+        || lower.contains("payment required")
+        || lower.contains("payment_required")
         || (status == 403 && lower.contains("quota"))
+        || status == 402
     {
         return ErrorKind::DailyLimit;
     }
@@ -315,6 +310,11 @@ fn classify_error(err: &str) -> ErrorKind {
     {
         return ErrorKind::RpmLimit;
     }
+
+    if status == 400 || status == 404 || status == 401 || lower.contains("not_found") {
+        return ErrorKind::ProviderRejected;
+    }
+
     ErrorKind::Other
 }
 
@@ -443,6 +443,29 @@ impl LLMProvider for LiveProvider {
                                     break;
                                 }
                             }
+                            ErrorKind::ProviderRejected => {
+                                // Try other keys in THIS provider's pool first
+                                // before giving up on the whole provider.
+                                let mut pool = match provider.key_pool.lock() {
+                                    Ok(p) => p,
+                                    Err(_) => break,
+                                };
+                                pool.mark_rejected_this_run();
+                                if pool.has_available() {
+                                    attempt = 1;
+                                    continue;
+                                } else {
+                                    if let Ok(mut t) = self.tracker.lock() {
+                                        t.mark_rejected(&provider.name);
+                                    }
+                                    last_error = Some(e);
+                                    self.active_index.store(
+                                        (idx + 1) % self.providers.len(),
+                                        std::sync::atomic::Ordering::SeqCst,
+                                    );
+                                    break;
+                                }
+                            }
                             ErrorKind::RpmLimit => {
                                 rpm_waits += 1;
                                 // v8.0:     RPM
@@ -540,7 +563,7 @@ impl LiveProvider {
         // v7.9.10: Allowlists  providers that don't support seed or JSON response_format
         // Extend this list when adding new providers (e.g. Mistral, Anthropic, SambaNova)
         const SEED_UNSUPPORTED: &[&str] = &["Gemini", "Mistral", "Anthropic"];
-        const JSON_MODE_UNSUPPORTED: &[&str] = &["GitHub", "Mistral", "Anthropic"];
+        const JSON_MODE_UNSUPPORTED: &[&str] = &["Mistral", "Anthropic"];
 
         if SEED_UNSUPPORTED.contains(&provider.name.as_str()) {
             body.seed = None;
@@ -612,5 +635,40 @@ impl LiveProvider {
             println!("   🔌 Provider:  {}", p.name);
             println!("   🤖 Model:     {}", p.model);
         }
+    }
+}
+
+#[cfg(test)]
+mod classify_error_tests {
+    use super::{classify_error, ErrorKind};
+
+    #[test]
+    fn wrong_api_key_is_key_expired() {
+        let err = r#"HTTP 401 Unauthorized: {"message":"Wrong API Key","code":"wrong_api_key"}"#;
+        assert_eq!(classify_error(err), ErrorKind::KeyExpired);
+    }
+
+    #[test]
+    fn valid_api_key_message_is_key_expired() {
+        let err = r#"HTTP 400 Bad Request: [{"error":{"code":400,"message":"Please pass a valid API key","status":"INVALID_ARGUMENT"}}]"#;
+        assert_eq!(classify_error(err), ErrorKind::KeyExpired);
+    }
+
+    #[test]
+    fn user_not_found_is_key_expired() {
+        let err = r#"HTTP 401 Unauthorized: {"error":{"message":"User not found.","code":401}}"#;
+        assert_eq!(classify_error(err), ErrorKind::KeyExpired);
+    }
+
+    #[test]
+    fn not_found_model_is_provider_rejected_not_daily_limit() {
+        let err = r#"HTTP 404 Not Found: {"message":"Model does not exist or you do not have access to it.","type":"not_found_error","param":"model","code":"model_not_found"}"#;
+        assert_eq!(classify_error(err), ErrorKind::ProviderRejected);
+    }
+
+    #[test]
+    fn payment_required_is_daily_limit() {
+        let err = r#"HTTP 402 Payment Required: {"message":"Payment required to access this resource.","code":"payment_required"}"#;
+        assert_eq!(classify_error(err), ErrorKind::DailyLimit);
     }
 }
