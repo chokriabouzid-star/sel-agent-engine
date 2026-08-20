@@ -740,7 +740,7 @@ async fn run_mutation_check(
                         *count
                     );
                     ctx.mutations_total += 1;
-                    ctx.mutations_killed += 1; // Mark as killed/passed so it doesn't fail the bench
+                    ctx.mutations_equivalent += 1; // Counted separately, no longer inflates killed count!
                     continue;
                 }
 
@@ -769,6 +769,14 @@ async fn run_mutation_check(
             crate::executor::MutationResult::Strong => {
                 ctx.mutations_total += 1;
                 ctx.mutations_killed += 1;
+            }
+            crate::executor::MutationResult::Uncompilable(orig, mutd) => {
+                println!(
+                    "     🧬 Mutation produced a compile error: [{}] -> [{}] — skipping",
+                    orig, mutd
+                );
+                // Count toward total attempted mutations but NOT killed, as the tests didn't run.
+                ctx.mutations_total += 1;
             }
             crate::executor::MutationResult::Skipped(reason) => {
                 println!("     🧬 Mutation skipped for {}: {}", src, reason);

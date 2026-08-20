@@ -37,6 +37,7 @@ pub struct ExecutionContext {
     pub start_time: Option<std::time::Instant>,
     pub mutations_total: u32,
     pub mutations_killed: u32,
+    pub mutations_equivalent: u32,
     pub replan_attempts: u8,                // v5.6: Unique Patch Enforcer
     pub last_failed_steps: Vec<FailedStep>, // v5.8:
     pub current_failure_kind: Option<FailureKind>, // v6.4
@@ -87,6 +88,7 @@ impl ExecutionContext {
         self.last_mutation_context = None;
         self.mutations_total = 0;
         self.mutations_killed = 0;
+        self.mutations_equivalent = 0;
     }
     pub fn has_failures(&self) -> bool {
         !self.failed_steps.is_empty()

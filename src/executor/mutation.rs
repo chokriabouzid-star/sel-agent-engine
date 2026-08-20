@@ -4,7 +4,62 @@ use crate::executor::core::*;
 pub enum MutationResult {
     Strong,
     Weak(String, String), // (original_line, mutated_line)
+    /// Mutation produced a compile/parse error (never actually ran).
+    /// Must NOT be counted as killed and NOT as equivalent — the mutation is invalid noise.
+    Uncompilable(String, String), // (original_line, mutated_line)
     Skipped(String),      // Reason
+}
+
+/// True when non-zero-exit stderr shows a compile/parse/type failure
+/// rather than a real test assertion failure.
+/// Uses crate::diagnostic when available, then falls back to language-agnostic markers.
+pub fn stderr_is_compile_failure(stderr: &str) -> bool {
+    // Reuse existing analyzer signal first.
+    let report = crate::diagnostic::analyze(stderr);
+    if report.hints.iter().any(|h| {
+        matches!(
+            h.category,
+            "go/undefined"
+                | "go/unused-var"
+                | "go/unused-import"
+                | "go/type-mismatch"
+                | "rust/borrow"
+                | "rust/move"
+                | "rust/type"
+                | "rust/E0422-not-pub"
+                | "rust/E0422-visibility"
+                | "rust/bootstrap"
+                | "rust/integration-import"
+                | "python/syntax"
+                | "python/indent"
+                | "python/dataclass-syntax"
+        )
+    }) {
+        return true;
+    }
+    // Additional low-level markers (compiler/parser only, never test-assertion output).
+    let l = stderr.to_ascii_lowercase();
+    l.contains("syntaxerror")
+        || l.contains("indentationerror")
+        || l.contains("error[e0")               // Rust compile error codes
+        || l.contains("could not compile")
+        || l.contains("cannot find")
+        || l.contains("expected identifier")
+        || l.contains("expected `;`")
+        || l.contains("unexpected token")
+        || l.contains("undeclared name")
+        || l.contains("undefined:")
+        || l.contains("declared but not used")
+        || l.contains("imported and not used")
+        // TypeScript / tsc diagnostic codes
+        || l.contains("ts1005")
+        || l.contains("ts1109")
+        || l.contains("ts1128")
+        || l.contains("ts1136")
+        || l.contains("ts2304")
+        || l.contains("ts2339")
+        || l.contains("ts2551")
+        || l.contains("ts2552")
 }
 
 pub fn apply_all_mutations(code: &str) -> Vec<(String, String, String)> {
@@ -187,6 +242,17 @@ impl SafeExecutor {
                     }
                     any_missed = true;
                 } else {
+                    // Distinguish real test-kill from compile/parse failure.
+                    let combined = format!(
+                        "{}\n{}",
+                        String::from_utf8_lossy(&result.stderr),
+                        String::from_utf8_lossy(&result.stdout)
+                    );
+                    if stderr_is_compile_failure(&combined) {
+                        // Skip this mutation entirely — invalid noise, not a kill.
+                        let _ = std::fs::write(&source_path, &original);
+                        return MutationResult::Uncompilable(orig_line.clone(), mutd_line.clone());
+                    }
                     any_caught = true;
                 }
             }
@@ -202,5 +268,52 @@ impl SafeExecutor {
         } else {
             MutationResult::Skipped("No survivors".into())
         }
+    }
+}
+
+#[cfg(test)]
+mod stderr_classifier_tests {
+    use super::stderr_is_compile_failure;
+
+    #[test]
+    fn ts_syntax_error_is_compile_failure() {
+        let s = "src/x.ts:3:12 - error TS1005: ',' expected.";
+        assert!(stderr_is_compile_failure(s));
+    }
+
+    #[test]
+    fn ts_unexpected_token_is_compile_failure() {
+        let s = "SyntaxError: Unexpected token '!'";
+        assert!(stderr_is_compile_failure(s));
+    }
+
+    #[test]
+    fn python_syntax_error_is_compile_failure() {
+        let s = "  File \"x.py\", line 3\n    if a !!= 2:\n         ^\nSyntaxError: invalid syntax";
+        assert!(stderr_is_compile_failure(s));
+    }
+
+    #[test]
+    fn rust_compile_error_is_compile_failure() {
+        let s = "error[E0308]: mismatched types\n  --> src/lib.rs:1:1";
+        assert!(stderr_is_compile_failure(s));
+    }
+
+    #[test]
+    fn go_undefined_is_compile_failure() {
+        let s = "./main.go:5:6: undefined: FooBar";
+        assert!(stderr_is_compile_failure(s));
+    }
+
+    #[test]
+    fn real_test_assertion_is_not_compile_failure() {
+        let s = "FAIL src/x.test.ts\n  expected 1 to equal 2\n  at Object.<anonymous>";
+        assert!(!stderr_is_compile_failure(s));
+    }
+
+    #[test]
+    fn pytest_assertion_is_not_compile_failure() {
+        let s = "test_x.py::test_add FAILED\n    assert add(1,2) == 4\nAssertionError";
+        assert!(!stderr_is_compile_failure(s));
     }
 }

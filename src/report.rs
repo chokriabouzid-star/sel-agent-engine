@@ -14,6 +14,8 @@ pub struct ExecutionReport {
     pub autofix_count: u64,
     pub tests_passed: bool,
     pub mutation_score: f64,
+    #[serde(default)]
+    pub mutations_equivalent: u32,
     pub provider_model: String,
     pub llm_calls: u64,
     pub tokens_in: u64,
@@ -115,6 +117,7 @@ mod evidence {
             autofix_count: 1,
             tests_passed: true,
             mutation_score: 0.85,
+            mutations_equivalent: 2,
             provider_model: "test-model".into(),
             llm_calls: 5,
             tokens_in: 200,
@@ -140,6 +143,7 @@ mod evidence {
         assert_eq!(restored.avg_selected_files, 4);
         assert_eq!(restored.context_reduction_pct, 35);
         assert_eq!(restored.force_include_dropped_count, 2);
+        assert_eq!(restored.mutations_equivalent, 2);
         assert!(restored.plan_risk_triggered);
         assert_eq!(restored.replan_count, 1);
     }
@@ -160,6 +164,7 @@ mod evidence {
             autofix_count: 0,
             tests_passed: true,
             mutation_score: 0.0,
+            mutations_equivalent: 0,
             provider_model: "m".into(),
             llm_calls: 0,
             tokens_in: 0,
@@ -186,6 +191,7 @@ mod evidence {
         assert!(json.contains("plan_risk_triggered"));
         assert!(json.contains("replan_count"));
         assert!(json.contains("plan_risk_reasons"));
+        assert!(json.contains("mutations_equivalent"));
     }
 
     #[test]
