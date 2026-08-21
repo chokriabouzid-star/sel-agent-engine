@@ -22,7 +22,7 @@ pub struct ProviderStateCache {
 }
 
 impl ProviderStateCache {
-    fn state_path() -> PathBuf {
+    pub fn state_path() -> PathBuf {
         dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(".sel-agent")
@@ -41,12 +41,25 @@ impl ProviderStateCache {
     }
 
     pub fn save(&self) {
-        let path = Self::state_path();
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+        // v9.3.4 SAFETY: cache MUST NOT write to the real user cache during
+        // `cargo test`. Historic bug: `test_preflight_with_burned_keys`
+        // burned 12 real provider keys in $HOME/.sel-agent/provider_state.json,
+        // paralysing every subsequent live run. Under #[cfg(test)] this
+        // becomes a deliberate no-op; in-memory state is preserved and the
+        // existing tests (which only assert in-memory behaviour) are unaffected.
+        #[cfg(test)]
+        {
+            return;
         }
-        if let Ok(json) = serde_json::to_string_pretty(self) {
-            let _ = std::fs::write(&path, json);
+        #[cfg(not(test))]
+        {
+            let path = Self::state_path();
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Ok(json) = serde_json::to_string_pretty(self) {
+                let _ = std::fs::write(&path, json);
+            }
         }
     }
 

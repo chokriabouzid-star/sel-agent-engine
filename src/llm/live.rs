@@ -40,7 +40,7 @@ impl Provider {
     fn groq() -> Self {
         Provider {
             name: "Groq".into(),
-            model: std::env::var("GROQ_MODEL").unwrap_or_else(|_| "llama-3.3-70b-versatile".into()),
+            model: std::env::var("GROQ_MODEL").unwrap_or_else(|_| "openai/gpt-oss-120b".into()),
             endpoint: "https://api.groq.com/openai/v1/chat/completions".into(),
             key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env(
                 "GROQ_API_KEY",

@@ -226,17 +226,17 @@ async fn main() -> Result<()> {
             commands::run_observatory(refresh_secs, limit)?;
         }
         Commands::ResetProviders => {
-            let path = std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|pp| pp.to_path_buf()))
-                .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join(".sel-agent")
-                .join("provider_state.json");
+            // v9.3.4 FIX: Use the canonical path from ProviderStateCache
+            // instead of a hardcoded relative path that pointed to the wrong
+            // location (binary dir instead of $HOME/.sel-agent/).
+            let path = crate::provider_state::ProviderStateCache::state_path();
             if path.exists() {
                 std::fs::remove_file(&path)?;
                 println!("\n Provider cache cleared  all keys are now active.");
+                println!("   (deleted: {})", path.display());
             } else {
                 println!("\n Provider cache was already clean  nothing to reset.");
+                println!("   (expected path: {})", path.display());
             }
             println!("\n Current key counts:");
             let providers = [

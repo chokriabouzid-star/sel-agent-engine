@@ -401,7 +401,7 @@ pub struct Pattern {
 
 | # | المزود | النموذج | الدور |
 |---|--------|---------|-------|
-| 1 | Groq | llama-3.3-70b-versatile | افتراضي |
+| 1 | Groq | openai/gpt-oss-120b | افتراضي |
 | 2 | Gemini | models/gemini-3.6-flash | fallback |
 | 3 | Cerebras | gpt-oss-120b | fallback |
 | 4 | OpenRouter | متعدد | fallback |
