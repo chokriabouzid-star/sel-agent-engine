@@ -28,7 +28,17 @@ static RE_TRAILING_ARR: LazyLock<regex::Regex> =
 /// Fixes double-escaped sequences (like literal backslash-n) that some
 /// strict reasoning models (like openai/gpt-oss-120b) emit inside JSON string content.
 pub fn unescape_json_string(s: &str) -> String {
-    s.replace(r"\n", "\n")
+    // Two-level unescape: protect \\ first, then unescape \n and \",
+    // then restore \\. This correctly handles:
+    //   \n  -> newline   (double-escaped newline from reasoning models)
+    //   \"  -> "         (double-escaped quote from reasoning models)
+    //   \\" -> \"        (intentional escape in target code like Go)
+    const P: &str = "\x00\x01\x00";
+    s.replace("\\\\", P)
+        .replace("\\n", "\n")
+        .replace("\\\"", "\"")
+        .replace("\\'", "'")
+        .replace(P, "\\")
 }
 
 pub fn sanitize(raw: &str) -> Result<String, SanitizeError> {
@@ -412,10 +422,19 @@ mod tests {
         let escaped_code = r#"def greet(name: str, lang: str = 'en') -> str:\n    if lang == 'en':\n        return f\"Hello, {name}\"\n"#;
         let fixed = unescape_json_string(escaped_code);
 
+        // \n -> real newline
         assert!(fixed.contains('\n'));
         assert!(!fixed.contains(r"\n"));
-        // Assert \" is PRESERVED (not unescaped) — intentional in target code
-        assert!(fixed.contains(r#"\""#));
+        // \" -> " (unescaped by the two-level logic)
+        assert!(fixed.contains(r#"f"Hello, {name}""#));
+    }
+
+    #[test]
+    fn test_unescape_preserves_go_escaped_quotes() {
+        // \\\" in raw string = \" in actual string -> should become \"
+        let go_code = "t.Errorf(\"want \\\\\"Fizz\\\\\"\")";
+        let fixed = unescape_json_string(go_code);
+        assert!(fixed.contains("\\"));
     }
 
     #[test]

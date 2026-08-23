@@ -41,7 +41,17 @@ pub struct AgentCommand {
 
 /// Fixes double-escaped sequences that strict reasoning models emit.
 fn unescape_json_string(s: &str) -> String {
-    s.replace(r"\n", "\n")
+    // Two-level unescape: protect \\ first, then unescape \n and \",
+    // then restore \\. This correctly handles:
+    //   \n  -> newline   (double-escaped newline from reasoning models)
+    //   \"  -> "         (double-escaped quote from reasoning models)
+    //   \\" -> \"        (intentional escape in target code like Go)
+    const P: &str = "\x00\x01\x00";
+    s.replace("\\\\", P)
+        .replace("\\n", "\n")
+        .replace("\\\"", "\"")
+        .replace("\\'", "'")
+        .replace(P, "\\")
 }
 
 impl AgentCommand {

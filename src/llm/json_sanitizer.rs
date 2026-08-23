@@ -5,7 +5,17 @@
 /// Fixes double-escaped sequences (like literal backslash-n) that some
 /// strict reasoning models (like openai/gpt-oss-120b) emit inside JSON string content.
 pub fn unescape_json_string(s: &str) -> String {
-    s.replace(r"\n", "\n")
+    // Two-level unescape: protect \\ first, then unescape \n and \",
+    // then restore \\. This correctly handles:
+    //   \n  -> newline   (double-escaped newline from reasoning models)
+    //   \"  -> "         (double-escaped quote from reasoning models)
+    //   \\" -> \"        (intentional escape in target code like Go)
+    const P: &str = "\x00\x01\x00";
+    s.replace("\\\\", P)
+        .replace("\\n", "\n")
+        .replace("\\\"", "\"")
+        .replace("\\'", "'")
+        .replace(P, "\\")
 }
 
 pub fn sanitize_llm_json(raw: &str) -> String {
@@ -97,18 +107,21 @@ mod tests {
 
     #[test]
     fn test_unescape_json_string_with_real_gpt_oss_output() {
-        // Actual raw output captured from openai/gpt-oss-120b in step 3.1
-        let escaped_code = r#"def greet(name: str, lang: str = 'en') -> str:\n    if lang == 'en':\n        return f\"Hello, {name}\"\n"#;
-        let fixed = unescape_json_string(escaped_code);
-
-        // Assert we successfully mapped literal "\n" to real 0x0A newlines
+        let escaped = r#"def greet(name: str, lang: str = 'en') -> str:\n    if lang == 'en':\n        return f\"Hello, {name}\"\n"#;
+        let fixed = unescape_json_string(escaped);
         assert!(fixed.contains('\n'));
         assert!(!fixed.contains(r"\n"));
-
-        // Assert \" is PRESERVED (not unescaped) — intentional in target code
-        assert!(fixed.contains(r#"\""#));
+        assert!(fixed.contains(r#"f"Hello, {name}""#));
+        assert!(!fixed.contains(r#"\""#));
     }
 
+    #[test]
+    fn test_unescape_preserves_go_escaped_quotes() {
+        // \\" should become \" (intentional Go escape), not "
+        let go_code = r#"t.Errorf(\"want \\\"Fizz\\\"\")"#;
+        let fixed = unescape_json_string(go_code);
+        assert!(fixed.contains(r#"t.Errorf("want \"Fizz\"")"#));
+    }
     #[test]
     fn test_full_sanitize() {
         let input = r#"{"commands": [{"type": "write_file", "path": "lib.rs", "content": "/// Doc\nfn x() {}"},]}"#;
