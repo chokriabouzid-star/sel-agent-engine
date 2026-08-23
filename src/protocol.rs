@@ -39,6 +39,13 @@ pub struct AgentCommand {
     pub message: String,
 }
 
+/// Fixes double-escaped sequences that strict reasoning models emit.
+fn unescape_json_string(s: &str) -> String {
+    s.replace(r"\n", "\n")
+        .replace(r#"\""#, "\"")
+        .replace(r"\'", "'")
+}
+
 impl AgentCommand {
     /// Convert raw command to typed Cmd
     pub fn into_cmd(self) -> Option<Cmd> {
@@ -48,17 +55,17 @@ impl AgentCommand {
             }),
             "write_file" | "write" => Some(Cmd::WriteFile {
                 path: self.path,
-                content: self.content,
+                content: unescape_json_string(&self.content),
             }),
             "append_file" | "append" => Some(Cmd::AppendFile {
                 path: self.path,
-                content: self.content,
+                content: unescape_json_string(&self.content),
             }),
             "delete_file" | "delete" => Some(Cmd::DeleteFile { path: self.path }),
             "patch_file" | "patch" => Some(Cmd::PatchFile {
                 path: self.path,
-                search: self.search,
-                replace: self.replace,
+                search: unescape_json_string(&self.search),
+                replace: unescape_json_string(&self.replace),
             }),
             "read_file" | "read" => Some(Cmd::ReadFile { path: self.path }),
             "mkdir" => Some(Cmd::Mkdir { path: self.path }),
@@ -285,6 +292,20 @@ fn normalize_field_names(json: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_double_escaped_json_content() {
+        // Plan format emitted by openai/gpt-oss-120b
+        let input = r#"{"commands":[{"action":"write_file","path":"greeter.py","content":"def greet(name):\n    return f\"Hello {name}\"\n"}]}"#;
+        let resp = parse(input).expect("parsing should succeed");
+        assert_eq!(resp.commands.len(), 1);
+        if let Cmd::WriteFile { content, .. } = &resp.commands[0] {
+            assert!(content.contains('\n'));
+            assert!(content.contains("f\"Hello {name}\""));
+        } else {
+            panic!("expected WriteFile command");
+        }
+    }
 
     #[test]
     fn test_parse_clean_json() {

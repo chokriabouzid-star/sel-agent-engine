@@ -2,6 +2,14 @@
 // Fixes common JSON issues from LLM responses before parsing
 
 /// Main entry point  apply all sanitizers in order
+/// Fixes double-escaped sequences (like literal backslash-n) that some
+/// strict reasoning models (like openai/gpt-oss-120b) emit inside JSON string content.
+pub fn unescape_json_string(s: &str) -> String {
+    s.replace(r"\n", "\n")
+        .replace(r#"\""#, "\"")
+        .replace(r"\'", "'")
+}
+
 pub fn sanitize_llm_json(raw: &str) -> String {
     let s = fix_rust_doc_comments(raw);
     let s = fix_trailing_commas(&s);
@@ -87,6 +95,21 @@ mod tests {
         let input = r#"{"commands": [{"type": "run", "command": "echo"}"#;
         let fixed = fix_truncated_json(input);
         assert!(fixed.ends_with("]}"));
+    }
+
+    #[test]
+    fn test_unescape_json_string_with_real_gpt_oss_output() {
+        // Actual raw output captured from openai/gpt-oss-120b in step 3.1
+        let escaped_code = r#"def greet(name: str, lang: str = 'en') -> str:\n    if lang == 'en':\n        return f\"Hello, {name}\"\n"#;
+        let fixed = unescape_json_string(escaped_code);
+
+        // Assert we successfully mapped literal "\n" to real 0x0A newlines
+        assert!(fixed.contains('\n'));
+        assert!(!fixed.contains(r"\n"));
+
+        // Assert we successfully mapped escaped quotes to actual quotes
+        assert!(fixed.contains(r#"f"Hello, {name}""#));
+        assert!(!fixed.contains(r#"\""#));
     }
 
     #[test]
