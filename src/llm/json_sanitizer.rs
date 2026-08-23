@@ -6,8 +6,6 @@
 /// strict reasoning models (like openai/gpt-oss-120b) emit inside JSON string content.
 pub fn unescape_json_string(s: &str) -> String {
     s.replace(r"\n", "\n")
-        .replace(r#"\""#, "\"")
-        .replace(r"\'", "'")
 }
 
 pub fn sanitize_llm_json(raw: &str) -> String {
@@ -107,9 +105,8 @@ mod tests {
         assert!(fixed.contains('\n'));
         assert!(!fixed.contains(r"\n"));
 
-        // Assert we successfully mapped escaped quotes to actual quotes
-        assert!(fixed.contains(r#"f"Hello, {name}""#));
-        assert!(!fixed.contains(r#"\""#));
+        // Assert \" is PRESERVED (not unescaped) — intentional in target code
+        assert!(fixed.contains(r#"\""#));
     }
 
     #[test]

@@ -29,8 +29,6 @@ static RE_TRAILING_ARR: LazyLock<regex::Regex> =
 /// strict reasoning models (like openai/gpt-oss-120b) emit inside JSON string content.
 pub fn unescape_json_string(s: &str) -> String {
     s.replace(r"\n", "\n")
-        .replace(r#"\""#, "\"")
-        .replace(r"\'", "'")
 }
 
 pub fn sanitize(raw: &str) -> Result<String, SanitizeError> {
@@ -416,8 +414,8 @@ mod tests {
 
         assert!(fixed.contains('\n'));
         assert!(!fixed.contains(r"\n"));
-        assert!(fixed.contains(r#"f"Hello, {name}""#));
-        assert!(!fixed.contains(r#"\""#));
+        // Assert \" is PRESERVED (not unescaped) — intentional in target code
+        assert!(fixed.contains(r#"\""#));
     }
 
     #[test]
