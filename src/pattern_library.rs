@@ -138,6 +138,7 @@ impl PatternLibrary {
     }
 
     /// للاختبار: يحمّل من مسار محدد
+    #[allow(dead_code)]
     pub fn load_from(path: PathBuf) -> Self {
         let store = if path.exists() {
             std::fs::read_to_string(&path)
@@ -254,10 +255,12 @@ impl PatternLibrary {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn pattern_count(&self) -> usize {
         self.store.patterns.len()
     }
 
+    #[allow(dead_code)]
     pub fn strong_pattern_count(&self) -> usize {
         self.store.patterns.iter().filter(|p| p.is_strong()).count()
     }

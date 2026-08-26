@@ -16,7 +16,8 @@ impl Provider {
     fn cerebras() -> Self {
         Provider {
             name: "Cerebras".into(),
-            model: std::env::var("CEREBRAS_MODEL").unwrap_or_else(|_| "gpt-oss-120b".into()),
+            model: std::env::var("CEREBRAS_MODEL")
+                .unwrap_or_else(|_| "qwen-3-235b-a22b-instruct-2507".into()),
             endpoint: "https://api.cerebras.ai/v1/chat/completions".into(),
             key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env(
                 "CEREBRAS_API_KEY",
@@ -24,11 +25,21 @@ impl Provider {
         }
     }
 
+    fn github() -> Self {
+        Provider {
+            name: "GitHub".into(),
+            model: std::env::var("GITHUB_MODEL").unwrap_or_else(|_| "gpt-4o".into()),
+            endpoint: "https://models.inference.ai.azure.com/chat/completions".into(),
+            key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env(
+                "GITHUB_TOKEN",
+            ))),
+        }
+    }
+
     fn gemini() -> Self {
         Provider {
             name: "Gemini".into(),
-            model: std::env::var("GEMINI_MODEL")
-                .unwrap_or_else(|_| "models/gemini-3.6-flash".into()),
+            model: std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.0-flash".into()),
             endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
                 .into(),
             key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env(
@@ -40,7 +51,7 @@ impl Provider {
     fn groq() -> Self {
         Provider {
             name: "Groq".into(),
-            model: std::env::var("GROQ_MODEL").unwrap_or_else(|_| "openai/gpt-oss-120b".into()),
+            model: std::env::var("GROQ_MODEL").unwrap_or_else(|_| "llama-3.3-70b-versatile".into()),
             endpoint: "https://api.groq.com/openai/v1/chat/completions".into(),
             key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env(
                 "GROQ_API_KEY",
@@ -62,6 +73,7 @@ impl Provider {
         }
     }
 
+    #[allow(dead_code)]
     fn is_configured(&self) -> bool {
         self.key_pool
             .lock()
@@ -126,10 +138,6 @@ impl LiveProvider {
         Self::new()
     }
 
-    pub fn from_config(_cfg: crate::llm::ModelConfig, _key: String) -> Self {
-        Self::new()
-    }
-
     pub fn primary_name(&self) -> String {
         self.providers
             .first()
@@ -141,14 +149,13 @@ impl LiveProvider {
         let mut missing_keys = Vec::new();
         let mut exhausted_providers = Vec::new();
 
-        // Provider order: Groq -> Gemini -> Cerebras -> OpenRouter
-        // GitHub Models removed from fallback chain on 2026-08-18:
-        // legacy endpoint returned 404, new endpoint returned 410 retirement brownout.
+        // : Groq  Gemini  Cerebras  OpenRouter  GitHub
         let candidates = vec![
             ("GROQ_API_KEY", Provider::groq()),
             ("GEMINI_API_KEY", Provider::gemini()),
             ("CEREBRAS_API_KEY", Provider::cerebras()),
             ("OPENROUTER_API_KEY", Provider::openrouter()),
+            ("GITHUB_TOKEN", Provider::github()),
         ];
 
         for (env_name, p) in candidates {
@@ -251,10 +258,10 @@ struct Usage {
 
 #[derive(Debug, PartialEq)]
 enum ErrorKind {
-    DailyLimit,       // HTTP 403 quota / HTTP 402 payment required
+    DailyLimit,       // HTTP 403 quota, 86400s exceeded
     RpmLimit,         // HTTP 429 rate limit
-    KeyExpired,       // explicit invalid-key/account evidence from provider
-    ProviderRejected, // deterministic reject: wrong model/endpoint/request for this provider
+    KeyExpired, // explicit evidence only: api_key_invalid / api key expired / api key not valid / invalid_api_key
+    ProviderRejected, // deterministic reject: HTTP 400/404, or 401 WITHOUT explicit key-invalidity evidence — NOT proof of a dead key or exhausted quota
     Other,
 }
 
@@ -272,13 +279,15 @@ fn classify_error(err: &str) -> ErrorKind {
         }
     }
 
-    // KeyExpired: EXPLICIT invalid-key/account evidence only.
+    // KeyExpired: EXPLICIT key-invalidity evidence only. Narrowed 2026 — a bare
+    // "unauthorized" or bare HTTP 401 alone is NOT sufficient proof the key
+    // itself is dead (e.g. "401 User not found" is a provider-side rejection,
+    // not a confirmed dead key). See ErrorKind::ProviderRejected below for that.
     let is_key_error_msg = lower.contains("api_key_invalid")
         || lower.contains("api key expired")
         || lower.contains("api key not valid")
         || lower.contains("api key e")
         || lower.contains("invalid_api_key")
-        || lower.contains("unauthorized")
         || lower.contains("wrong api key")
         || lower.contains("please pass a valid api key")
         || lower.contains("user not found");
@@ -311,6 +320,12 @@ fn classify_error(err: &str) -> ErrorKind {
         return ErrorKind::RpmLimit;
     }
 
+    // ProviderRejected: deterministic rejection that will NOT succeed on retry,
+    // and is NOT proof of a dead key or exhausted quota:
+    // - HTTP 400 (request rejected as currently formed for this provider)
+    // - HTTP 404 / "not_found" (wrong model/endpoint)
+    // - HTTP 401 that reached here WITHOUT matching an explicit key-invalidity
+    //   phrase above (e.g. "User not found")
     if status == 400 || status == 404 || status == 401 || lower.contains("not_found") {
         return ErrorKind::ProviderRejected;
     }
@@ -445,7 +460,9 @@ impl LLMProvider for LiveProvider {
                             }
                             ErrorKind::ProviderRejected => {
                                 // Try other keys in THIS provider's pool first
-                                // before giving up on the whole provider.
+                                // (mirrors KeyExpired/DailyLimit pattern) before
+                                // giving up on the whole provider. Only the
+                                // rejected key is skipped, never persisted.
                                 let mut pool = match provider.key_pool.lock() {
                                     Ok(p) => p,
                                     Err(_) => break,
@@ -563,7 +580,7 @@ impl LiveProvider {
         // v7.9.10: Allowlists  providers that don't support seed or JSON response_format
         // Extend this list when adding new providers (e.g. Mistral, Anthropic, SambaNova)
         const SEED_UNSUPPORTED: &[&str] = &["Gemini", "Mistral", "Anthropic"];
-        const JSON_MODE_UNSUPPORTED: &[&str] = &["Mistral", "Anthropic"];
+        const JSON_MODE_UNSUPPORTED: &[&str] = &["GitHub", "Mistral", "Anthropic"];
 
         if SEED_UNSUPPORTED.contains(&provider.name.as_str()) {
             body.seed = None;
@@ -640,7 +657,48 @@ impl LiveProvider {
 
 #[cfg(test)]
 mod classify_error_tests {
-    use super::{classify_error, ErrorKind};
+    use super::*;
+
+
+    #[test]
+    fn explicit_key_invalid_message_is_still_key_expired() {
+        let err =
+            r#"HTTP 400 Bad Request: {"error":"API key not valid. Please pass a valid API key."}"#;
+        assert_eq!(classify_error(err), ErrorKind::KeyExpired);
+    }
+
+    #[test]
+    fn gemini_deterministic_400_is_provider_rejected() {
+        // Exact truncated string observed repeated identically across 4
+        // independent tasks in the same session, 2026-07-XX
+        let err = "HTTP 400 Bad Request: [{\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"Please pa";
+        assert_eq!(classify_error(err), ErrorKind::ProviderRejected);
+    }
+
+    #[test]
+    fn genuine_daily_quota_message_is_still_daily_limit() {
+        let err = "HTTP 403 Forbidden: Quota exceeded for quota metric 'GenerateRequestsPerDayPerProjectPerModel'";
+        assert_eq!(classify_error(err), ErrorKind::DailyLimit);
+    }
+
+    #[test]
+    fn genuine_rpm_message_is_still_rpm_limit() {
+        let err = "HTTP 429 Too Many Requests: Rate limit reached for requests";
+        assert_eq!(classify_error(err), ErrorKind::RpmLimit);
+    }
+
+    #[test]
+    fn not_found_model_is_provider_rejected_not_daily_limit() {
+        let err = "HTTP 404 Not Found: the model does not exist or you do not have access to it";
+        assert_eq!(classify_error(err), ErrorKind::ProviderRejected);
+    }
+
+    #[test]
+    fn generic_transient_network_error_is_still_other() {
+        // Exact string observed in logs: transient connection failure
+        let err = "error sending request for url (https://api.groq.com/openai/v1/chat/completions)";
+        assert_eq!(classify_error(err), ErrorKind::Other);
+    }
 
     #[test]
     fn wrong_api_key_is_key_expired() {
@@ -658,12 +716,6 @@ mod classify_error_tests {
     fn user_not_found_is_key_expired() {
         let err = r#"HTTP 401 Unauthorized: {"error":{"message":"User not found.","code":401}}"#;
         assert_eq!(classify_error(err), ErrorKind::KeyExpired);
-    }
-
-    #[test]
-    fn not_found_model_is_provider_rejected_not_daily_limit() {
-        let err = r#"HTTP 404 Not Found: {"message":"Model does not exist or you do not have access to it.","type":"not_found_error","param":"model","code":"model_not_found"}"#;
-        assert_eq!(classify_error(err), ErrorKind::ProviderRejected);
     }
 
     #[test]

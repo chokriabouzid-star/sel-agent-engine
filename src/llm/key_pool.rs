@@ -142,3 +142,49 @@ impl KeyPool {
             .any(|i| !self.exhausted.contains(&i) && !self.session_rejected.contains(&i))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pool_with(n: usize) -> KeyPool {
+        KeyPool {
+            keys: (0..n).map(|i| format!("key-{}", i)).collect(),
+            current: 0,
+            exhausted: std::collections::HashSet::new(),
+            session_rejected: std::collections::HashSet::new(),
+            prefix: "TEST".to_string(),
+        }
+    }
+
+    #[test]
+    fn mark_rejected_this_run_moves_to_next_key() {
+        let mut p = pool_with(3);
+        p.mark_rejected_this_run();
+        assert_eq!(p.next_available(), Some("key-1"));
+    }
+
+    #[test]
+    fn has_available_true_when_only_one_of_several_keys_rejected() {
+        let mut p = pool_with(3);
+        p.mark_rejected_this_run(); // rejects key-0
+        assert!(p.has_available());
+    }
+
+    #[test]
+    fn has_available_false_once_all_keys_rejected_this_run() {
+        let mut p = pool_with(2);
+        p.mark_rejected_this_run(); // key-0
+        p.mark_rejected_this_run(); // key-1
+        assert!(!p.has_available());
+    }
+
+    #[test]
+    fn session_rejected_and_exhausted_combine_correctly() {
+        let mut p = pool_with(3);
+        p.mark_exhausted(); // key-0 -> exhausted, current now 1
+        p.mark_rejected_this_run(); // key-1 -> session_rejected, current now 2
+        assert!(p.has_available()); // key-2 still free
+        assert_eq!(p.next_available(), Some("key-2"));
+    }
+}

@@ -132,8 +132,8 @@ impl ModelConfig {
         match alias {
             "kimi" | "kimi-k2" | "kimi-k2-instruct" => ModelConfig {
                 model_id: "moonshotai/kimi-k2-instruct-0905".to_string(),
-                base_url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
-                env_key: "GROQ_API_KEY".to_string(),
+                base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
+                env_key: "OPENROUTER_API_KEY".to_string(),
             },
             "llama" | "llama-70b" => ModelConfig {
                 model_id: "llama-3.3-70b-versatile".to_string(),
@@ -216,6 +216,40 @@ pub fn preflight_quota_check(task_count: usize, provider: &dyn LLMProvider) {
             println!("    Load seems manageable for the configured providers.");
         }
 
-        if remaining < total_estimated {}
+        if remaining < total_estimated {
+            println!(
+                "   ⚠️  Estimated capacity may be insufficient: need ~{} calls but only ~{} remain.",
+                total_estimated, remaining
+            );
+            println!(
+                "   💡 Consider reducing task count, adding more provider keys, or using replay mode."
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ModelConfig;
+
+    #[test]
+    fn kimi_alias_uses_openrouter_endpoint() {
+        let cfg = ModelConfig::from_alias("kimi");
+        assert_eq!(
+            cfg.base_url,
+            "https://openrouter.ai/api/v1/chat/completions"
+        );
+        assert_eq!(cfg.env_key, "OPENROUTER_API_KEY");
+        assert_eq!(cfg.model_id, "moonshotai/kimi-k2-instruct-0905");
+    }
+
+    #[test]
+    fn kimi_k2_instruct_alias_uses_openrouter_endpoint() {
+        let cfg = ModelConfig::from_alias("kimi-k2-instruct");
+        assert_eq!(
+            cfg.base_url,
+            "https://openrouter.ai/api/v1/chat/completions"
+        );
+        assert_eq!(cfg.env_key, "OPENROUTER_API_KEY");
     }
 }

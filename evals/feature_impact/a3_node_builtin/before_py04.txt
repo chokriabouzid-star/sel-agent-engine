@@ -1,0 +1,4 @@
+[5.9s] ⚡ Executing  step 3/5 (run: venv/bin/pip install)
+    pip install needs package name: e.g. venv/bin/pip3 install pytest
+[6.7s] ⚡ Executing  step 2/5 (run: venv/bin/pip install pytest)
+ → ✅ (18.2s, 1 repairs, 80pts)

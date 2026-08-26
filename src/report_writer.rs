@@ -20,6 +20,7 @@ impl ReportWriter {
         Self::new(dir)
     }
 
+    #[allow(dead_code)] // accessor reserved for report backend introspection and future CLI/report tooling
     pub fn dir(&self) -> &Path {
         &self.dir
     }

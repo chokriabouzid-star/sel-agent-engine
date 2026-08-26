@@ -12,6 +12,7 @@ use crate::dependency_graph::{DependencyGraph, EdgeKind, FileNode, GraphLanguage
 use std::path::{Path, PathBuf};
 
 pub trait LanguageParser {
+    #[allow(dead_code)]
     fn language(&self) -> GraphLanguage;
     fn parse_file(&self, path: &Path, workspace: &Path) -> Option<FileNode>;
     fn resolve_import(&self, raw: &str, from_file: &Path, workspace: &Path) -> Option<PathBuf>;
@@ -51,6 +52,7 @@ pub fn build_graph_for_files(
     graph
 }
 
+#[allow(dead_code)]
 pub fn canonicalize_workspace_path(path: &Path, workspace: &Path) -> PathBuf {
     if path.is_absolute() {
         path.to_path_buf()

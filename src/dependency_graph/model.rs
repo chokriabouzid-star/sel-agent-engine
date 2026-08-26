@@ -55,8 +55,11 @@ pub enum GraphLanguage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EdgeKind {
     Import,
+    #[allow(dead_code)]
     ReExport,
+    #[allow(dead_code)]
     Module,
+    #[allow(dead_code)]
     TypeOnly,
 }
 

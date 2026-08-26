@@ -550,6 +550,39 @@ mod tests {
     }
 
     #[test]
+    fn test_build_prompt_uses_constitution_no_modify_tests_error() {
+        let ctx = RepairCtx {
+            source_files: vec!["main.py".into()],
+            test_files: vec!["test_existing.py".into()],
+            source_file: "main.py".into(),
+            function_name: "main".into(),
+            prev_errors: vec![],
+        };
+
+        let error = crate::constitution::check_write(
+            &PathBuf::from("test_existing.py"),
+            "assert True\n",
+            true,
+        )
+        .unwrap_err()
+        .to_string();
+
+        let prompt = build_prompt(
+            1,
+            &error,
+            &ctx,
+            None,
+            &crate::pattern_library::RepairRoute::Generic,
+        );
+
+        assert!(prompt.contains("CRITICAL CONSTRAINT VIOLATION."));
+        assert!(prompt.contains("You attempted to modify a protected test file."));
+        assert!(prompt.contains("NEVER write or patch any test file: [test_existing.py]."));
+        assert!(prompt.contains("Fix SOURCE files ONLY: [main.py]."));
+        assert!(prompt.contains(&error));
+    }
+
+    #[test]
     fn test_truncate_pattern_example_adds_ellipsis() {
         let long = "x".repeat(200);
         let out = truncate_pattern_example(&long, 20);

@@ -1,8 +1,6 @@
-#![allow(dead_code)]
 mod bench_cases;
 mod bench_compile;
 mod bench_realworld;
-mod bench_suite;
 mod failure;
 pub mod llm;
 mod trajectory_index;
@@ -13,7 +11,6 @@ mod chunker;
 mod constraint_engine;
 mod context;
 mod environment;
-mod evaluator;
 mod executor;
 mod goal_parser;
 
@@ -25,7 +22,6 @@ pub mod cost;
 mod decision;
 mod dependency_graph;
 pub mod diagnostic;
-mod manifest;
 mod memory;
 mod pattern_library;
 mod protocol;
@@ -112,13 +108,6 @@ async fn main() -> Result<()> {
         }
         Commands::Scan { workspace, json } => {
             commands::cmd_scan(&workspace, json);
-        }
-        Commands::Compare {
-            models,
-            suite,
-            max_repairs,
-        } => {
-            commands::run_compare(&models, &suite, max_repairs).await?;
         }
         Commands::Plan {
             workspace,

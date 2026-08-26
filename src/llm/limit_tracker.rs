@@ -2,8 +2,8 @@ use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct LimitTracker {
-    daily_dead: HashSet<String>,                            //
-    rpm_dead_until: std::collections::HashMap<String, u64>, //  X
+    daily_dead: HashSet<String>,
+    rpm_dead_until: std::collections::HashMap<String, u64>,
     rejected_this_session: HashSet<String>, // deterministic provider rejections — never persisted to disk, cleared on next process run
 }
 
@@ -71,5 +71,36 @@ impl LimitTracker {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mark_rejected_makes_provider_unavailable_this_session() {
+        let mut t = LimitTracker::new();
+        assert!(t.is_available("Gemini"));
+        t.mark_rejected("Gemini");
+        assert!(!t.is_available("Gemini"));
+    }
+
+    #[test]
+    fn mark_rejected_does_not_affect_other_providers() {
+        let mut t = LimitTracker::new();
+        t.mark_rejected("Gemini");
+        assert!(t.is_available("Groq"));
+        assert!(t.is_available("GitHub"));
+    }
+
+    #[test]
+    fn mark_rejected_is_independent_of_daily_and_rpm_state() {
+        let mut t = LimitTracker::new();
+        t.mark_daily("Cerebras");
+        t.mark_rejected("Gemini");
+        assert!(!t.is_available("Cerebras")); // daily — unaffected by this change
+        assert!(!t.is_available("Gemini")); // rejected — new behavior
+        assert!(t.is_available("Groq")); // untouched
     }
 }

@@ -6,6 +6,22 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+fn is_test_like_command(s: &str) -> bool {
+    let t = s.trim();
+    t.starts_with("venv/bin/pytest")
+        || t == "pytest"
+        || t.starts_with("pytest ")
+        || t.starts_with("python -m pytest")
+        || t.starts_with("python3 -m pytest")
+        || t.starts_with("venv/bin/python -m pytest")
+        || t.starts_with("venv/bin/python3 -m pytest")
+        || t.starts_with("cargo test")
+        || t.starts_with("go test")
+        || t == "npm test"
+        || t.starts_with("npm test ")
+        || t.starts_with("npx jest")
+}
+
 #[derive(Debug, Error)]
 pub enum ProtocolError {
     #[error("no JSON block found in LLM output")]
@@ -58,9 +74,16 @@ impl AgentCommand {
     /// Convert raw command to typed Cmd
     pub fn into_cmd(self) -> Option<Cmd> {
         match self.action.as_str() {
-            "run" => Some(Cmd::Run {
-                command: self.command,
-            }),
+            "run" => {
+                let trimmed = self.command.trim().to_string();
+                if is_test_like_command(&trimmed) {
+                    Some(Cmd::RunTests { target: trimmed })
+                } else {
+                    Some(Cmd::Run {
+                        command: self.command,
+                    })
+                }
+            }
             "write_file" | "write" => Some(Cmd::WriteFile {
                 path: self.path,
                 content: unescape_json_string(&self.content),
@@ -183,12 +206,14 @@ impl Cmd {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentResponseRaw {
     #[serde(default)]
+    #[allow(dead_code)]
     pub plan: String,
     pub commands: Vec<AgentCommand>,
 }
 
 #[derive(Debug, Clone)]
 pub struct AgentResponse {
+    #[allow(dead_code)]
     pub plan: String,
     pub commands: Vec<Cmd>,
 }
@@ -328,7 +353,8 @@ mod tests {
     fn test_parse_markdown_fenced() {
         let input = "Fix:\n```json\n{\"plan\":\"x\",\"commands\":[{\"action\":\"run\",\"command\":\"go test\"}]}\n```\n";
         let resp = parse(input).expect("test setup/use should succeed");
-        assert!(matches!(resp.commands[0], Cmd::Run { .. }));
+        // go test is a test command: canonicalized to RunTests by is_test_like_command
+        assert!(matches!(resp.commands[0], Cmd::RunTests { .. }));
     }
 
     #[test]

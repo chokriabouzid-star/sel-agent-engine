@@ -141,6 +141,7 @@ fn memory_path() -> PathBuf {
     }
 }
 
+#[allow(dead_code)]
 fn today_str() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -159,6 +160,7 @@ impl FailureMemory {
         }
     }
 
+    #[allow(dead_code)]
     pub fn save(&self) {
         let path = memory_path();
         if let Ok(json) = serde_json::to_string_pretty(self) {
@@ -167,6 +169,7 @@ impl FailureMemory {
     }
 
     ///  repair    normalized_hash
+    #[allow(dead_code)]
     pub fn record_success(&mut self, failure_kind: &str, error_sig: &str, fix_summary: &str) {
         let normalized = normalize_error(error_sig);
         let hash = hash_normalized(&normalized);

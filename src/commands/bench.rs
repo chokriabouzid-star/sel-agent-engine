@@ -102,7 +102,7 @@ pub async fn run_bench(
         }
         for (i, case) in cases.iter().enumerate() {
             let completed = iter as usize * total + i;
-            if completed > 0 && delay > 0 {
+            if !replay && completed > 0 && delay > 0 {
                 println!("   ⏳ Cooling down {}s before next task...", delay);
                 tokio::time::sleep(Duration::from_secs(delay)).await;
             }

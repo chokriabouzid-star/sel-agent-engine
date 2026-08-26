@@ -46,6 +46,7 @@ const PACKAGE_JSON_TS: &str = r#"{
 }"#;
 
 // v8.4.2: axios pinned version for TypeScript HTTP client tasks
+#[allow(dead_code)] // v8.4.2: pinned axios version for TypeScript HTTP client scaffold tasks
 const AXIOS_VERSION: &str = "1.6.7";
 
 const TSCONFIG_JSON: &str = r#"{
@@ -94,6 +95,96 @@ pub fn get_cache_dir() -> std::path::PathBuf {
     dirs::cache_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("~/.cache"))
         .join("sel-agent/scaffold")
+}
+
+fn python_module_name_for_dep(dep: &str) -> &str {
+    match dep {
+        "fastapi" => "fastapi",
+        "uvicorn[standard]" => "uvicorn",
+        "flask" => "flask",
+        "httpx" => "httpx",
+        "requests" => "requests",
+        _ => dep,
+    }
+}
+
+async fn restore_python_venv_from_path(
+    cached_venv: &Path,
+    workspace: &Path,
+    extra_deps: &[String],
+    replay_mode: bool,
+) -> Result<Vec<String>, String> {
+    if !(cached_venv.exists() && cached_venv.join("bin/pytest").exists()) {
+        let msg = if replay_mode {
+            "REPLAY_ENV_MISMATCH: cached Python venv unavailable during replay".to_string()
+        } else {
+            "cached Python venv unavailable".to_string()
+        };
+        return Err(msg);
+    }
+
+    let target = workspace.join("venv");
+    if !target.exists() {
+        let _ = std::os::unix::fs::symlink(cached_venv, &target);
+        println!("   ⚡ Scaffold cache hit: venv symlinked");
+    }
+
+    if !extra_deps.is_empty() {
+        let mut missing_deps = vec![];
+        for dep in extra_deps {
+            let module_name = python_module_name_for_dep(dep);
+            let out = tokio::process::Command::new("venv/bin/python3")
+                .args(["-c", &format!("import {}", module_name)])
+                .current_dir(workspace)
+                .output()
+                .await;
+
+            if !out.map(|o| o.status.success()).unwrap_or(false) {
+                missing_deps.push(dep.clone());
+            }
+        }
+
+        if !missing_deps.is_empty() {
+            if replay_mode {
+                let msg = if missing_deps.len() == 1 {
+                    format!(
+                        "REPLAY_ENV_MISMATCH: python package '{}' missing from cached venv during replay",
+                        missing_deps[0]
+                    )
+                } else {
+                    format!(
+                        "REPLAY_ENV_MISMATCH: python packages missing from cached venv during replay: {}",
+                        missing_deps.join(", ")
+                    )
+                };
+                return Err(msg);
+            }
+
+            println!(
+                "    Cache hit: installing missing extra deps: {}",
+                missing_deps.join(", ")
+            );
+            let mut pip_args = vec!["install", "-q"];
+            let extra_refs: Vec<&str> = missing_deps.iter().map(|s| s.as_str()).collect();
+            pip_args.extend(extra_refs);
+            let _ = tokio::process::Command::new("venv/bin/pip")
+                .args(&pip_args)
+                .current_dir(workspace)
+                .output()
+                .await;
+        }
+    }
+
+    Ok(vec!["venv".to_string()])
+}
+
+pub async fn restore_python_venv_from_cache(
+    workspace: &Path,
+    extra_deps: &[String],
+    replay_mode: bool,
+) -> Result<Vec<String>, String> {
+    let cached_venv = get_cache_dir().join("python/venv");
+    restore_python_venv_from_path(&cached_venv, workspace, extra_deps, replay_mode).await
 }
 
 async fn prepare_from_cache(workspace: &Path, goal: &str) -> ScaffoldResult {
@@ -186,75 +277,20 @@ async fn prepare_from_cache(workspace: &Path, goal: &str) -> ScaffoldResult {
             res
         }
         ProjectKind::Python => {
-            let cached_venv = cache_dir.join("python/venv");
-            if cached_venv.exists() && cached_venv.join("bin/pytest").exists() {
-                let target = workspace.join("venv");
-                if !target.exists() {
-                    let _ = std::os::unix::fs::symlink(&cached_venv, &target);
-                    println!("   ⚡ Scaffold cache hit: venv symlinked");
-                }
-                if !parsed.extra_deps.is_empty() {
-                    // v7.5.7: Offline Replay Check - only install if missing
-                    let mut missing_deps = vec![];
-                    for dep in &parsed.extra_deps {
-                        let module_name = match dep.as_str() {
-                            "fastapi" => "fastapi",
-                            "uvicorn[standard]" => "uvicorn",
-                            "flask" => "flask",
-                            "httpx" => "httpx",
-                            "requests" => "requests",
-                            _ => dep.as_str(),
-                        };
-                        let out = tokio::process::Command::new("venv/bin/python3")
-                            .args(["-c", &format!("import {}", module_name)])
-                            .current_dir(workspace)
-                            .output()
-                            .await;
-
-                        if !out.map(|o| o.status.success()).unwrap_or(false) {
-                            missing_deps.push(dep.clone());
-                        }
-                    }
-
-                    if !missing_deps.is_empty() {
-                        println!(
-                            "    Cache hit: installing missing extra deps: {}",
-                            missing_deps.join(", ")
-                        );
-                        let mut pip_args = vec!["install", "-q"];
-                        let extra_refs: Vec<&str> =
-                            missing_deps.iter().map(|s| s.as_str()).collect();
-                        pip_args.extend(extra_refs);
-                        let _ = tokio::process::Command::new("venv/bin/pip")
-                            .args(&pip_args)
-                            .current_dir(workspace)
-                            .output()
-                            .await;
-                    }
-                }
-                return ScaffoldResult {
+            match restore_python_venv_from_cache(workspace, &parsed.extra_deps, true).await {
+                Ok(created) => ScaffoldResult {
                     kind: ProjectKind::Python,
                     ready: true,
                     logic_hint: build_py_logic_hint(workspace),
-                    files_created: vec!["venv".to_string()],
-                };
+                    files_created: created,
+                },
+                Err(msg) => ScaffoldResult {
+                    kind: ProjectKind::Python,
+                    ready: false,
+                    logic_hint: msg,
+                    files_created: vec![],
+                },
             }
-            let res = scaffold_python(workspace, &parsed.extra_deps).await;
-            if workspace.join("venv").exists() && res.ready {
-                if let Some(parent) = cached_venv.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                let _ = tokio::process::Command::new("rm")
-                    .args(["-rf", cached_venv.to_str().unwrap_or_default()])
-                    .output()
-                    .await;
-                let _ = tokio::process::Command::new("cp")
-                    .args(["-R", "venv", cached_venv.to_str().unwrap_or_default()])
-                    .current_dir(workspace)
-                    .output()
-                    .await;
-            }
-            res
         }
         _ => {
             // For other types, or if Unknown, fallback to normal prepare
@@ -573,4 +609,103 @@ fn build_py_logic_hint(workspace: &Path) -> String {
         Test command: venv/bin/pytest -v --tb=short\n",
         workspace.display()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    use tempfile::tempdir;
+
+    fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime")
+            .block_on(fut)
+    }
+
+    fn write_fake_cached_python_venv(
+        cache_root: &Path,
+        importable_modules: &[&str],
+    ) -> std::path::PathBuf {
+        let cached_venv = cache_root.join("python/venv");
+        let bin_dir = cached_venv.join("bin");
+        std::fs::create_dir_all(&bin_dir).expect("test setup/use should succeed");
+
+        let pytest = bin_dir.join("pytest");
+        std::fs::write(&pytest, "#!/bin/sh\nexit 0\n").expect("test setup/use should succeed");
+
+        let python = bin_dir.join("python3");
+        let mut script = String::from("#!/bin/sh\ncase \"$2\" in\n");
+        for module in importable_modules {
+            script.push_str(&format!("  \"import {}\") exit 0 ;;\n", module));
+        }
+        script.push_str("  *) exit 1 ;;\nesac\n");
+        std::fs::write(&python, script).expect("test setup/use should succeed");
+
+        for path in [&pytest, &python] {
+            let mut perms = std::fs::metadata(path)
+                .expect("test setup/use should succeed")
+                .permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(path, perms).expect("test setup/use should succeed");
+        }
+
+        cached_venv
+    }
+
+    #[test]
+    fn restore_python_venv_from_cache_succeeds_when_all_deps_cached() {
+        let workspace = tempdir().expect("test setup/use should succeed");
+        let cache_root = tempdir().expect("test setup/use should succeed");
+        let cached_venv = write_fake_cached_python_venv(cache_root.path(), &["requests"]);
+
+        let created = block_on(restore_python_venv_from_path(
+            &cached_venv,
+            workspace.path(),
+            &[String::from("requests")],
+            true,
+        ))
+        .expect("expected cached replay env to restore successfully");
+
+        assert_eq!(created, vec!["venv".to_string()]);
+        assert!(workspace.path().join("venv/bin/pytest").exists());
+    }
+
+    #[test]
+    fn restore_python_venv_from_cache_fails_loudly_when_dep_missing_in_replay() {
+        let workspace = tempdir().expect("test setup/use should succeed");
+        let cache_root = tempdir().expect("test setup/use should succeed");
+        let cached_venv = write_fake_cached_python_venv(cache_root.path(), &[]);
+
+        let err = block_on(restore_python_venv_from_path(
+            &cached_venv,
+            workspace.path(),
+            &[String::from("requests")],
+            true,
+        ))
+        .expect_err("expected replay env mismatch when dep is missing from cached venv");
+
+        assert!(err.contains("REPLAY_ENV_MISMATCH"));
+        assert!(err.contains("requests"));
+    }
+
+    #[test]
+    fn restore_python_venv_from_cache_returns_err_when_no_cache_exists() {
+        let workspace = tempdir().expect("test setup/use should succeed");
+        let cache_root = tempdir().expect("test setup/use should succeed");
+        let missing_cached_venv = cache_root.path().join("python/venv");
+
+        let err = block_on(restore_python_venv_from_path(
+            &missing_cached_venv,
+            workspace.path(),
+            &[],
+            true,
+        ))
+        .expect_err("expected replay env mismatch when no cached venv exists");
+
+        assert!(err.contains("REPLAY_ENV_MISMATCH"));
+        assert!(err.contains("cached Python venv unavailable"));
+    }
 }

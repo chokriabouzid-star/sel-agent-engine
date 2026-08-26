@@ -41,6 +41,7 @@ impl DependencyGraph {
         self.nodes.len()
     }
 
+    #[allow(dead_code)]
     pub fn edge_count(&self) -> usize {
         self.edges.len()
     }

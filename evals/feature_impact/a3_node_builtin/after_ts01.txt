@@ -1,0 +1,3 @@
+[2.2s] ⚡ Executing  step 4/6 (run: npm install crypto)
+[TRACE] Replay mode: skipping 'npm install crypto' to preserve cached node_modules
+ → ✅ (20.8s, 1 repairs, 80pts)

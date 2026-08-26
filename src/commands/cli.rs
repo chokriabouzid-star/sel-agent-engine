@@ -86,14 +86,6 @@ pub enum Commands {
         #[arg(long, default_value_t = false)]
         json: bool,
     },
-    Compare {
-        #[arg(long, value_delimiter = ',')]
-        models: Vec<String>,
-        #[arg(long, default_value = "python")]
-        suite: String,
-        #[arg(long, default_value = "3")]
-        max_repairs: u8,
-    },
     Plan {
         #[arg(long)]
         workspace: PathBuf,

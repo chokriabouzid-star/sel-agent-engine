@@ -6,26 +6,6 @@ use crate::executor::sanitizers::*;
 use crate::types::ExecResult;
 use anyhow::Result;
 
-fn goal_authorized_test_write_allowed(p: &std::path::Path) -> bool {
-    let Ok(raw) = std::env::var("SEL_GOAL_AUTHORIZED_TESTS") else {
-        return false;
-    };
-    if raw.is_empty() {
-        return false;
-    }
-    // window مفتوح (initial plan) أو الملف المُصرَّح به لا يزال مكسورًا
-    let needle = p.to_string_lossy();
-    if !raw.lines().any(|line| line == needle) {
-        return false;
-    }
-    // الـ window مفتوح بشكل صريح
-    if std::env::var("SEL_ALLOW_GOAL_TEST_WRITES").ok().as_deref() == Some("1") {
-        return true;
-    }
-    // أو: الملف مذكور في SEL_BROKEN_AUTHORIZED_TEST (repair window)
-    std::env::var("SEL_BROKEN_AUTHORIZED_TEST").ok().as_deref() == Some("1")
-}
-
 impl SafeExecutor {
     //  File Operations
 
@@ -46,7 +26,7 @@ impl SafeExecutor {
     fn blocks_existing_spec_modification(&self, path: &str, p: &std::path::Path) -> bool {
         self.is_spec_file(path)
             && self.protected_test_files.contains(p)
-            && !goal_authorized_test_write_allowed(p)
+            && !self.goal_authorized_test_write_allowed(p)
     }
 
     pub fn write_file(&self, path: &str, content: &str) -> Result<ExecResult> {
@@ -119,15 +99,20 @@ impl SafeExecutor {
         let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("");
         // Go: أضف package declaration إذا كانت مفقودة
         let content_str = if ext == "go" {
-            fix_go_missing_package(&content_str, "main")
+            let fixed = fix_go_missing_package(&content_str, "main");
+            fix_go_backslashes(&fixed)
         } else {
             content_str
         };
         let content_str = if ext == "rs" {
             let fixed = sanitize_rust_lifetime_quotes(&content_str);
-            fix_rust_test_attributes(&fix_rust_string_literals(&fixed))
+            let fixed = fix_rust_string_literals(&fixed);
+            let fixed = fix_rust_string_types(&fixed);
+            fix_rust_test_attributes(&fixed)
         } else if ext == "py" {
-            fix_python_string_quoting(&content_str)
+            let s = fix_python_string_quoting(&content_str);
+            // v9.3.5: fix common decorator syntax errors (dataclass, property, etc.)
+            autofix_python_decorator_syntax(&s).unwrap_or(s)
         } else {
             content_str
         };
@@ -146,6 +131,15 @@ impl SafeExecutor {
         }
 
         std::fs::write(&p, content_str.as_bytes())?;
+
+        if path.ends_with(".py") {
+            if let Some(err) = python_syntax_check(&p) {
+                return Ok(ExecResult::fail(format!(
+                    "PYTHON SYNTAX ERROR in '{}':\n{}",
+                    path, err
+                )));
+            }
+        }
 
         // Auto-fix: if jest.config.js is written -> remove "jest" field from package.json
         if path.ends_with("jest.config.js") {
@@ -212,6 +206,15 @@ impl SafeExecutor {
                     } else if let Some(fixed) = autofix_go_undefined_import(&p, &err) {
                         println!("   ⚡ AutoFix Go import: {}", fixed);
                         changed = true;
+                    } else if err.contains("declared and not used") {
+                        // v9.3.5: fix unused variables by replacing with `_`
+                        if let Ok(source) = std::fs::read_to_string(&p) {
+                            if let Some(fixed_src) = autofix_go_unused_vars(&source, &err) {
+                                let _ = std::fs::write(&p, fixed_src.as_bytes());
+                                println!("   ⚡ AutoFix Go unused vars: replaced with _");
+                                changed = true;
+                            }
+                        }
                     } else if err.contains("redeclared in this block") {
                         // Check other .go files in workspace for the redeclared function
                         let ws = &self.workspace;
@@ -509,12 +512,17 @@ impl SafeExecutor {
             )));
         }
 
-        // auto-fix single-quote string literals in Rust files
-        let new_content = if p.extension().map(|x| x == "rs").unwrap_or(false) {
-            {
-                let fixed = sanitize_rust_lifetime_quotes(&new_content);
-                fix_rust_test_attributes(&fix_rust_string_literals(&fixed))
-            }
+        // auto-fix language-specific content issues before writing
+        let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("");
+        let new_content = if ext == "rs" {
+            let fixed = sanitize_rust_lifetime_quotes(&new_content);
+            let fixed = fix_rust_string_literals(&fixed);
+            let fixed = fix_rust_string_types(&fixed);
+            fix_rust_test_attributes(&fixed)
+        } else if ext == "go" {
+            fix_go_backslashes(&new_content)
+        } else if ext == "py" {
+            fix_python_string_quoting(&new_content)
         } else {
             new_content
         };

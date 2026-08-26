@@ -1,45 +1,14 @@
+use crate::executor::run_policy::{preflight_shell, ShellPolicyDecision};
 use crate::protocol::Cmd;
 use crate::types::ExecResult;
 use crate::workspace_oracle::WorkspaceOracle;
 use anyhow::{anyhow, Result};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::RwLock;
 use std::time::{Duration, Instant};
 use tokio::process::Command as TCmd;
-
-pub const ALLOWED: &[&str] = &[
-    "python3",
-    "python",
-    "venv/bin/python3",
-    "venv/bin/python",
-    "venv/bin/pip3",
-    "venv/bin/pip",
-    "venv/bin/uvicorn",
-    "venv/bin/gunicorn",
-    "venv/bin/pytest",
-    "pytest",
-    "node",
-    "npm",
-    "npx",
-    "node_modules/.bin/jest",
-    "cargo",
-    "rustc",
-    "git",
-    "go",
-    "mkdir",
-    "touch",
-    "ls",
-    "cat",
-    "cp",
-    "mv",
-    "echo",
-    "find",
-    "grep",
-    "curl",
-    "chmod",
-    "node",
-    "npm",
-];
 
 pub const BLOCKED: &[&str] = &[
     "sudo",
@@ -63,6 +32,9 @@ pub struct SafeExecutor {
     pub bench_mode: bool,  // v8.5: run-mode hint
     pub protected_test_files: HashSet<PathBuf>, // tests present before agent writes anything
     pub patch_attempts: std::cell::RefCell<HashMap<PathBuf, usize>>, // v5.2: track patch failures
+    goal_authorized_test_files: RwLock<HashSet<PathBuf>>,
+    allow_goal_test_writes: AtomicBool,
+    broken_authorized_test_repair: AtomicBool,
 }
 
 fn shell_single_quote(s: &str) -> String {
@@ -98,7 +70,57 @@ impl SafeExecutor {
             bench_mode: false,
             protected_test_files: HashSet::new(),
             patch_attempts: std::cell::RefCell::new(HashMap::new()),
+            goal_authorized_test_files: RwLock::new(HashSet::new()),
+            allow_goal_test_writes: AtomicBool::new(false),
+            broken_authorized_test_repair: AtomicBool::new(false),
         }
+    }
+
+    #[allow(dead_code)] // used from bin target (agent.rs); appears unused in lib target
+    pub(crate) fn set_goal_authorized_test_files(&self, paths: &[PathBuf]) {
+        let mut guard = self
+            .goal_authorized_test_files
+            .write()
+            .expect("goal-authorized test files lock poisoned");
+        guard.clear();
+        guard.extend(paths.iter().cloned());
+    }
+
+    #[allow(dead_code)] // used from bin target (agent.rs); appears unused in lib target
+    pub(crate) fn clear_goal_authorized_test_files(&self) {
+        let mut guard = self
+            .goal_authorized_test_files
+            .write()
+            .expect("goal-authorized test files lock poisoned");
+        guard.clear();
+    }
+
+    #[allow(dead_code)] // used from bin target (agent.rs); appears unused in lib target
+    pub(crate) fn set_allow_goal_test_writes(&self, allow: bool) {
+        self.allow_goal_test_writes.store(allow, Ordering::Relaxed);
+    }
+
+    #[allow(dead_code)] // used from bin target (agent.rs); appears unused in lib target
+    pub(crate) fn set_broken_authorized_test_repair(&self, allow: bool) {
+        self.broken_authorized_test_repair
+            .store(allow, Ordering::Relaxed);
+    }
+
+    pub(crate) fn goal_authorized_test_write_allowed(&self, path: &std::path::Path) -> bool {
+        let guard = self
+            .goal_authorized_test_files
+            .read()
+            .expect("goal-authorized test files lock poisoned");
+
+        if !guard.contains(path) {
+            return false;
+        }
+
+        if self.allow_goal_test_writes.load(Ordering::Relaxed) {
+            return true;
+        }
+
+        self.broken_authorized_test_repair.load(Ordering::Relaxed)
     }
 
     pub async fn run(&self, cmd: &Cmd) -> Result<ExecResult> {
@@ -135,39 +157,32 @@ impl SafeExecutor {
             command
         };
 
-        let parts: Vec<&str> = command.split_whitespace().collect();
-        let prog = parts.first().ok_or_else(|| anyhow!("Empty command"))?;
+        let decision = preflight_shell(command, &self.workspace, self.replay_mode)?;
 
-        //  pip install  package name
-        if prog.contains("pip3") || prog.contains("pip") {
-            let is_install = parts.contains(&"install");
-            let has_package = parts.len() > 2 && parts.iter().skip(2).any(|p| !p.starts_with('-'));
-            if is_install && !has_package {
-                return Ok(ExecResult::fail(
-                    "pip install needs package name: e.g. venv/bin/pip3 install pytest".to_string(),
-                ));
+        let (prog, args) = match decision {
+            ShellPolicyDecision::Return(result) => return Ok(result),
+            ShellPolicyDecision::Service { prog, args } => {
+                return self.service(&prog, &args).await;
             }
-        }
+            ShellPolicyDecision::Execute { prog, args } => (prog, args),
+        };
 
-        // v8.4: Allow workspace-local binaries (./main, ./server, target/debug/*)
-        let is_local_binary = prog.starts_with("./") || prog.starts_with("target/");
-        if !is_local_binary && !ALLOWED.contains(prog) {
-            return Ok(ExecResult::fail(format!(
-                "'{}' is not in the allowed programs list",
-                prog
-            )));
-        }
-
-        let services = ["venv/bin/uvicorn", "uvicorn", "venv/bin/gunicorn"];
-        if services.contains(prog) {
-            return self.service(prog, &parts[1..]).await;
-        }
+        let prog_to_exec = if prog.contains('/') {
+            let abs = self.workspace.join(&prog);
+            if abs.exists() {
+                abs.to_string_lossy().to_string()
+            } else {
+                prog.clone()
+            }
+        } else {
+            prog.clone()
+        };
 
         let start = Instant::now();
         let out = tokio::time::timeout(
             Duration::from_secs(self.timeout_secs),
-            TCmd::new(prog)
-                .args(&parts[1..])
+            TCmd::new(&prog_to_exec)
+                .args(&args)
                 .current_dir(&self.workspace)
                 .output(),
         )
@@ -184,7 +199,7 @@ impl SafeExecutor {
         })
     }
 
-    async fn service(&self, prog: &str, args: &[&str]) -> Result<ExecResult> {
+    async fn service(&self, prog: &str, args: &[String]) -> Result<ExecResult> {
         println!("   🚀 Service: {}", prog);
         TCmd::new(prog)
             .args(args)
@@ -206,6 +221,10 @@ impl SafeExecutor {
     }
 
     pub fn safety_check(&self, cmd: &str) -> Result<()> {
+        if let Err(e) = crate::constitution::check_command(cmd) {
+            return Err(anyhow!(e.to_string()));
+        }
+
         let lower = cmd.to_lowercase();
         for b in BLOCKED {
             if lower.contains(b) {
@@ -223,6 +242,27 @@ mod tests {
 
     pub fn ex(dir: &std::path::Path) -> SafeExecutor {
         SafeExecutor::new(dir.to_path_buf(), 10)
+    }
+
+    #[test]
+    pub fn goal_authorized_test_policy_requires_membership_and_window() {
+        let d = tempdir().expect("test setup/use should succeed");
+        let e = ex(d.path());
+        let test_file = d.path().join("main_test.go");
+
+        e.set_goal_authorized_test_files(std::slice::from_ref(&test_file));
+        assert!(!e.goal_authorized_test_write_allowed(&test_file));
+
+        e.set_allow_goal_test_writes(true);
+        assert!(e.goal_authorized_test_write_allowed(&test_file));
+
+        e.set_allow_goal_test_writes(false);
+        e.set_broken_authorized_test_repair(true);
+        assert!(e.goal_authorized_test_write_allowed(&test_file));
+
+        e.set_broken_authorized_test_repair(false);
+        e.clear_goal_authorized_test_files();
+        assert!(!e.goal_authorized_test_write_allowed(&test_file));
     }
 
     #[test]
@@ -268,5 +308,78 @@ mod tests {
             .expect("test setup/use should succeed");
         assert!(r.success);
         assert!(r.stdout.contains("hello"));
+    }
+
+    #[tokio::test]
+    pub async fn replay_skips_npm_install_when_node_modules_exists() {
+        let d = tempdir().expect("test setup/use should succeed");
+        std::fs::create_dir_all(d.path().join("node_modules"))
+            .expect("test setup/use should succeed");
+
+        let mut e = ex(d.path());
+        e.replay_mode = true;
+
+        let r = e
+            .run(&Cmd::Run {
+                command: "npm install crypto".into(),
+            })
+            .await
+            .expect("test setup/use should succeed");
+
+        assert!(r.success);
+        assert!(
+            r.stdout.contains("skipped npm dependency mutation")
+                || r.stderr.contains("skipped npm dependency mutation")
+        );
+    }
+
+    #[tokio::test]
+    pub async fn replay_rejects_npm_install_without_node_modules() {
+        let d = tempdir().expect("test setup/use should succeed");
+
+        let mut e = ex(d.path());
+        e.replay_mode = true;
+
+        let r = e
+            .run(&Cmd::Run {
+                command: "npm install crypto".into(),
+            })
+            .await
+            .expect("test setup/use should succeed");
+
+        assert!(!r.success);
+        assert!(
+            r.stdout.contains("REPLAY_ENV_MISMATCH") || r.stderr.contains("REPLAY_ENV_MISMATCH")
+        );
+    }
+
+    #[tokio::test]
+    pub async fn live_rejects_npm_install_builtin_module() {
+        let d = tempdir().expect("test setup/use should succeed");
+        let e = ex(d.path());
+
+        let r = e
+            .run(&Cmd::Run {
+                command: "npm install crypto".into(),
+            })
+            .await
+            .expect("test setup/use should succeed");
+
+        assert!(!r.success);
+        assert!(r.stdout.contains("Node.js built-in") || r.stderr.contains("Node.js built-in"));
+    }
+
+    #[test]
+    pub fn blocks_constitution_network_command() {
+        let d = tempdir().expect("test setup/use should succeed");
+        let e = ex(d.path());
+        assert!(e.safety_check("curl https://example.com").is_err());
+    }
+
+    #[test]
+    pub fn allows_safe_test_command() {
+        let d = tempdir().expect("test setup/use should succeed");
+        let e = ex(d.path());
+        assert!(e.safety_check("cargo test").is_ok());
     }
 }

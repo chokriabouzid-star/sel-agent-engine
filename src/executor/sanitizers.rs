@@ -118,6 +118,7 @@ pub fn fix_rust_test_attributes(src: &str) -> String {
 }
 
 /// v8.0  Fix Llama writing `-go 1.21` instead of `go 1.21` in go.mod files
+#[allow(dead_code)] // v9.x: Go module sanitizer — reserved for go.mod repair path
 pub fn sanitize_go_mod_content(content: &str) -> String {
     let fixed: Vec<String> = content
         .lines()
@@ -141,10 +142,12 @@ pub fn sanitize_go_mod_content(content: &str) -> String {
     result
 }
 
+#[allow(dead_code)] // v9.x: Go module name extractor — reserved for go.mod repair path
 pub fn sanitize_go_module_name(cmd: &str) -> String {
     cmd.replace("go mod init main", "go mod init sel_tmp")
 }
 
+#[allow(dead_code)] // v9.x: Go module name from stderr — reserved for go.mod autofix
 pub fn extract_module_name(stderr: &str) -> Option<String> {
     stderr
         .lines()
@@ -225,6 +228,7 @@ pub fn fix_python_string_quoting(src: &str) -> String {
     out
 }
 
+#[allow(dead_code)] // documented in SEL_AGENT_REFERENCE_v9.3.2 — Cargo.toml duplicate key fix
 pub fn fix_toml_duplicates(src: &str) -> String {
     // v7.5: Basic fix for duplicate keys in [package] section of Cargo.toml
     let lines: Vec<String> = src.lines().map(|s| s.to_string()).collect();

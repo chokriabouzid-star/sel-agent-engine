@@ -56,7 +56,7 @@ impl LLMProvider for ReplayProvider {
                      Recorded: {} | Current: {}\n   \
                      Run with --record to refresh fixtures.",
                 &record.constitution_hash.chars().take(8).collect::<String>(),
-                &current_hash.chars().take(8).collect::<String>()
+                current_hash.chars().take(8).collect::<String>()
             );
         }
 

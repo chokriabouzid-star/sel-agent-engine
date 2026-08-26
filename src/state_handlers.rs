@@ -8,15 +8,34 @@ use std::path::Path;
 
 fn plan_risk_feedback(workspace: &Path, commands: &[Cmd]) -> Vec<String> {
     let enabled = std::env::var_os("SEL_DISABLE_PLAN_RISK").is_none();
-    plan_risk_feedback_with_flag(workspace, commands, enabled)
+    plan_risk_feedback_with_options(workspace, commands, enabled, false)
 }
 
+#[allow(dead_code)] // used in test assertions for plan_risk toggle verification
 fn plan_risk_feedback_with_flag(workspace: &Path, commands: &[Cmd], enabled: bool) -> Vec<String> {
+    plan_risk_feedback_with_options(workspace, commands, enabled, false)
+}
+
+fn plan_risk_feedback_with_goal_authorized(
+    workspace: &Path,
+    commands: &[Cmd],
+    skip_existing_test_risk: bool,
+) -> Vec<String> {
+    let enabled = std::env::var_os("SEL_DISABLE_PLAN_RISK").is_none();
+    plan_risk_feedback_with_options(workspace, commands, enabled, skip_existing_test_risk)
+}
+
+fn plan_risk_feedback_with_options(
+    workspace: &Path,
+    commands: &[Cmd],
+    enabled: bool,
+    skip_existing_test_risk: bool,
+) -> Vec<String> {
     if !enabled {
         return Vec::new();
     }
 
-    if std::env::var_os("SEL_GOAL_AUTHORIZED_TESTS").is_some() {
+    if skip_existing_test_risk {
         eprintln!("[TRACE] plan_risk: skipped for explicit goal-authorized existing test edits");
         // Still check plan size even when skipping full plan_risk
         return crate::decision::check_plan_size(commands);
@@ -51,12 +70,24 @@ fn record_plan_risk_telemetry(
 // PLANNING
 //
 
+#[allow(dead_code)] // public wrapper for do_planning_with_goal_authorized_test_edits — reserved for external callers
 pub async fn do_planning(
     ctx: &mut ExecutionContext,
     llm: &dyn LLMProvider,
     goal: &str,
     workspace: &Path,
     config: &ContextConfig,
+) -> Result<(Vec<Cmd>, AgentState)> {
+    do_planning_with_goal_authorized_test_edits(ctx, llm, goal, workspace, config, false).await
+}
+
+pub(crate) async fn do_planning_with_goal_authorized_test_edits(
+    ctx: &mut ExecutionContext,
+    llm: &dyn LLMProvider,
+    goal: &str,
+    workspace: &Path,
+    config: &ContextConfig,
+    has_goal_authorized_test_edits: bool,
 ) -> Result<(Vec<Cmd>, AgentState)> {
     if let Some(reason) = crate::decision::validate_goal(goal) {
         return Ok((Vec::new(), AgentState::Failed(reason.to_string())));
@@ -106,7 +137,11 @@ pub async fn do_planning(
             issues.extend(patch_issues);
             issues.extend(crate::decision::validate_protected_writes(&commands));
 
-            let plan_risk_issues = plan_risk_feedback(workspace, &commands);
+            let plan_risk_issues = plan_risk_feedback_with_goal_authorized(
+                workspace,
+                &commands,
+                has_goal_authorized_test_edits,
+            );
             record_plan_risk_telemetry(ctx, &commands, &plan_risk_issues);
             issues.extend(plan_risk_issues);
 
@@ -512,6 +547,197 @@ fn edited_path_from_cmd(cmd: &Cmd) -> Option<&str> {
 // EXECUTING
 //
 
+fn should_reject_missing_tests_success(
+    ctx: &ExecutionContext,
+    workspace: &std::path::Path,
+) -> bool {
+    if ctx.skip_mutation || ctx.mutations_total > 0 {
+        return false;
+    }
+
+    let cargo_ws = crate::executor::autofix::find_cargo_workspace(workspace);
+    if cargo_ws.join("Cargo.toml").exists() {
+        let mut placeholder_count = 0usize;
+        let mut test_marker_count = 0usize;
+
+        for entry in walkdir::WalkDir::new(&cargo_ws)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+                continue;
+            }
+            let Ok(content) = std::fs::read_to_string(path) else {
+                continue;
+            };
+            placeholder_count += content.matches("test_stub_placeholder").count();
+            test_marker_count += content.matches("test]").count();
+        }
+
+        if placeholder_count > 0 && test_marker_count == placeholder_count {
+            return true;
+        }
+    }
+
+    let mut local_stems = Vec::new();
+    let mut test_files = Vec::new();
+
+    for entry in walkdir::WalkDir::new(workspace)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if !["rs", "py", "go", "ts", "js"].contains(&ext) {
+            continue;
+        }
+
+        let path_str = path.to_string_lossy();
+        if path_str.contains("/venv/")
+            || path_str.contains("/node_modules/")
+            || path_str.contains("/target/")
+        {
+            continue;
+        }
+
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        if name.contains("test") || name.ends_with(".spec.ts") || name.ends_with(".spec.js") {
+            test_files.push(path.to_path_buf());
+        } else {
+            if let Some(stem) = path.file_stem() {
+                local_stems.push(stem.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    let mut has_real_assertions = false;
+    let mut has_local_imports = false;
+
+    for test_path in &test_files {
+        let ext = test_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let Ok(content) = std::fs::read_to_string(test_path) else {
+            continue;
+        };
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            match ext {
+                "py" => {
+                    if (trimmed.starts_with("assert ")
+                        && !trimmed.starts_with("assert True")
+                        && !trimmed.starts_with("assert 1 == 1"))
+                        || trimmed.starts_with("self.assert")
+                    {
+                        has_real_assertions = true;
+                    }
+                    for stem in &local_stems {
+                        if line.contains(&format!("import {}", stem))
+                            || line.contains(&format!("from {}", stem))
+                        {
+                            has_local_imports = true;
+                        }
+                    }
+                }
+                "ts" | "js" => {
+                    if trimmed.contains("expect(")
+                        || trimmed.contains("assert.")
+                        || trimmed.contains("assert(")
+                        || trimmed.contains("console.assert")
+                    {
+                        has_real_assertions = true;
+                    }
+                    for stem in &local_stems {
+                        if line.contains(&format!("from './{}'", stem))
+                            || line.contains(&format!("from \"./{}\"", stem))
+                            || line.contains(&format!("require('./{}')", stem))
+                            || line.contains(&format!("require(\"./{}\")", stem))
+                        {
+                            has_local_imports = true;
+                        }
+                    }
+                }
+                "rs" => {
+                    if trimmed.contains("assert!(")
+                        || trimmed.contains("assert_eq!(")
+                        || trimmed.contains("assert_ne!(")
+                    {
+                        has_real_assertions = true;
+                    }
+                }
+                "go" => {
+                    if trimmed.contains("t.Error")
+                        || trimmed.contains("t.Fatal")
+                        || trimmed.contains("t.Fail")
+                    {
+                        has_real_assertions = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if test_files.is_empty() {
+        for entry in walkdir::WalkDir::new(workspace)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext == "rs" || ext == "go" || ext == "py" {
+                let Ok(content) = std::fs::read_to_string(path) else {
+                    continue;
+                };
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if (ext == "rs"
+                        && (trimmed.contains("assert!(")
+                            || trimmed.contains("assert_eq!(")
+                            || trimmed.contains("assert_ne!(")))
+                        || (ext == "go"
+                            && (trimmed.contains("t.Error")
+                                || trimmed.contains("t.Fatal")
+                                || trimmed.contains("t.Fail")))
+                        || (ext == "py"
+                            && ((trimmed.starts_with("assert ")
+                                && !trimmed.starts_with("assert True")
+                                && !trimmed.starts_with("assert 1 == 1"))
+                                || trimmed.starts_with("self.assert")))
+                    {
+                        has_real_assertions = true;
+                    }
+                }
+            }
+        }
+    }
+
+    let is_scripting = test_files.iter().any(|p| {
+        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+        ext == "py" || ext == "ts" || ext == "js"
+    });
+
+    if is_scripting {
+        if !has_real_assertions {
+            return true;
+        }
+        if !local_stems.is_empty() && !has_local_imports {
+            return true;
+        }
+    }
+
+    ctx.failed_steps.iter().any(|f| {
+        f.label == "run_tests"
+            && (f.stderr.contains("running 0 tests") || f.stderr.contains("0 passed"))
+    })
+}
+
 pub async fn do_executing(
     ctx: &mut ExecutionContext,
     executor: &SafeExecutor,
@@ -588,6 +814,16 @@ pub async fn do_executing(
                     ctx.failed_steps.push(fail);
                     return Ok(AgentState::Repairing);
                 } else {
+                    if should_reject_missing_tests_success(ctx, &executor.workspace) {
+                        ctx.failed_steps.push(FailedStep {
+                            step_index: i,
+                            label: "mutation_check".into(),
+                            stderr: "Superficial success rejected: The implementation lacks mutable logic (Mutation Skipped) AND the tests lack real assertions or valid local imports. Implement actual logic.".into(),
+                            exit_code: 1,
+                            culprit_file: None,
+                        });
+                        return Ok(AgentState::Repairing);
+                    }
                     ctx.save_hashes(&executor.workspace);
                     let msg = if let Cmd::Done { message } = cmd {
                         message
@@ -677,6 +913,17 @@ pub async fn do_executing(
             ctx.failed_steps.push(fail);
             Ok(AgentState::Repairing)
         } else {
+            // GUARD: Prevent false success after MissingTests repair with dummy test
+            if should_reject_missing_tests_success(ctx, &executor.workspace) {
+                ctx.failed_steps.push(FailedStep {
+                    step_index: 0,
+                    label: "mutation_check".into(),
+                    stderr: "Superficial success rejected: The implementation lacks mutable logic (Mutation Skipped) AND the tests lack real assertions or valid local imports. Implement actual logic.".into(),
+                    exit_code: 1,
+                    culprit_file: None,
+                });
+                return Ok(AgentState::Repairing);
+            }
             ctx.save_hashes(&executor.workspace);
             println!("\n✅ Goal complete! Tests passed.");
             println!("SEL_SUCCESS");
@@ -975,22 +1222,9 @@ pub async fn do_repairing(
 
     ctx.repair_attempts += 1;
 
-    let mut dynamic_max_repairs = ctx.max_repairs;
-    let goal_lower = goal.to_lowercase();
-    if goal_lower.contains("typescript")
-        || goal_lower.contains("node.js")
-        || goal_lower.contains("jest")
-        || goal_lower.contains("http server")
-        || goal_lower.contains("httptest")
-        || (goal_lower.contains("go") && goal_lower.contains("http"))
-    {
-        dynamic_max_repairs = dynamic_max_repairs.max(5);
-    }
-
     let repair_limit = match failure_kind {
-        FailureKind::PatchError => dynamic_max_repairs,
         FailureKind::InfraError => 0,
-        _ => dynamic_max_repairs,
+        _ => ctx.max_repairs,
     };
     if ctx.repair_attempts > repair_limit {
         let diag_report = crate::diagnostic::analyze(&all_err);
@@ -1517,6 +1751,118 @@ mod tests {
         assert_eq!(count, 2);
     }
 
+    fn temp_rust_workspace(src: &str) -> std::path::PathBuf {
+        let unique = format!(
+            "sel-missing-tests-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+
+        let dir = std::env::temp_dir().join(unique);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"stub_guard\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("src/lib.rs"), src).unwrap();
+        dir
+    }
+
+    fn remove_temp_workspace(path: &std::path::Path) {
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn test_should_reject_missing_tests_success_when_repair_added_only_dummy_test() {
+        let mut ctx = ExecutionContext::new(3);
+        ctx.repair_attempts = 1;
+        ctx.mutations_total = 0;
+        ctx.failed_steps.push(FailedStep {
+            step_index: 0,
+            label: "run_tests".into(),
+            stderr: "running 0 tests\n0 passed".into(),
+            exit_code: 0,
+            culprit_file: None,
+        });
+
+        assert!(should_reject_missing_tests_success(
+            &ctx,
+            std::path::Path::new(".")
+        ));
+    }
+
+    #[test]
+    fn test_should_reject_missing_tests_success_when_workspace_has_only_placeholder_test() {
+        let workspace = temp_rust_workspace(
+            "pub const VERSION: &str = \"1.0.0\";\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn test_stub_placeholder() {\n        assert!(true);\n    }\n}\n",
+        );
+
+        let mut ctx = ExecutionContext::new(3);
+        ctx.repair_attempts = 1;
+        ctx.mutations_total = 0;
+
+        let rejected = should_reject_missing_tests_success(&ctx, &workspace);
+        remove_temp_workspace(&workspace);
+
+        assert!(rejected);
+    }
+
+    #[test]
+    fn test_should_reject_missing_tests_success_is_false_when_real_test_exists() {
+        let workspace = temp_rust_workspace(
+            "pub const VERSION: &str = \"1.0.0\";\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn test_stub_placeholder() {\n        assert!(true);\n    }\n\n    #[test]\n    fn test_version_matches() {\n        assert_eq!(VERSION, \"1.0.0\");\n    }\n}\n",
+        );
+
+        let mut ctx = ExecutionContext::new(3);
+        ctx.repair_attempts = 1;
+        ctx.mutations_total = 0;
+
+        let rejected = should_reject_missing_tests_success(&ctx, &workspace);
+        remove_temp_workspace(&workspace);
+
+        assert!(!rejected);
+    }
+
+    #[test]
+    fn test_should_reject_missing_tests_success_is_false_when_skip_mutation_is_enabled() {
+        let workspace = temp_rust_workspace(
+            "pub const VERSION: &str = \"1.0.0\";\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn test_stub_placeholder() {\n        assert!(true);\n    }\n}\n",
+        );
+
+        let mut ctx = ExecutionContext::new(3);
+        ctx.repair_attempts = 1;
+        ctx.skip_mutation = true;
+        ctx.mutations_total = 0;
+
+        let rejected = should_reject_missing_tests_success(&ctx, &workspace);
+        remove_temp_workspace(&workspace);
+
+        assert!(!rejected);
+    }
+
+    #[test]
+    fn test_should_reject_missing_tests_success_is_false_without_missing_tests_marker() {
+        let mut ctx = ExecutionContext::new(3);
+        ctx.repair_attempts = 1;
+        ctx.mutations_total = 0;
+        ctx.failed_steps.push(FailedStep {
+            step_index: 0,
+            label: "run_tests".into(),
+            stderr: "2 passed".into(),
+            exit_code: 0,
+            culprit_file: None,
+        });
+
+        assert!(!should_reject_missing_tests_success(
+            &ctx,
+            std::path::Path::new(".")
+        ));
+    }
+
     #[test]
     fn test_edited_path_from_cmd_returns_file_ops_only() {
         assert_eq!(
@@ -1700,5 +2046,82 @@ mod tests {
         assert!(ctx.plan_risk_triggered);
         assert_eq!(ctx.plan_risk_reasons, second_issues);
         assert_eq!(ctx.commands_before_replan, 2);
+    }
+
+    #[test]
+    fn test_should_reject_missing_tests_success_when_superficial_python_success() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.py"), "print('SEL_TEST_PASSED')").unwrap();
+        std::fs::write(
+            dir.path().join("test_main.py"),
+            "def test_pass():\n    assert True\n",
+        )
+        .unwrap();
+
+        let mut ctx = ExecutionContext::new(1);
+        ctx.mutations_total = 0; // Simulate Mutation Skipped
+
+        assert!(should_reject_missing_tests_success(&ctx, dir.path()));
+    }
+
+    #[test]
+    fn test_should_not_reject_success_when_typescript_has_real_assertions_and_imports() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("debounce.ts"), "export const x = 1;").unwrap();
+        std::fs::write(
+            dir.path().join("debounce.spec.ts"),
+            "import { x } from './debounce';\nexpect(x).toBe(1);\n",
+        )
+        .unwrap();
+
+        let mut ctx = ExecutionContext::new(1);
+        ctx.mutations_total = 0; // Simulate Mutation Skipped but valid code (like reverse_list or debounce)
+
+        assert!(!should_reject_missing_tests_success(&ctx, dir.path()));
+    }
+
+    #[test]
+    fn test_should_not_reject_success_when_python_has_real_assertions_and_imports() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.py"), "def validate(x): return x > 0\n").unwrap();
+        std::fs::write(
+            dir.path().join("test_main.py"),
+            "from main import validate\ndef test_validate():\n    assert validate(1) == True\n",
+        ).unwrap();
+
+        let mut ctx = ExecutionContext::new(1);
+        ctx.mutations_total = 0;
+
+        assert!(!should_reject_missing_tests_success(&ctx, dir.path()));
+    }
+
+    #[test]
+    fn test_should_reject_success_when_python_has_assertions_but_no_import() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.py"), "def validate(x): return x > 0\n").unwrap();
+        std::fs::write(
+            dir.path().join("test_main.py"),
+            "def test_math():\n    assert 2 + 2 == 4\n",
+        ).unwrap();
+
+        let mut ctx = ExecutionContext::new(1);
+        ctx.mutations_total = 0;
+
+        assert!(should_reject_missing_tests_success(&ctx, dir.path()));
+    }
+
+    #[test]
+    fn test_should_not_reject_go_quickfix_style_success_when_mutation_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.go"), "package main\nimport \"fmt\"\nfunc Print() { fmt.Println(\"ok\") }\n").unwrap();
+        std::fs::write(
+            dir.path().join("main_test.go"),
+            "package main\nimport \"testing\"\nfunc TestPrint(t *testing.T) { Print() }\n",
+        ).unwrap();
+
+        let mut ctx = ExecutionContext::new(1);
+        ctx.mutations_total = 0;
+
+        assert!(!should_reject_missing_tests_success(&ctx, dir.path()));
     }
 }
