@@ -56,18 +56,19 @@ pub struct AgentCommand {
 }
 
 /// Fixes double-escaped sequences that strict reasoning models emit.
-fn unescape_json_string(s: &str) -> String {
-    // Two-level unescape: protect \\ first, then unescape \n and \",
-    // then restore \\. This correctly handles:
-    //   \n  -> newline   (double-escaped newline from reasoning models)
-    //   \"  -> "         (double-escaped quote from reasoning models)
-    //   \\" -> \"        (intentional escape in target code like Go)
-    const P: &str = "\x00\x01\x00";
-    s.replace("\\\\", P)
-        .replace("\\n", "\n")
-        .replace("\\\"", "\"")
-        .replace("\\'", "'")
-        .replace(P, "\\")
+
+
+fn smart_unescape(s: &str) -> String {
+    if !s.contains('\n') && s.contains("\\n") {
+        const P: &str = "\x00\x01\x00";
+        s.replace("\\\\", P)
+            .replace("\\n", "\n")
+            .replace("\\\"", "\"")
+            .replace("\\'", "'")
+            .replace(P, "\\")
+    } else {
+        s.to_string()
+    }
 }
 
 impl AgentCommand {
@@ -86,17 +87,17 @@ impl AgentCommand {
             }
             "write_file" | "write" => Some(Cmd::WriteFile {
                 path: self.path,
-                content: unescape_json_string(&self.content),
+                content: smart_unescape(&self.content),
             }),
             "append_file" | "append" => Some(Cmd::AppendFile {
                 path: self.path,
-                content: unescape_json_string(&self.content),
+                content: smart_unescape(&self.content),
             }),
             "delete_file" | "delete" => Some(Cmd::DeleteFile { path: self.path }),
             "patch_file" | "patch" => Some(Cmd::PatchFile {
                 path: self.path,
-                search: unescape_json_string(&self.search),
-                replace: unescape_json_string(&self.replace),
+                search: smart_unescape(&self.search),
+                replace: smart_unescape(&self.replace),
             }),
             "read_file" | "read" => Some(Cmd::ReadFile { path: self.path }),
             "mkdir" => Some(Cmd::Mkdir { path: self.path }),

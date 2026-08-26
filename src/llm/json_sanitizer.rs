@@ -4,19 +4,7 @@
 /// Main entry point  apply all sanitizers in order
 /// Fixes double-escaped sequences (like literal backslash-n) that some
 /// strict reasoning models (like openai/gpt-oss-120b) emit inside JSON string content.
-pub fn unescape_json_string(s: &str) -> String {
-    // Two-level unescape: protect \\ first, then unescape \n and \",
-    // then restore \\. This correctly handles:
-    //   \n  -> newline   (double-escaped newline from reasoning models)
-    //   \"  -> "         (double-escaped quote from reasoning models)
-    //   \\" -> \"        (intentional escape in target code like Go)
-    const P: &str = "\x00\x01\x00";
-    s.replace("\\\\", P)
-        .replace("\\n", "\n")
-        .replace("\\\"", "\"")
-        .replace("\\'", "'")
-        .replace(P, "\\")
-}
+
 
 pub fn sanitize_llm_json(raw: &str) -> String {
     let s = fix_rust_doc_comments(raw);
@@ -105,23 +93,9 @@ mod tests {
         assert!(fixed.ends_with("]}"));
     }
 
-    #[test]
-    fn test_unescape_json_string_with_real_gpt_oss_output() {
-        let escaped = r#"def greet(name: str, lang: str = 'en') -> str:\n    if lang == 'en':\n        return f\"Hello, {name}\"\n"#;
-        let fixed = unescape_json_string(escaped);
-        assert!(fixed.contains('\n'));
-        assert!(!fixed.contains(r"\n"));
-        assert!(fixed.contains(r#"f"Hello, {name}""#));
-        assert!(!fixed.contains(r#"\""#));
-    }
+    
 
-    #[test]
-    fn test_unescape_preserves_go_escaped_quotes() {
-        // \\" should become \" (intentional Go escape), not "
-        let go_code = r#"t.Errorf(\"want \\\"Fizz\\\"\")"#;
-        let fixed = unescape_json_string(go_code);
-        assert!(fixed.contains(r#"t.Errorf("want \"Fizz\"")"#));
-    }
+    
     #[test]
     fn test_full_sanitize() {
         let input = r#"{"commands": [{"type": "write_file", "path": "lib.rs", "content": "/// Doc\nfn x() {}"},]}"#;

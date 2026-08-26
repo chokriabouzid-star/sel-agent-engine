@@ -206,11 +206,16 @@ impl FailedStep {
                     return Some(line[start..pos + 3].to_string());
                 }
             }
-            // Node.js: file.js:42
-            if line.contains(".js:") && !line.contains("node_modules") {
-                if let Some(pos) = line.find(".js:") {
-                    let start = line[..pos].rfind(['/', ' ']).map(|i| i + 1).unwrap_or(0);
-                    return Some(line[start..pos + 3].to_string());
+            // TypeScript / JavaScript: file.ts:42, file.tsx:42, file.js:42
+            if (line.contains(".ts:") || line.contains(".tsx:") || line.contains(".js:"))
+                && !line.contains("node_modules")
+            {
+                for ext in [".ts:", ".tsx:", ".js:"] {
+                    if let Some(pos) = line.find(ext) {
+                        let ext_len = ext.len() - 1;
+                        let start = line[..pos].rfind(['/', ' ']).map(|i| i + 1).unwrap_or(0);
+                        return Some(line[start..pos + ext_len].to_string());
+                    }
                 }
             }
         }

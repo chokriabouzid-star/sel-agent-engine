@@ -17,7 +17,7 @@ impl Provider {
         Provider {
             name: "Cerebras".into(),
             model: std::env::var("CEREBRAS_MODEL")
-                .unwrap_or_else(|_| "qwen-3-235b-a22b-instruct-2507".into()),
+                .unwrap_or_else(|_| "llama-3.3-70b".into()),
             endpoint: "https://api.cerebras.ai/v1/chat/completions".into(),
             key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env(
                 "CEREBRAS_API_KEY",
@@ -51,7 +51,7 @@ impl Provider {
     fn groq() -> Self {
         Provider {
             name: "Groq".into(),
-            model: std::env::var("GROQ_MODEL").unwrap_or_else(|_| "llama-3.3-70b-versatile".into()),
+            model: std::env::var("GROQ_MODEL").unwrap_or_else(|_| "openai/gpt-oss-120b".into()),
             endpoint: "https://api.groq.com/openai/v1/chat/completions".into(),
             key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env(
                 "GROQ_API_KEY",
@@ -155,7 +155,7 @@ impl LiveProvider {
             ("GEMINI_API_KEY", Provider::gemini()),
             ("CEREBRAS_API_KEY", Provider::cerebras()),
             ("OPENROUTER_API_KEY", Provider::openrouter()),
-            ("GITHUB_TOKEN", Provider::github()),
+            // ("GITHUB_TOKEN", Provider::github()),
         ];
 
         for (env_name, p) in candidates {

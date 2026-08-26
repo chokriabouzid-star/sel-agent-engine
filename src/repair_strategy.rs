@@ -246,7 +246,8 @@ pub fn build_prompt(
     match (attempt, is_loop) {
         (1, _) => format!(
             "Fix SOURCE FILES only: [{}]\n\
-             NEVER touch test files: [{}]\n\
+             NEVER touch test files: [{}]
+             DO NOT create extra or duplicate test files.
              {}{}Error:\n{}",
             ctx.source_files.join(", "),
             ctx.test_files.join(", "),

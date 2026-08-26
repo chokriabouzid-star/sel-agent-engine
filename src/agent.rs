@@ -361,6 +361,19 @@ impl Agent {
                     )
                     .await;
 
+                    // Protect any newly created test files after execution so repair cannot spawn duplicate tests
+                    for entry in walkdir::WalkDir::new(&self.executor.workspace)
+                        .into_iter()
+                        .filter_map(|e| e.ok())
+                    {
+                        if entry.file_type().is_file() {
+                            let name = entry.file_name().to_string_lossy();
+                            if self.executor.is_spec_file(&name) {
+                                self.executor.protected_test_files.insert(entry.path().to_path_buf());
+                            }
+                        }
+                    }
+
                     if allow_goal_test_writes {
                         // أبقِ الـ window مفتوحًا إذا كان الفشل بسبب الـ test file المُصرَّح به
                         let authorized_file_still_broken = self.ctx.failed_steps.iter().any(|f| {
@@ -546,6 +559,10 @@ impl Agent {
                         plan_risk_reasons: self.ctx.plan_risk_reasons.clone(),
                     })
                     .await;
+
+                    if let Some(mut snap) = self.initial_snapshot.take() {
+                        snap.commit();
+                    }
 
                     self.executor.set_allow_goal_test_writes(false);
                     self.executor.set_broken_authorized_test_repair(false);
