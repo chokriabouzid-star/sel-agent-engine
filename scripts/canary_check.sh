@@ -59,7 +59,7 @@ run_canary   "typescript_basic"   "Create calc.ts exporting function add(a:numbe
 
 run_canary   "go_basic"   "Create a Go module named canarymod (run go mod init canarymod). Create add.go in package canarymod with function Add(a,b int) int. Create add_test.go with one table-driven test."   "/tmp/canary_${TS}_go"   "add.go" "add_test.go"
 
-run_canary   "rust_basic"   "Create a Rust library project (run cargo init --lib). In src/lib.rs implement pub fn add(a:i32,b:i32)->i32 with one unit test verifying add(2,3)==5."   "/tmp/canary_${TS}_rs"   "Cargo.toml" "src/lib.rs"
+run_canary   "rust_basic"   "Create a Rust library project (run cargo init --lib). Do NOT create a subfolder. In src/lib.rs implement pub fn add(a:i32,b:i32)->i32 with one unit test verifying add(2,3)==5."   "/tmp/canary_${TS}_rs"   "Cargo.toml" "src/lib.rs"
 
 echo "=================================================="
 echo "Canary Summary: ${PASS} passed out of $((PASS + FAIL))"

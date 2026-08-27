@@ -24,6 +24,7 @@ impl Provider {
         }
     }
 
+    #[allow(dead_code)]
     fn github() -> Self {
         Provider {
             name: "GitHub".into(),
