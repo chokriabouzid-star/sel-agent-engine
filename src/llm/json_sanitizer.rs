@@ -5,7 +5,6 @@
 /// Fixes double-escaped sequences (like literal backslash-n) that some
 /// strict reasoning models (like openai/gpt-oss-120b) emit inside JSON string content.
 
-
 pub fn sanitize_llm_json(raw: &str) -> String {
     let s = fix_rust_doc_comments(raw);
     let s = fix_trailing_commas(&s);
@@ -93,9 +92,6 @@ mod tests {
         assert!(fixed.ends_with("]}"));
     }
 
-    
-
-    
     #[test]
     fn test_full_sanitize() {
         let input = r#"{"commands": [{"type": "write_file", "path": "lib.rs", "content": "/// Doc\nfn x() {}"},]}"#;

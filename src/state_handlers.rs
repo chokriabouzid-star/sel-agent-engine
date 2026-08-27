@@ -2083,11 +2083,16 @@ mod tests {
     #[test]
     fn test_should_not_reject_success_when_python_has_real_assertions_and_imports() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("main.py"), "def validate(x): return x > 0\n").unwrap();
+        std::fs::write(
+            dir.path().join("main.py"),
+            "def validate(x): return x > 0\n",
+        )
+        .unwrap();
         std::fs::write(
             dir.path().join("test_main.py"),
             "from main import validate\ndef test_validate():\n    assert validate(1) == True\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         let mut ctx = ExecutionContext::new(1);
         ctx.mutations_total = 0;
@@ -2098,11 +2103,16 @@ mod tests {
     #[test]
     fn test_should_reject_success_when_python_has_assertions_but_no_import() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("main.py"), "def validate(x): return x > 0\n").unwrap();
+        std::fs::write(
+            dir.path().join("main.py"),
+            "def validate(x): return x > 0\n",
+        )
+        .unwrap();
         std::fs::write(
             dir.path().join("test_main.py"),
             "def test_math():\n    assert 2 + 2 == 4\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         let mut ctx = ExecutionContext::new(1);
         ctx.mutations_total = 0;
@@ -2113,11 +2123,16 @@ mod tests {
     #[test]
     fn test_should_not_reject_go_quickfix_style_success_when_mutation_is_skipped() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("main.go"), "package main\nimport \"fmt\"\nfunc Print() { fmt.Println(\"ok\") }\n").unwrap();
+        std::fs::write(
+            dir.path().join("main.go"),
+            "package main\nimport \"fmt\"\nfunc Print() { fmt.Println(\"ok\") }\n",
+        )
+        .unwrap();
         std::fs::write(
             dir.path().join("main_test.go"),
             "package main\nimport \"testing\"\nfunc TestPrint(t *testing.T) { Print() }\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         let mut ctx = ExecutionContext::new(1);
         ctx.mutations_total = 0;

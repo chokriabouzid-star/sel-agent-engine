@@ -57,7 +57,6 @@ pub struct AgentCommand {
 
 /// Fixes double-escaped sequences that strict reasoning models emit.
 
-
 fn smart_unescape(s: &str) -> String {
     if !s.contains('\n') && s.contains("\\n") {
         const P: &str = "\x00\x01\x00";

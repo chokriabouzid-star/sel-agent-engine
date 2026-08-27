@@ -16,8 +16,7 @@ impl Provider {
     fn cerebras() -> Self {
         Provider {
             name: "Cerebras".into(),
-            model: std::env::var("CEREBRAS_MODEL")
-                .unwrap_or_else(|_| "llama-3.3-70b".into()),
+            model: std::env::var("CEREBRAS_MODEL").unwrap_or_else(|_| "llama-3.3-70b".into()),
             endpoint: "https://api.cerebras.ai/v1/chat/completions".into(),
             key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env(
                 "CEREBRAS_API_KEY",
@@ -658,7 +657,6 @@ impl LiveProvider {
 #[cfg(test)]
 mod classify_error_tests {
     use super::*;
-
 
     #[test]
     fn explicit_key_invalid_message_is_still_key_expired() {

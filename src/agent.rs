@@ -369,7 +369,9 @@ impl Agent {
                         if entry.file_type().is_file() {
                             let name = entry.file_name().to_string_lossy();
                             if self.executor.is_spec_file(&name) {
-                                self.executor.protected_test_files.insert(entry.path().to_path_buf());
+                                self.executor
+                                    .protected_test_files
+                                    .insert(entry.path().to_path_buf());
                             }
                         }
                     }
