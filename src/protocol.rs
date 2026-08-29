@@ -394,6 +394,24 @@ mod tests {
     }
 
     #[test]
+    fn test_smart_unescape_mixed_content() {
+        // Case 1: Purely escaped - should be unescaped (emitted by reasoning models)
+        let input_escaped = "def foo():\\n    \\\"\\\"\\\"doc\\\"\\\"\\\"\\n    pass";
+        let expected_escaped = "def foo():\n    \"\"\"doc\"\"\"\n    pass";
+        assert_eq!(smart_unescape(input_escaped), expected_escaped);
+
+        // Case 2: Mixed (real newline + double-escaped sequence)
+        // Highly likely a literal like print("\\n") inside already-formatted code.
+        // It MUST be ignored by smart_unescape to prevent double-escaping corruption.
+        let input_mixed = "def foo():\n    # Note: we use \\n here as a literal\n    pass";
+        assert_eq!(smart_unescape(input_mixed), input_mixed);
+
+        // Case 3: Purely real newline - should be returned as-is
+        let input_real = "def foo():\n    pass";
+        assert_eq!(smart_unescape(input_real), input_real);
+    }
+
+    #[test]
     fn test_cmd_label_and_hash() {
         let c = Cmd::WriteFile {
             path: "a.rs".into(),

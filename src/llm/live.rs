@@ -24,18 +24,6 @@ impl Provider {
         }
     }
 
-    #[allow(dead_code)]
-    fn github() -> Self {
-        Provider {
-            name: "GitHub".into(),
-            model: std::env::var("GITHUB_MODEL").unwrap_or_else(|_| "gpt-4o".into()),
-            endpoint: "https://models.inference.ai.azure.com/chat/completions".into(),
-            key_pool: Arc::new(Mutex::new(super::key_pool::KeyPool::from_env(
-                "GITHUB_TOKEN",
-            ))),
-        }
-    }
-
     fn gemini() -> Self {
         Provider {
             name: "Gemini".into(),

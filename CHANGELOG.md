@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## v9.3.5 (2026-08-27) — دمج الفرعين + تحصين شامل
+- fix(agent): تأكيد ودمج إصلاح initial_snapshot.commit() على مسار Done عبر main
+- feat(executor): تحصين بوابة SEL_SUCCESS (فشل تجميع منفصل عن قتل حقيقي، عدّاد mutations_equivalent منفصل)
+- fix(providers): تحديث نماذج Gemini/Cerebras، حذف GitHub (متقاعد نهائياً)، تصحيح classify_error وتسمية cache
+- fix(protocol): معالجة ازدواج escape من نماذج gpt-oss-120b بدون إفساد اقتباسات Go الشرعية
+- fix(provider_state): منع تلوث كاش المستخدم الحقيقي من cargo test، تصحيح مسار reset-providers
+- chore: تصالح فرعي main/master (كان main متفرعاً قبل إصلاح Snapshot الأصلي)، دمج مُدار يدوياً
+- docs: تأسيس منهجية عمل (درجات ثقة بالدليل) + scripts/canary_check.sh
+
 ## v9.3.4 (2026-06-26)
 
 ### Fixed
