@@ -191,10 +191,28 @@ fn extract_pip_install_package(prog: &str, args: &[String]) -> Option<String> {
     }
 
     let install_pos = args.iter().position(|arg| arg == "install")?;
-    args[install_pos + 1..]
-        .iter()
-        .find(|arg| !arg.starts_with('-'))
-        .cloned()
+
+    // أعلام pip تأخذ قيمتها في وسيط منفصل — القيمة ليست اسم حزمة أبداً.
+    const VALUE_TAKING_FLAGS: &[&str] = &[
+        "-r", "--requirement",
+        "-c", "--constraint",
+        "-e", "--editable",
+    ];
+
+    let mut i = install_pos + 1;
+    while i < args.len() {
+        let arg = args[i].as_str();
+        if VALUE_TAKING_FLAGS.contains(&arg) {
+            i += 2;
+            continue;
+        }
+        if arg.starts_with('-') {
+            i += 1;
+            continue;
+        }
+        return Some(arg.to_string());
+    }
+    None
 }
 
 fn python_import_name_for_package(package: &str) -> String {
@@ -522,6 +540,55 @@ mod tests {
             }
             _ => panic!("expected replay mismatch result"),
         }
+    }
+
+
+    #[test]
+    fn pip_install_requirements_flag_returns_none() {
+        let args: Vec<String> = vec!["install", "-r", "requirements.txt"]
+            .into_iter().map(String::from).collect();
+        assert_eq!(extract_pip_install_package("pip", &args), None);
+    }
+
+    #[test]
+    fn pip_install_constraint_flag_returns_none() {
+        let args: Vec<String> = vec!["install", "-c", "constraints.txt"]
+            .into_iter().map(String::from).collect();
+        assert_eq!(extract_pip_install_package("pip", &args), None);
+    }
+
+    #[test]
+    fn pip_install_editable_flag_returns_none() {
+        let args: Vec<String> = vec!["install", "-e", "."]
+            .into_iter().map(String::from).collect();
+        assert_eq!(extract_pip_install_package("pip", &args), None);
+    }
+
+    #[test]
+    fn pip_install_normal_package_still_works() {
+        let args: Vec<String> = vec!["install", "requests"]
+            .into_iter().map(String::from).collect();
+        assert_eq!(
+            extract_pip_install_package("pip", &args),
+            Some("requests".to_string())
+        );
+    }
+
+    #[test]
+    fn pip_install_requirements_then_package() {
+        let args: Vec<String> = vec!["install", "-r", "requirements.txt", "requests"]
+            .into_iter().map(String::from).collect();
+        assert_eq!(
+            extract_pip_install_package("pip", &args),
+            Some("requests".to_string())
+        );
+    }
+
+    #[test]
+    fn python_m_pip_install_requirements_returns_none() {
+        let args: Vec<String> = vec!["-m", "pip", "install", "-r", "requirements.txt"]
+            .into_iter().map(String::from).collect();
+        assert_eq!(extract_pip_install_package("python", &args), None);
     }
 
     #[test]
