@@ -99,6 +99,14 @@ pub fn pre_repair_checklist(
             };
 
         for test_path in candidate_tests {
+            // FIX C-02: refuse to autofix protected test files
+            if ctx.protected_test_files.contains(&test_path) {
+                eprintln!(
+                    "[WARN] Checklist: refusing autofix on protected test file {:?}",
+                    test_path.file_name().unwrap_or_default()
+                );
+                continue;
+            }
             if let Some(imported) = crate::executor::autofix::autofix_python_missing_local_import(
                 &test_path, &stderr, workspace,
             ) {
@@ -269,7 +277,13 @@ pub fn pre_repair_checklist(
             });
 
         if let Some(ref tf) = test_file {
-            if let Some(msg) =
+            // FIX C-02: refuse to autofix protected test files
+            if ctx.protected_test_files.contains(tf) {
+                eprintln!(
+                    "[WARN] Checklist: refusing autofix on protected test file {:?}",
+                    tf.file_name().unwrap_or_default()
+                );
+            } else if let Some(msg) =
                 crate::executor::autofix::autofix_go_redeclared_in_test(tf, &stderr, workspace)
             {
                 println!("    Pre-Repair 2d: {}", msg);

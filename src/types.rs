@@ -68,6 +68,9 @@ pub struct ExecutionContext {
     pub plan_risk_reasons: Vec<String>,
     pub replan_count: u32,
     pub commands_before_replan: usize,
+
+    // v9.3.6: C-02 — test files present before agent runs; autofix must not modify them
+    pub protected_test_files: std::collections::HashSet<std::path::PathBuf>,
 }
 
 impl ExecutionContext {
