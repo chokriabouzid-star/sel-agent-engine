@@ -6,10 +6,20 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Tracks the result of the stash operation to prevent ambiguous None handling.
+enum StashState {
+    /// git stash said "No local changes to save" — workspace was clean, safe to reset
+    NoLocalChanges,
+    /// git stash succeeded and ref is verified — reset then re-apply
+    Stashed { tag: String },
+    /// git stash failed (e.g. index.lock) — do NOT reset, protect user data
+    Failed(String),
+}
+
 pub struct Snapshot {
     workspace: PathBuf,
     active: bool,
-    stash_tag: Option<String>,
+    stash_state: StashState,
 }
 
 impl Snapshot {
@@ -47,7 +57,6 @@ impl Snapshot {
             }
         }
 
-        // Ensure pytest exists if venv exists
         let pytest_bin = self.workspace.join("venv/bin/pytest");
         let pip_bin = self.workspace.join("venv/bin/pip");
         if self.workspace.join("venv").exists() && !pytest_bin.exists() && pip_bin.exists() {
@@ -56,6 +65,21 @@ impl Snapshot {
                 .current_dir(&self.workspace)
                 .output();
         }
+    }
+
+    fn git_reset_clean(workspace: &Path) {
+        let _ = Command::new("git")
+            .env("LC_ALL", "C")
+            .env("LANG", "C")
+            .args(["reset", "--hard"])
+            .current_dir(workspace)
+            .output();
+        let _ = Command::new("git")
+            .env("LC_ALL", "C")
+            .env("LANG", "C")
+            .args(["clean", "-fd"])
+            .current_dir(workspace)
+            .output();
     }
 
     /// Take a snapshot of the current workspace while KEEPING the current
@@ -107,14 +131,12 @@ impl Snapshot {
                 .args(["config", "user.email", "sel@local.test"])
                 .current_dir(workspace)
                 .output();
-
             let _ = Command::new("git")
                 .env("LC_ALL", "C")
                 .env("LANG", "C")
                 .args(["add", "."])
                 .current_dir(workspace)
                 .output();
-
             let _ = Command::new("git")
                 .env("LC_ALL", "C")
                 .env("LANG", "C")
@@ -130,7 +152,20 @@ impl Snapshot {
 
         let tag = format!("sel_agent_snapshot_{}_{}", std::process::id(), now_ms);
 
-        // FIX C-01: check status.success() — exit=1 means stash failed
+        // FIX C-01: check for index.lock BEFORE running stash
+        // git stash --include-untracked deletes untracked files before detecting lock failure
+        let index_lock = workspace.join(".git/index.lock");
+        if index_lock.exists() {
+            eprintln!(
+                "[WARN] Snapshot: .git/index.lock exists — skipping stash to protect untracked files"
+            );
+            return Self {
+                workspace: workspace.to_path_buf(),
+                active: true,
+                stash_state: StashState::Failed("index.lock present".to_string()),
+            };
+        }
+
         let output = Command::new("git")
             .env("LC_ALL", "C")
             .env("LANG", "C")
@@ -139,57 +174,80 @@ impl Snapshot {
             .current_dir(workspace)
             .output();
 
-        let has_stashed = if let Ok(out) = output {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            out.status.success() && !stdout.contains("No local changes to save")
-        } else {
-            false
-        };
-
-        let stash_tag = if has_stashed {
-            if let Some(stash_ref) = Self::resolve_stash_ref(workspace, &tag) {
-                let apply_out = Command::new("git")
-                    .env("LC_ALL", "C")
-                    .env("LANG", "C")
-                    .args(["stash", "apply"])
-                    .arg(&stash_ref)
-                    .current_dir(workspace)
-                    .output();
-
-                match apply_out {
-                    Ok(o) if o.status.success() => {
-                        eprintln!(
-                            "[TRACE] Snapshot: {} saved and re-applied to worktree",
-                            stash_ref
-                        );
-                    }
-                    Ok(o) => {
-                        eprintln!(
-                            "[TRACE] Snapshot: failed to re-apply {}: {}",
-                            stash_ref,
-                            String::from_utf8_lossy(&o.stderr)
-                        );
-                    }
-                    Err(e) => {
-                        eprintln!("[TRACE] Snapshot: failed to re-apply {}: {}", stash_ref, e);
-                    }
-                }
-                Some(tag)
-            } else {
-                eprintln!(
-                    "[WARN] Snapshot: stash exit=0 but ref not found for tag {} — treating as no stash",
-                    tag
-                );
-                None
+        // FIX C-01: three-state stash result — no ambiguous None
+        let stash_state = match output {
+            Err(e) => {
+                // Could not even spawn git — treat as failure
+                eprintln!("[WARN] Snapshot: could not run git stash: {} — workspace NOT reset on rollback", e);
+                StashState::Failed(format!("git spawn failed: {}", e))
             }
-        } else {
-            None
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                if stdout.contains("No local changes to save") {
+                    // Workspace was clean — safe to reset without stash
+                    eprintln!("[TRACE] Snapshot: no local changes, reset will be safe");
+                    StashState::NoLocalChanges
+                } else if out.status.success() {
+                    // Stash succeeded — verify the ref exists
+                    if let Some(stash_ref) = Self::resolve_stash_ref(workspace, &tag) {
+                        // Re-apply so worktree stays intact for repair code
+                        let apply_out = Command::new("git")
+                            .env("LC_ALL", "C")
+                            .env("LANG", "C")
+                            .args(["stash", "apply"])
+                            .arg(&stash_ref)
+                            .current_dir(workspace)
+                            .output();
+                        match apply_out {
+                            Ok(o) if o.status.success() => {
+                                eprintln!(
+                                    "[TRACE] Snapshot: {} saved and re-applied to worktree",
+                                    stash_ref
+                                );
+                            }
+                            Ok(o) => {
+                                eprintln!(
+                                    "[TRACE] Snapshot: failed to re-apply {}: {}",
+                                    stash_ref,
+                                    String::from_utf8_lossy(&o.stderr)
+                                );
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "[TRACE] Snapshot: failed to re-apply {}: {}",
+                                    stash_ref, e
+                                );
+                            }
+                        }
+                        StashState::Stashed { tag }
+                    } else {
+                        eprintln!(
+                            "[WARN] Snapshot: stash exit=0 but ref not found for tag {} — treating as failure",
+                            tag
+                        );
+                        StashState::Failed(format!("stash ref not found for tag {}", tag))
+                    }
+                } else {
+                    // exit != 0 — stash failed (e.g. index.lock)
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    eprintln!(
+                        "[WARN] Snapshot: stash failed (exit={}) — workspace NOT reset on rollback: {}",
+                        out.status.code().unwrap_or(-1),
+                        stderr.trim()
+                    );
+                    StashState::Failed(format!(
+                        "stash exit={}: {}",
+                        out.status.code().unwrap_or(-1),
+                        stderr.trim()
+                    ))
+                }
+            }
         };
 
         Self {
             workspace: workspace.to_path_buf(),
             active: true,
-            stash_tag,
+            stash_state,
         }
     }
 
@@ -201,64 +259,46 @@ impl Snapshot {
 
         let had_venv = self.workspace.join("venv").exists();
 
-        if let Some(tag) = self.stash_tag.as_deref() {
-            if let Some(stash_ref) = Self::resolve_stash_ref(&self.workspace, tag) {
-                // FIX C-01: reset/clean ONLY when we have a verified stash to restore from
-                let _ = Command::new("git")
-                    .env("LC_ALL", "C")
-                    .env("LANG", "C")
-                    .args(["reset", "--hard"])
-                    .current_dir(&self.workspace)
-                    .output();
-
-                let _ = Command::new("git")
-                    .env("LC_ALL", "C")
-                    .env("LANG", "C")
-                    .args(["clean", "-fd"])
-                    .current_dir(&self.workspace)
-                    .output();
-
-                let _ = Command::new("git")
-                    .env("LC_ALL", "C")
-                    .env("LANG", "C")
-                    .args(["stash", "apply"])
-                    .arg(&stash_ref)
-                    .current_dir(&self.workspace)
-                    .output();
-
-                let _ = Command::new("git")
-                    .env("LC_ALL", "C")
-                    .env("LANG", "C")
-                    .args(["stash", "drop"])
-                    .arg(&stash_ref)
-                    .current_dir(&self.workspace)
-                    .output();
-
-                println!("    Snapshot: rolled back via {}", stash_ref);
-            } else {
-                // stash_tag set but ref missing — do NOT touch files to protect user data
+        match &self.stash_state {
+            StashState::NoLocalChanges => {
+                // Workspace was clean when snapshot was taken — safe to reset
+                Self::git_reset_clean(&self.workspace);
+                println!("    Snapshot: reset workspace (was clean, no stash needed)");
+            }
+            StashState::Stashed { tag } => {
+                // Verify stash ref still exists before reset
+                if let Some(stash_ref) = Self::resolve_stash_ref(&self.workspace, tag) {
+                    Self::git_reset_clean(&self.workspace);
+                    let _ = Command::new("git")
+                        .env("LC_ALL", "C")
+                        .env("LANG", "C")
+                        .args(["stash", "apply"])
+                        .arg(&stash_ref)
+                        .current_dir(&self.workspace)
+                        .output();
+                    let _ = Command::new("git")
+                        .env("LC_ALL", "C")
+                        .env("LANG", "C")
+                        .args(["stash", "drop"])
+                        .arg(&stash_ref)
+                        .current_dir(&self.workspace)
+                        .output();
+                    println!("    Snapshot: rolled back via {}", stash_ref);
+                } else {
+                    // Stash ref disappeared — do NOT reset
+                    eprintln!(
+                        "[WARN] Snapshot: stash ref not found for tag {} — workspace NOT reset to protect user data",
+                        tag
+                    );
+                }
+            }
+            StashState::Failed(reason) => {
+                // Stash failed at take() time — resetting would destroy user data
                 eprintln!(
-                    "[WARN] Snapshot: stash ref not found for tag {} — workspace NOT reset to protect user data",
-                    tag
+                    "[WARN] Snapshot: rollback skipped — stash failed at snapshot time ({}). Workspace preserved.",
+                    reason
                 );
             }
-        } else {
-            // No stash was created (no changes existed) — safe to reset
-            let _ = Command::new("git")
-                .env("LC_ALL", "C")
-                .env("LANG", "C")
-                .args(["reset", "--hard"])
-                .current_dir(&self.workspace)
-                .output();
-
-            let _ = Command::new("git")
-                .env("LC_ALL", "C")
-                .env("LANG", "C")
-                .args(["clean", "-fd"])
-                .current_dir(&self.workspace)
-                .output();
-
-            println!("    Snapshot: reset workspace (no stash needed)");
         }
 
         self.restore_python_infra(had_venv);
@@ -271,7 +311,7 @@ impl Snapshot {
             return;
         }
 
-        if let Some(tag) = self.stash_tag.as_deref() {
+        if let StashState::Stashed { tag } = &self.stash_state {
             if let Some(stash_ref) = Self::resolve_stash_ref(&self.workspace, tag) {
                 let _ = Command::new("git")
                     .env("LC_ALL", "C")
@@ -280,7 +320,6 @@ impl Snapshot {
                     .arg(&stash_ref)
                     .current_dir(&self.workspace)
                     .output();
-
                 eprintln!("[TRACE] Snapshot: {} dropped (changes accepted)", stash_ref);
             }
         }
@@ -297,62 +336,41 @@ impl Drop for Snapshot {
 
         let had_venv = self.workspace.join("venv").exists();
 
-        if let Some(tag) = self.stash_tag.as_deref() {
-            if let Some(stash_ref) = Self::resolve_stash_ref(&self.workspace, tag) {
-                // FIX C-01: reset/clean ONLY when we have a verified stash to restore from
-                let _ = Command::new("git")
-                    .env("LC_ALL", "C")
-                    .env("LANG", "C")
-                    .args(["reset", "--hard"])
-                    .current_dir(&self.workspace)
-                    .output();
-
-                let _ = Command::new("git")
-                    .env("LC_ALL", "C")
-                    .env("LANG", "C")
-                    .args(["clean", "-fd"])
-                    .current_dir(&self.workspace)
-                    .output();
-
-                let _ = Command::new("git")
-                    .env("LC_ALL", "C")
-                    .env("LANG", "C")
-                    .args(["stash", "apply"])
-                    .arg(&stash_ref)
-                    .current_dir(&self.workspace)
-                    .output();
-
-                let _ = Command::new("git")
-                    .env("LC_ALL", "C")
-                    .env("LANG", "C")
-                    .args(["stash", "drop"])
-                    .arg(&stash_ref)
-                    .current_dir(&self.workspace)
-                    .output();
-
-                eprintln!("[TRACE] Snapshot: {} restored in Drop", stash_ref);
-            } else {
-                // stash_tag set but ref missing — do NOT touch files to protect user data
+        match &self.stash_state {
+            StashState::NoLocalChanges => {
+                Self::git_reset_clean(&self.workspace);
+            }
+            StashState::Stashed { tag } => {
+                if let Some(stash_ref) = Self::resolve_stash_ref(&self.workspace, tag) {
+                    Self::git_reset_clean(&self.workspace);
+                    let _ = Command::new("git")
+                        .env("LC_ALL", "C")
+                        .env("LANG", "C")
+                        .args(["stash", "apply"])
+                        .arg(&stash_ref)
+                        .current_dir(&self.workspace)
+                        .output();
+                    let _ = Command::new("git")
+                        .env("LC_ALL", "C")
+                        .env("LANG", "C")
+                        .args(["stash", "drop"])
+                        .arg(&stash_ref)
+                        .current_dir(&self.workspace)
+                        .output();
+                    eprintln!("[TRACE] Snapshot: {} restored in Drop", stash_ref);
+                } else {
+                    eprintln!(
+                        "[WARN] Snapshot Drop: stash ref not found for tag {} — workspace NOT reset to protect user data",
+                        tag
+                    );
+                }
+            }
+            StashState::Failed(reason) => {
                 eprintln!(
-                    "[WARN] Snapshot: stash ref not found for tag {} in Drop — workspace NOT reset to protect user data",
-                    tag
+                    "[WARN] Snapshot Drop: reset skipped — stash failed at snapshot time ({}). Workspace preserved.",
+                    reason
                 );
             }
-        } else {
-            // No stash was created — safe to reset
-            let _ = Command::new("git")
-                .env("LC_ALL", "C")
-                .env("LANG", "C")
-                .args(["reset", "--hard"])
-                .current_dir(&self.workspace)
-                .output();
-
-            let _ = Command::new("git")
-                .env("LC_ALL", "C")
-                .env("LANG", "C")
-                .args(["clean", "-fd"])
-                .current_dir(&self.workspace)
-                .output();
         }
 
         self.restore_python_infra(had_venv);
