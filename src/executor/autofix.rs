@@ -71,6 +71,19 @@ pub fn autofix_go_redeclared_in_test(
         return None;
     }
 
+    // FIX C-02: guard — ensure test_file is inside workspace (no symlink escape)
+    let canonical_ws = workspace
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.to_path_buf());
+    let canonical_tf = test_file
+        .canonicalize()
+        .unwrap_or_else(|_| test_file.to_path_buf());
+    if !canonical_tf.starts_with(&canonical_ws) {
+        eprintln!(
+            "[WARN] autofix_go_redeclared_in_test: test_file outside workspace — write refused"
+        );
+        return None;
+    }
     std::fs::write(test_file, &result).ok()?;
     Some(format!("removed redeclared '{}' from test file", fn_name))
 }
@@ -661,5 +674,236 @@ mod go_unused_var_tests {
         let src = "func f() {\n\tval := stack.Pop()\n}\n";
         let stderr = "no errors here";
         assert!(autofix_go_unused_vars(src, stderr).is_none());
+    }
+}
+
+// ─── v9.3.6: Python missing local import autofix (creation tasks only) ───
+
+/// Extracts the undefined symbol name from a Python NameError message.
+fn extract_undefined_name(err: &str) -> Option<String> {
+    err.lines()
+        .find(|l| l.contains("NameError:") && l.contains("is not defined"))?
+        .split('\'')
+        .nth(1)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+/// Checks whether `sym` is defined at top-level as `def sym(` or `class sym`.
+fn is_defined_top_level(content: &str, sym: &str) -> bool {
+    let def_pattern = format!("def {}(", sym);
+    let class_pattern_paren = format!("class {}(", sym);
+    let class_pattern_colon = format!("class {}:", sym);
+    content.lines().any(|line| {
+        line.starts_with(&def_pattern)
+            || line.starts_with(&class_pattern_paren)
+            || line.starts_with(&class_pattern_colon)
+    })
+}
+
+/// Inserts an import line after the last existing import, or at the top.
+fn insert_import_after_existing(content: &str, import_line: &str) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut last_import_idx: Option<usize> = None;
+
+    for (i, line) in lines.iter().enumerate() {
+        let t = line.trim();
+        if t.starts_with("import ") || t.starts_with("from ") {
+            last_import_idx = Some(i);
+        }
+    }
+
+    let mut result: Vec<String> = Vec::with_capacity(lines.len() + 1);
+    match last_import_idx {
+        Some(idx) => {
+            for (i, line) in lines.iter().enumerate() {
+                result.push(line.to_string());
+                if i == idx {
+                    result.push(import_line.to_string());
+                }
+            }
+        }
+        None => {
+            result.push(import_line.to_string());
+            for line in &lines {
+                result.push(line.to_string());
+            }
+        }
+    }
+    result.join("\n")
+}
+
+/// Attempts to fix a missing local import in a Python test file.
+/// Returns the injected import line on success, `None` otherwise.
+/// Writes the fixed file directly to disk (engine-authored, zero LLM content).
+pub fn autofix_python_missing_local_import(
+    test_file: &std::path::Path,
+    err: &str,
+    workspace: &std::path::Path,
+) -> Option<String> {
+    let sym = extract_undefined_name(err)?;
+
+    let mut candidates: Vec<String> = Vec::new();
+    let entries = std::fs::read_dir(workspace).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if path.extension().and_then(|e| e.to_str()) != Some("py") {
+            continue;
+        }
+        if path == test_file {
+            continue;
+        }
+        let file_name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+        if file_name.starts_with("test_") || file_name.ends_with("_test.py") {
+            continue;
+        }
+
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        if is_defined_top_level(&content, &sym) {
+            if let Some(module) = path.file_stem().and_then(|s| s.to_str()) {
+                candidates.push(module.to_string());
+            }
+        }
+    }
+
+    if candidates.len() != 1 {
+        return None;
+    }
+
+    let module_name = &candidates[0];
+    let import_line = format!("from {} import {}", module_name, sym);
+
+    let test_content = std::fs::read_to_string(test_file).ok()?;
+    if test_content.contains(&import_line) {
+        return None;
+    }
+
+    let new_content = insert_import_after_existing(&test_content, &import_line);
+
+    // FIX C-02: guard — ensure test_file is inside workspace (no symlink escape)
+    let canonical_ws = workspace
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.to_path_buf());
+    let canonical_tf = test_file
+        .canonicalize()
+        .unwrap_or_else(|_| test_file.to_path_buf());
+    if !canonical_tf.starts_with(&canonical_ws) {
+        eprintln!("[WARN] autofix_python_missing_local_import: test_file outside workspace — write refused");
+        return None;
+    }
+    std::fs::write(test_file, new_content).ok()?;
+
+    Some(import_line)
+}
+
+#[cfg(test)]
+mod autofix_python_import_tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn injects_import_when_symbol_defined_in_single_sibling() {
+        let d = tempdir().unwrap();
+        let src = d.path().join("binary_search.py");
+        let tst = d.path().join("test_binary_search.py");
+        fs::write(&src, "def binary_search(arr, target):\n    pass\n").unwrap();
+        fs::write(
+            &tst,
+            "def test_found():\n    assert binary_search([1], 1) == 0\n",
+        )
+        .unwrap();
+
+        let err = "NameError: name 'binary_search' is not defined";
+        let result = autofix_python_missing_local_import(&tst, err, d.path());
+
+        assert_eq!(
+            result,
+            Some("from binary_search import binary_search".into())
+        );
+        let content = fs::read_to_string(&tst).unwrap();
+        assert!(content.contains("from binary_search import binary_search"));
+    }
+
+    #[test]
+    fn returns_none_when_symbol_defined_in_two_files() {
+        let d = tempdir().unwrap();
+        fs::write(d.path().join("a.py"), "def foo():\n    pass\n").unwrap();
+        fs::write(d.path().join("b.py"), "def foo():\n    pass\n").unwrap();
+        let tst = d.path().join("test_foo.py");
+        fs::write(&tst, "def test_foo():\n    assert foo() == 1\n").unwrap();
+
+        let err = "NameError: name 'foo' is not defined";
+        let result = autofix_python_missing_local_import(&tst, err, d.path());
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn returns_none_when_symbol_not_defined_anywhere() {
+        let d = tempdir().unwrap();
+        fs::write(
+            d.path().join("math_utils.py"),
+            "def add(a, b):\n    return a + b\n",
+        )
+        .unwrap();
+        let tst = d.path().join("test_math.py");
+        fs::write(&tst, "def test_add():\n    assert add(1, 2) == 3\n").unwrap();
+
+        let err = "NameError: name 'multiply' is not defined";
+        let result = autofix_python_missing_local_import(&tst, err, d.path());
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn returns_none_when_import_already_present() {
+        let d = tempdir().unwrap();
+        fs::write(d.path().join("calc.py"), "def calc():\n    pass\n").unwrap();
+        let tst = d.path().join("test_calc.py");
+        fs::write(
+            &tst,
+            "from calc import calc\ndef test_calc():\n    assert calc() == 0\n",
+        )
+        .unwrap();
+
+        let err = "NameError: name 'calc' is not defined";
+        let result = autofix_python_missing_local_import(&tst, err, d.path());
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn returns_none_when_symbol_defined_inside_function_not_top_level() {
+        let d = tempdir().unwrap();
+        fs::write(
+            d.path().join("helpers.py"),
+            "def outer():\n    def helper():\n        pass\n",
+        )
+        .unwrap();
+        let tst = d.path().join("test_helpers.py");
+        fs::write(&tst, "def test_helper():\n    assert helper() is None\n").unwrap();
+
+        let err = "NameError: name 'helper' is not defined";
+        let result = autofix_python_missing_local_import(&tst, err, d.path());
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn returns_none_when_nameerror_absent_from_stderr() {
+        let d = tempdir().unwrap();
+        fs::write(d.path().join("foo.py"), "def bar():\n    pass\n").unwrap();
+        let tst = d.path().join("test_foo.py");
+        fs::write(&tst, "def test_bar():\n    assert bar() is None\n").unwrap();
+
+        let err = "AssertionError: expected 5 got 3";
+        let result = autofix_python_missing_local_import(&tst, err, d.path());
+        assert_eq!(result, None);
     }
 }

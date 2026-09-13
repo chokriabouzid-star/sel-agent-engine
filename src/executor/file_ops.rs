@@ -293,6 +293,13 @@ impl SafeExecutor {
 
     pub fn delete_file(&self, path: &str) -> Result<ExecResult> {
         let p = self.safe_path(path)?;
+        // FIX M-02: protect test files from deletion
+        if self.blocks_existing_spec_modification(path, &p) {
+            return Ok(ExecResult::fail(format!(
+                "delete_file: '{}' is a protected test file and cannot be deleted",
+                path
+            )));
+        }
         // Protection: do not delete core config files
         let protected = ["Cargo.toml", "go.mod", "package.json", "Cargo.lock"];
         let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -567,7 +574,9 @@ impl SafeExecutor {
     }
 
     pub fn mkdir(&self, path: &str) -> Result<ExecResult> {
-        std::fs::create_dir_all(self.workspace.join(path))?;
+        // FIX H-01: use safe_path to block ".." and symlink escapes
+        let p = self.safe_path(path)?;
+        std::fs::create_dir_all(&p)?;
         Ok(ExecResult::ok(format!("mkdir: {}", path)))
     }
 }

@@ -24,7 +24,7 @@ impl ReplayProvider {
 
 #[async_trait]
 impl LLMProvider for ReplayProvider {
-    async fn complete(&self, _req: LLMRequest) -> Result<LLMResponse> {
+    async fn complete(&self, req: LLMRequest) -> Result<LLMResponse> {
         let count = {
             let mut c = match self.counter.lock() {
                 Ok(v) => v,
@@ -46,17 +46,37 @@ impl LLMProvider for ReplayProvider {
         let json = crate::llm::json_sanitizer::fix_rust_doc_comments(&json);
         let record: TrajectoryRecord = serde_json::from_str(&json)?;
 
+        // FIX M-14: strict mode rejects stale constitution (default: warn only)
         let current_hash = crate::constitution::constitution_hash();
         if !record.constitution_hash.is_empty()
             && record.constitution_hash != current_hash
             && count == 1
         {
+            let strict = std::env::var("SEL_STRICT_REPLAY")
+                .map(|v| v == "1" || v == "true")
+                .unwrap_or(false);
+
+            if strict {
+                return Err(anyhow!(
+                    "REPLAY_STALE: constitution hash mismatch                      (recorded={}, current={}).                      Re-run with --record to refresh fixtures.",
+                    record.constitution_hash.chars().take(8).collect::<String>(),
+                    current_hash.chars().take(8).collect::<String>()
+                ));
+            } else {
+                eprintln!(
+                    "  REPLAY STALE: constitution changed since recording.
+                            Recorded: {} | Current: {}
+                            Run with --record to refresh fixtures.",
+                    &record.constitution_hash.chars().take(8).collect::<String>(),
+                    current_hash.chars().take(8).collect::<String>()
+                );
+            }
+        }
+
+        // FIX M-13: warn if system prompt changed since recording
+        if !record.req.system.is_empty() && record.req.system != req.system && count == 1 {
             eprintln!(
-                "  REPLAY STALE: constitution changed since recording.\n   \
-                     Recorded: {} | Current: {}\n   \
-                     Run with --record to refresh fixtures.",
-                &record.constitution_hash.chars().take(8).collect::<String>(),
-                current_hash.chars().take(8).collect::<String>()
+                "  [WARN] Replay: system prompt mismatch at step 1 —                  fixture may be stale. Re-run with --record to refresh."
             );
         }
 

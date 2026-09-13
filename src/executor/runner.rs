@@ -140,7 +140,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored
                     || mod_name.starts_with("sel_tmp")
                     || mod_name.starts_with("tmp")
                 {
-                    "main".to_string()
+                    "sel_tmp".to_string()
                 } else {
                     mod_name.replace(|c: char| !c.is_alphanumeric() && c != '_', "_")
                 };
@@ -254,7 +254,14 @@ test result: ok. 0 passed; 0 failed; 0 ignored
                                 autofix_active = true;
 
                                 let _ = TCmd::new("npm")
-                                    .args(["install", module])
+                                    // FIX H-04: --ignore-scripts prevents lifecycle script execution
+                                    .args([
+                                        "install",
+                                        "--ignore-scripts",
+                                        "--no-audit",
+                                        "--no-fund",
+                                        module,
+                                    ])
                                     .current_dir(&self.workspace)
                                     .output()
                                     .await;

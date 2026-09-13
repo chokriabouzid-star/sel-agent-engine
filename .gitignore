@@ -59,3 +59,9 @@ swe *.txt
 *.bak
 *.bak*
 test_results.txt
+
+# Backup files
+src/*.bak*
+*.bak
+*.bak.*
+p0_*.patch
