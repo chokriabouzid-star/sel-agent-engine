@@ -235,10 +235,7 @@ impl SafeExecutor {
                 .map(|m| m.file_type().is_symlink())
                 .unwrap_or(false)
             {
-                return Err(anyhow!(
-                    "Symlink not allowed in path: {}",
-                    check.display()
-                ));
+                return Err(anyhow!("Symlink not allowed in path: {}", check.display()));
             }
         }
 

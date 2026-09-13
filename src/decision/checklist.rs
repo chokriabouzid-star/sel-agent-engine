@@ -12,6 +12,7 @@ pub fn pre_repair_checklist(
     plan: &mut Vec<Cmd>,
     ctx: &mut crate::types::ExecutionContext,
     workspace: &Path,
+    _goal: &str,
 ) -> ChecklistResult {
     if ctx.failed_steps.is_empty() {
         return ChecklistResult::ContinueToLlm;
@@ -71,6 +72,51 @@ pub fn pre_repair_checklist(
         println!("    Pre-Repair: auto-import fix applied");
         ctx.failed_steps.clear();
         return ChecklistResult::Handled;
+    }
+
+    // Check 2b: Python NameError — local import in creation task test (v9.3.6)
+    // Engine-authored fix, zero LLM content.
+    if matches!(kind, crate::failure::FailureKind::ImportError)
+        && stderr.contains("NameError")
+        && stderr.contains("is not defined")
+    {
+        let candidate_tests: Vec<std::path::PathBuf> =
+            if let Ok(entries) = std::fs::read_dir(workspace) {
+                entries
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| {
+                        p.is_file()
+                            && p.extension().and_then(|e| e.to_str()) == Some("py")
+                            && p.file_name()
+                                .and_then(|n| n.to_str())
+                                .map(|n| n.starts_with("test_") || n.ends_with("_test.py"))
+                                .unwrap_or(false)
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
+        for test_path in candidate_tests {
+            if let Some(imported) = crate::executor::autofix::autofix_python_missing_local_import(
+                &test_path, &stderr, workspace,
+            ) {
+                println!("    Pre-Repair: local import fix applied -> {}", imported);
+                let test_target = if workspace.join("venv/bin/pytest").exists() {
+                    "venv/bin/pytest"
+                } else {
+                    "pytest"
+                };
+                plan.clear();
+                plan.push(Cmd::RunTests {
+                    target: test_target.to_string(),
+                });
+                ctx.failed_steps.clear();
+                ctx.autofix_count += 1;
+                return ChecklistResult::Handled;
+            }
+        }
     }
 
     // Check 3: Rust E0762
@@ -825,7 +871,7 @@ mod tests {
         let mut ctx = crate::types::ExecutionContext::new(3);
         ctx.failed_steps.push(timeout_step());
         ctx.bench_mode = false;
-        let result = pre_repair_checklist(&mut plan, &mut ctx, dir.path());
+        let result = pre_repair_checklist(&mut plan, &mut ctx, dir.path(), "");
         assert!(matches!(result, ChecklistResult::Handled));
         assert!(plan
             .iter()
@@ -843,7 +889,7 @@ mod tests {
         let mut ctx = crate::types::ExecutionContext::new(3);
         ctx.failed_steps.push(timeout_step());
         ctx.bench_mode = true;
-        let result = pre_repair_checklist(&mut plan, &mut ctx, dir.path());
+        let result = pre_repair_checklist(&mut plan, &mut ctx, dir.path(), "");
         assert!(matches!(result, ChecklistResult::Handled));
         assert!(plan
             .iter()
@@ -868,7 +914,7 @@ mod tests {
             culprit_file: None,
         });
         ctx.bench_mode = false;
-        let result = pre_repair_checklist(&mut plan, &mut ctx, dir.path());
+        let result = pre_repair_checklist(&mut plan, &mut ctx, dir.path(), "");
         assert!(matches!(result, ChecklistResult::Handled));
         assert!(
             !plan
@@ -895,7 +941,7 @@ mod tests {
         });
         ctx.bench_mode = true;
 
-        let result = pre_repair_checklist(&mut plan, &mut ctx, dir.path());
+        let result = pre_repair_checklist(&mut plan, &mut ctx, dir.path(), "");
         assert!(matches!(result, ChecklistResult::Handled));
 
         assert!(plan
@@ -926,7 +972,7 @@ mod tests {
         });
         ctx.bench_mode = false;
 
-        let result = pre_repair_checklist(&mut plan, &mut ctx, dir.path());
+        let result = pre_repair_checklist(&mut plan, &mut ctx, dir.path(), "");
         assert!(matches!(result, ChecklistResult::Handled));
 
         let retry_write = plan.iter().find_map(|c| match c {

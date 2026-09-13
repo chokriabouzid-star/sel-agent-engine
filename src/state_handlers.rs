@@ -1256,7 +1256,7 @@ pub async fn do_repairing(
     // Pre-Repair Checklist v7.6
     let mut fix_plan = Vec::new();
     if let crate::decision::ChecklistResult::Handled =
-        crate::decision::pre_repair_checklist(&mut fix_plan, ctx, workspace)
+        crate::decision::pre_repair_checklist(&mut fix_plan, ctx, workspace, goal)
     {
         if fix_plan.is_empty() {
             println!("   ⚠️  Checklist returned Handled but produced no commands  falling through to LLM");

@@ -141,8 +141,7 @@ impl Snapshot {
 
         let has_stashed = if let Ok(out) = output {
             let stdout = String::from_utf8_lossy(&out.stdout);
-            out.status.success()
-                && !stdout.contains("No local changes to save")
+            out.status.success() && !stdout.contains("No local changes to save")
         } else {
             false
         };

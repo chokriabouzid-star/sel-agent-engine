@@ -72,10 +72,16 @@ pub fn autofix_go_redeclared_in_test(
     }
 
     // FIX C-02: guard — ensure test_file is inside workspace (no symlink escape)
-    let canonical_ws = workspace.canonicalize().unwrap_or_else(|_| workspace.to_path_buf());
-    let canonical_tf = test_file.canonicalize().unwrap_or_else(|_| test_file.to_path_buf());
+    let canonical_ws = workspace
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.to_path_buf());
+    let canonical_tf = test_file
+        .canonicalize()
+        .unwrap_or_else(|_| test_file.to_path_buf());
     if !canonical_tf.starts_with(&canonical_ws) {
-        eprintln!("[WARN] autofix_go_redeclared_in_test: test_file outside workspace — write refused");
+        eprintln!(
+            "[WARN] autofix_go_redeclared_in_test: test_file outside workspace — write refused"
+        );
         return None;
     }
     std::fs::write(test_file, &result).ok()?;
@@ -784,8 +790,12 @@ pub fn autofix_python_missing_local_import(
     let new_content = insert_import_after_existing(&test_content, &import_line);
 
     // FIX C-02: guard — ensure test_file is inside workspace (no symlink escape)
-    let canonical_ws = workspace.canonicalize().unwrap_or_else(|_| workspace.to_path_buf());
-    let canonical_tf = test_file.canonicalize().unwrap_or_else(|_| test_file.to_path_buf());
+    let canonical_ws = workspace
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.to_path_buf());
+    let canonical_tf = test_file
+        .canonicalize()
+        .unwrap_or_else(|_| test_file.to_path_buf());
     if !canonical_tf.starts_with(&canonical_ws) {
         eprintln!("[WARN] autofix_python_missing_local_import: test_file outside workspace — write refused");
         return None;
@@ -807,12 +817,19 @@ mod autofix_python_import_tests {
         let src = d.path().join("binary_search.py");
         let tst = d.path().join("test_binary_search.py");
         fs::write(&src, "def binary_search(arr, target):\n    pass\n").unwrap();
-        fs::write(&tst, "def test_found():\n    assert binary_search([1], 1) == 0\n").unwrap();
+        fs::write(
+            &tst,
+            "def test_found():\n    assert binary_search([1], 1) == 0\n",
+        )
+        .unwrap();
 
         let err = "NameError: name 'binary_search' is not defined";
         let result = autofix_python_missing_local_import(&tst, err, d.path());
 
-        assert_eq!(result, Some("from binary_search import binary_search".into()));
+        assert_eq!(
+            result,
+            Some("from binary_search import binary_search".into())
+        );
         let content = fs::read_to_string(&tst).unwrap();
         assert!(content.contains("from binary_search import binary_search"));
     }
@@ -833,7 +850,11 @@ mod autofix_python_import_tests {
     #[test]
     fn returns_none_when_symbol_not_defined_anywhere() {
         let d = tempdir().unwrap();
-        fs::write(d.path().join("math_utils.py"), "def add(a, b):\n    return a + b\n").unwrap();
+        fs::write(
+            d.path().join("math_utils.py"),
+            "def add(a, b):\n    return a + b\n",
+        )
+        .unwrap();
         let tst = d.path().join("test_math.py");
         fs::write(&tst, "def test_add():\n    assert add(1, 2) == 3\n").unwrap();
 

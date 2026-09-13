@@ -74,10 +74,7 @@ impl LLMProvider for ReplayProvider {
         }
 
         // FIX M-13: warn if system prompt changed since recording
-        if !record.req.system.is_empty()
-            && record.req.system != req.system
-            && count == 1
-        {
+        if !record.req.system.is_empty() && record.req.system != req.system && count == 1 {
             eprintln!(
                 "  [WARN] Replay: system prompt mismatch at step 1 —                  fixture may be stale. Re-run with --record to refresh."
             );

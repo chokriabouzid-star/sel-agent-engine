@@ -194,9 +194,12 @@ fn extract_pip_install_package(prog: &str, args: &[String]) -> Option<String> {
 
     // أعلام pip تأخذ قيمتها في وسيط منفصل — القيمة ليست اسم حزمة أبداً.
     const VALUE_TAKING_FLAGS: &[&str] = &[
-        "-r", "--requirement",
-        "-c", "--constraint",
-        "-e", "--editable",
+        "-r",
+        "--requirement",
+        "-c",
+        "--constraint",
+        "-e",
+        "--editable",
     ];
 
     let mut i = install_pos + 1;
@@ -542,32 +545,39 @@ mod tests {
         }
     }
 
-
     #[test]
     fn pip_install_requirements_flag_returns_none() {
         let args: Vec<String> = vec!["install", "-r", "requirements.txt"]
-            .into_iter().map(String::from).collect();
+            .into_iter()
+            .map(String::from)
+            .collect();
         assert_eq!(extract_pip_install_package("pip", &args), None);
     }
 
     #[test]
     fn pip_install_constraint_flag_returns_none() {
         let args: Vec<String> = vec!["install", "-c", "constraints.txt"]
-            .into_iter().map(String::from).collect();
+            .into_iter()
+            .map(String::from)
+            .collect();
         assert_eq!(extract_pip_install_package("pip", &args), None);
     }
 
     #[test]
     fn pip_install_editable_flag_returns_none() {
         let args: Vec<String> = vec!["install", "-e", "."]
-            .into_iter().map(String::from).collect();
+            .into_iter()
+            .map(String::from)
+            .collect();
         assert_eq!(extract_pip_install_package("pip", &args), None);
     }
 
     #[test]
     fn pip_install_normal_package_still_works() {
         let args: Vec<String> = vec!["install", "requests"]
-            .into_iter().map(String::from).collect();
+            .into_iter()
+            .map(String::from)
+            .collect();
         assert_eq!(
             extract_pip_install_package("pip", &args),
             Some("requests".to_string())
@@ -577,7 +587,9 @@ mod tests {
     #[test]
     fn pip_install_requirements_then_package() {
         let args: Vec<String> = vec!["install", "-r", "requirements.txt", "requests"]
-            .into_iter().map(String::from).collect();
+            .into_iter()
+            .map(String::from)
+            .collect();
         assert_eq!(
             extract_pip_install_package("pip", &args),
             Some("requests".to_string())
@@ -587,7 +599,9 @@ mod tests {
     #[test]
     fn python_m_pip_install_requirements_returns_none() {
         let args: Vec<String> = vec!["-m", "pip", "install", "-r", "requirements.txt"]
-            .into_iter().map(String::from).collect();
+            .into_iter()
+            .map(String::from)
+            .collect();
         assert_eq!(extract_pip_install_package("python", &args), None);
     }
 

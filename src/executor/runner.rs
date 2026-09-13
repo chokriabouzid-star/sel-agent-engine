@@ -255,7 +255,13 @@ test result: ok. 0 passed; 0 failed; 0 ignored
 
                                 let _ = TCmd::new("npm")
                                     // FIX H-04: --ignore-scripts prevents lifecycle script execution
-                                    .args(["install", "--ignore-scripts", "--no-audit", "--no-fund", module])
+                                    .args([
+                                        "install",
+                                        "--ignore-scripts",
+                                        "--no-audit",
+                                        "--no-fund",
+                                        module,
+                                    ])
                                     .current_dir(&self.workspace)
                                     .output()
                                     .await;
