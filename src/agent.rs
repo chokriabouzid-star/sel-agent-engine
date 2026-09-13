@@ -426,6 +426,9 @@ impl Agent {
                         self.executor.set_broken_authorized_test_repair(false);
                     }
 
+                    // FIX C-02: sync protected_test_files into ctx so checklist can guard autofix
+                    self.ctx.protected_test_files = self.executor.protected_test_files.clone();
+
                     match crate::state_handlers::do_repairing(
                         &mut self.ctx,
                         self.llm.as_ref(),
