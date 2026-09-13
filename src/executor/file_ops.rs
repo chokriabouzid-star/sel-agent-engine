@@ -567,7 +567,9 @@ impl SafeExecutor {
     }
 
     pub fn mkdir(&self, path: &str) -> Result<ExecResult> {
-        std::fs::create_dir_all(self.workspace.join(path))?;
+        // FIX H-01: use safe_path to block ".." and symlink escapes
+        let p = self.safe_path(path)?;
+        std::fs::create_dir_all(&p)?;
         Ok(ExecResult::ok(format!("mkdir: {}", path)))
     }
 }

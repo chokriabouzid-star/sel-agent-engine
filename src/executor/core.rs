@@ -210,13 +210,38 @@ impl SafeExecutor {
     }
 
     pub fn safe_path(&self, path: &str) -> Result<PathBuf> {
+        // FIX C-03 + H-01: reject ".." segments explicitly
         if path.contains("..") {
-            return Err(anyhow!("Path traversal detected"));
+            return Err(anyhow!("Path traversal detected: {}", path));
         }
+
         let full = self.workspace.join(path);
+
+        // Basic prefix check (catches absolute path escapes)
         if !full.starts_with(&self.workspace) {
-            return Err(anyhow!("Workspace escape detected"));
+            return Err(anyhow!("Workspace escape detected: {}", path));
         }
+
+        // FIX C-03: walk each component and reject symlinks
+        let relative = full
+            .strip_prefix(&self.workspace)
+            .map_err(|_| anyhow!("Workspace escape detected: {}", path))?;
+
+        let mut check = self.workspace.clone();
+        for component in relative.components() {
+            check.push(component);
+            if check
+                .symlink_metadata()
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(false)
+            {
+                return Err(anyhow!(
+                    "Symlink not allowed in path: {}",
+                    check.display()
+                ));
+            }
+        }
+
         Ok(full)
     }
 
