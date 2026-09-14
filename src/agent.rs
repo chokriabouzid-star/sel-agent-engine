@@ -825,14 +825,33 @@ fn extract_goal_authorized_test_files(
     // FIX H-11: check negation BEFORE edit intent
     // "Do not modify test_x.py" must NOT open authorization window
     let negation_phrases = [
-        "do not modify", "do not edit", "do not change", "do not touch",
-        "do not update", "do not write", "do not alter",
-        "don't modify", "don't edit", "don't change", "don't touch",
-        "don't update", "don't write", "don't alter",
-        "never modify", "never edit", "never change", "never touch",
-        "must not modify", "must not edit", "must not change",
-        "without modifying", "without editing", "without changing",
-        "leave intact", "leave unchanged", "keep unchanged",
+        "do not modify",
+        "do not edit",
+        "do not change",
+        "do not touch",
+        "do not update",
+        "do not write",
+        "do not alter",
+        "don't modify",
+        "don't edit",
+        "don't change",
+        "don't touch",
+        "don't update",
+        "don't write",
+        "don't alter",
+        "never modify",
+        "never edit",
+        "never change",
+        "never touch",
+        "must not modify",
+        "must not edit",
+        "must not change",
+        "without modifying",
+        "without editing",
+        "without changing",
+        "leave intact",
+        "leave unchanged",
+        "keep unchanged",
     ];
 
     // FIX H-11: check per-file negation — "only implement X, do not modify test_Y"
@@ -847,9 +866,7 @@ fn extract_goal_authorized_test_files(
 
     // If any global negation phrase present → no authorization at all
     if negation_phrases.iter().any(|neg| goal_lower.contains(neg)) {
-        eprintln!(
-            "[TRACE] H-11: negation detected in goal — no test files authorized for editing"
-        );
+        eprintln!("[TRACE] H-11: negation detected in goal — no test files authorized for editing");
         return Vec::new();
     }
 
@@ -1109,7 +1126,7 @@ mod extract_goal_authorized_tests {
     use std::collections::HashSet;
 
     fn make_protected(names: &[&str]) -> HashSet<PathBuf> {
-        names.iter().map(|n| PathBuf::from(n)).collect()
+        names.iter().map(PathBuf::from).collect()
     }
 
     /// H-11: "do not modify test_x.py" must return empty
@@ -1198,6 +1215,127 @@ mod extract_goal_authorized_tests {
             result.is_empty(),
             "H-11 FAIL: 'without modifying' should prevent authorization, got: {:?}",
             result
+        );
+    }
+}
+
+#[cfg(test)]
+mod c01b_h11_regression_tests {
+    use std::path::PathBuf;
+
+    fn contains_path(got: &[PathBuf], expected: &PathBuf) -> bool {
+        got.iter().any(|p| p == expected || p.ends_with(expected))
+    }
+
+    #[test]
+    fn c01b_failed_branch_commits_initial_snapshot_not_rolls_back() {
+        let src = include_str!("agent.rs");
+
+        let start = src
+            .find("AgentState::Failed(reason) =>")
+            .expect("AgentState::Failed(reason) branch not found");
+
+        let end = std::cmp::min(src.len(), start + 2200);
+        let window = &src[start..end];
+
+        assert!(
+            window.contains("initial_snapshot.take()"),
+            "C-01-B FAIL: Failed branch does not take initial_snapshot"
+        );
+
+        assert!(
+            window.contains("snap.commit()"),
+            "C-01-B FAIL: Failed branch must commit initial_snapshot to preserve agent-created files"
+        );
+
+        assert!(
+            !window.contains("snap.rollback()"),
+            "C-01-B FAIL: Failed branch must not rollback initial_snapshot"
+        );
+    }
+
+    #[test]
+    fn h11_do_not_modify_named_test_file_is_not_authorized() {
+        let protected = [PathBuf::from("tests/test_public_api.py")];
+
+        let goal = "Implement the feature in src/lib.rs. Do not modify tests/test_public_api.py.";
+
+        let got = super::extract_goal_authorized_test_files(
+            goal,
+            &protected
+                .iter()
+                .cloned()
+                .collect::<std::collections::HashSet<_>>(),
+        );
+
+        assert!(
+            got.is_empty(),
+            "H-11 FAIL: negated instruction authorized a protected test file: {:?}",
+            got
+        );
+    }
+
+    #[test]
+    fn h11_dont_edit_named_test_file_is_not_authorized() {
+        let protected = [PathBuf::from("tests/test_public_api.py")];
+
+        let goal = "Fix the implementation only; don't edit tests/test_public_api.py.";
+
+        let got = super::extract_goal_authorized_test_files(
+            goal,
+            &protected
+                .iter()
+                .cloned()
+                .collect::<std::collections::HashSet<_>>(),
+        );
+
+        assert!(
+            got.is_empty(),
+            "H-11 FAIL: \"don't edit\" authorized a protected test file: {:?}",
+            got
+        );
+    }
+
+    #[test]
+    fn h11_passive_must_not_be_modified_is_not_authorized() {
+        let protected = [PathBuf::from("tests/test_public_api.py")];
+
+        let goal =
+            "tests/test_public_api.py must not be modified. Change only the production code.";
+
+        let got = super::extract_goal_authorized_test_files(
+            goal,
+            &protected
+                .iter()
+                .cloned()
+                .collect::<std::collections::HashSet<_>>(),
+        );
+
+        assert!(
+            got.is_empty(),
+            "H-11 FAIL: passive negation authorized a protected test file: {:?}",
+            got
+        );
+    }
+
+    #[test]
+    fn h11_positive_explicit_test_edit_still_authorizes() {
+        let protected = [PathBuf::from("tests/test_public_api.py")];
+
+        let goal = "Modify tests/test_public_api.py to cover the new expected behavior.";
+
+        let got = super::extract_goal_authorized_test_files(
+            goal,
+            &protected
+                .iter()
+                .cloned()
+                .collect::<std::collections::HashSet<_>>(),
+        );
+
+        assert!(
+            contains_path(&got, &protected[0]),
+            "H-11 FAIL: positive explicit authorization did not authorize the test file. got={:?}",
+            got
         );
     }
 }

@@ -7,6 +7,7 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Tracks the result of the stash operation to prevent ambiguous None handling.
+#[derive(Debug)]
 enum StashState {
     /// git stash said "No local changes to save" — workspace was clean, safe to reset
     NoLocalChanges,
@@ -453,6 +454,47 @@ mod snapshot_tests {
         assert!(
             ws.join("important.txt").exists(),
             "C-01 FAIL: rollback destroyed files despite Failed stash state"
+        );
+    }
+
+    /// C-01-B: commit() on a clean initial snapshot must preserve agent-created files.
+    ///
+    /// Scenario:
+    /// 1. Workspace is clean when Snapshot::take() runs → StashState::NoLocalChanges.
+    /// 2. Agent creates a new untracked file during the session.
+    /// 3. Final failure path must call commit(), not rollback()/Drop cleanup.
+    /// 4. The new file must survive.
+    #[test]
+    fn c01b_commit_preserves_agent_created_untracked_files_on_nolocalchanges() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let ws = dir.path();
+        make_git_repo(ws);
+
+        let mut snap = Snapshot::take(ws);
+
+        // NOTE: take() itself may dirty the worktree (infra protection),
+        // so both NoLocalChanges and Stashed are valid starting states.
+        // The guarantee under test: commit() + Drop must never destroy
+        // agent-created files, regardless of stash state.
+        assert!(
+            matches!(
+                snap.stash_state,
+                StashState::NoLocalChanges | StashState::Stashed { .. }
+            ),
+            "setup failed: unexpected stash state {:?}",
+            snap.stash_state
+        );
+
+        fs::write(ws.join("solution.py"), "def solve():\n    return 42\n").unwrap();
+
+        snap.commit();
+
+        // Force Drop after commit. Since commit() sets active=false, Drop must not clean.
+        drop(snap);
+
+        assert!(
+            ws.join("solution.py").exists(),
+            "C-01-B FAIL: commit() or Drop destroyed agent-created file solution.py"
         );
     }
 
