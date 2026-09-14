@@ -312,16 +312,52 @@ impl Agent {
             }
         }
 
-        {
+        // FIX H-05: only commit scaffold_baseline if workspace has no HEAD yet
+        // Avoids polluting user's existing git history
+        let has_head = std::process::Command::new("git")
+            .env("LC_ALL", "C")
+            .env("LANG", "C")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&ws)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        if !has_head {
             let _ = std::process::Command::new("git")
+                .env("LC_ALL", "C")
+                .env("LANG", "C")
+                .args(["init", "-q"])
+                .current_dir(&ws)
+                .output();
+            let _ = std::process::Command::new("git")
+                .env("LC_ALL", "C")
+                .env("LANG", "C")
+                .args(["config", "user.name", "SEL Agent"])
+                .current_dir(&ws)
+                .output();
+            let _ = std::process::Command::new("git")
+                .env("LC_ALL", "C")
+                .env("LANG", "C")
+                .args(["config", "user.email", "sel@local.test"])
+                .current_dir(&ws)
+                .output();
+            let _ = std::process::Command::new("git")
+                .env("LC_ALL", "C")
+                .env("LANG", "C")
                 .arg("add")
                 .arg(".")
                 .current_dir(&ws)
                 .output();
             let _ = std::process::Command::new("git")
+                .env("LC_ALL", "C")
+                .env("LANG", "C")
                 .args(["commit", "-m", "scaffold_baseline", "--allow-empty"])
                 .current_dir(&ws)
                 .output();
+            eprintln!("[TRACE] H-05: created initial git baseline (workspace had no HEAD)");
+        } else {
+            eprintln!("[TRACE] H-05: workspace already has git history — skipping scaffold_baseline commit");
         }
         self.initial_snapshot = Some(crate::snapshot::Snapshot::take(&ws));
 
