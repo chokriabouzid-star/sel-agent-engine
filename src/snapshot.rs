@@ -474,6 +474,9 @@ mod snapshot_tests {
         );
 
         // verify snapshot is active
-        assert!(snap.active, "C-01 FAIL: snapshot should be active after take()");
+        assert!(
+            snap.active,
+            "C-01 FAIL: snapshot should be active after take()"
+        );
     }
 }

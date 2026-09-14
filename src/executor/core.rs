@@ -413,8 +413,7 @@ mod tests {
 
         // إنشاء symlink داخل workspace يشير لخارجه
         let link = ws.join("escape_link");
-        std::os::unix::fs::symlink(outside_dir.path(), &link)
-            .expect("symlink creation failed");
+        std::os::unix::fs::symlink(outside_dir.path(), &link).expect("symlink creation failed");
 
         let e = ex(ws);
 
@@ -466,8 +465,7 @@ mod tests {
         let ws = ws_dir.path();
 
         let link = ws.join("link_to_outside");
-        std::os::unix::fs::symlink(outside_dir.path(), &link)
-            .expect("symlink creation failed");
+        std::os::unix::fs::symlink(outside_dir.path(), &link).expect("symlink creation failed");
 
         let e = ex(ws);
         let result = e.mkdir("link_to_outside/new_subdir");
@@ -477,5 +475,4 @@ mod tests {
             "H-01 FAIL: mkdir allowed symlink escape, expected Err"
         );
     }
-
 }

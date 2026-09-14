@@ -228,8 +228,7 @@ mod replay_tests {
                 "task_kind": "",
                 "tokens_used": 0
             }}"#,
-            "OLD SYSTEM PROMPT that is completely different from current",
-            current_hash
+            "OLD SYSTEM PROMPT that is completely different from current", current_hash
         );
         fs::write(dir.path().join("001.json"), &record).unwrap();
         std::env::remove_var("SEL_ALLOW_STALE_REPLAY");
@@ -274,8 +273,7 @@ mod replay_tests {
                 "task_kind": "",
                 "tokens_used": 0
             }}"#,
-            "OLD SYSTEM PROMPT that is completely different from current",
-            current_hash
+            "OLD SYSTEM PROMPT that is completely different from current", current_hash
         );
         fs::write(dir.path().join("001.json"), &record).unwrap();
         std::env::set_var("SEL_ALLOW_STALE_REPLAY", "1");

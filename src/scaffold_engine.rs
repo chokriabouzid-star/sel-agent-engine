@@ -366,9 +366,7 @@ async fn scaffold_typescript(workspace: &Path, extra_deps: &[String]) -> Scaffol
             }
         }
     } else {
-        eprintln!(
-            "[TRACE] H-08: jest.config.js preserved (package.json has no jest config)"
-        );
+        eprintln!("[TRACE] H-08: jest.config.js preserved (package.json has no jest config)");
     }
 
     // 4) npm install  pinned stack
