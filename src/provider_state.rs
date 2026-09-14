@@ -48,9 +48,7 @@ impl ProviderStateCache {
         // becomes a deliberate no-op; in-memory state is preserved and the
         // existing tests (which only assert in-memory behaviour) are unaffected.
         #[cfg(test)]
-        {
-            return;
-        }
+        {}
         #[cfg(not(test))]
         {
             let path = Self::state_path();

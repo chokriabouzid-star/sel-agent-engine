@@ -668,13 +668,11 @@ fn should_reject_missing_tests_success(
                         has_real_assertions = true;
                     }
                 }
-                "go" => {
-                    if trimmed.contains("t.Error")
-                        || trimmed.contains("t.Fatal")
-                        || trimmed.contains("t.Fail")
-                    {
-                        has_real_assertions = true;
-                    }
+                "go" if (trimmed.contains("t.Error")
+                    || trimmed.contains("t.Fatal")
+                    || trimmed.contains("t.Fail")) =>
+                {
+                    has_real_assertions = true;
                 }
                 _ => {}
             }

@@ -62,7 +62,7 @@ impl LLMProvider for ReplayProvider {
                     "  [WARN] Replay: constitution mismatch ignored (SEL_ALLOW_STALE_REPLAY=1)\n  \
                      Recorded: {} | Current: {}\n  \
                      Re-run with --record to refresh fixtures.",
-                    &record.constitution_hash.chars().take(8).collect::<String>(),
+                    record.constitution_hash.chars().take(8).collect::<String>(),
                     current_hash.chars().take(8).collect::<String>()
                 );
             } else {

@@ -210,7 +210,7 @@ async fn prepare_from_cache(workspace: &Path, goal: &str) -> ScaffoldResult {
             // removing it unconditionally breaks workspaces that rely on jest.config.js
             let jest_cfg = workspace.join("jest.config.js");
             let jest_cfg_ts = workspace.join("jest.config.ts");
-            let pkg_has_jest_config = std::fs::read_to_string(&workspace.join("package.json"))
+            let pkg_has_jest_config = std::fs::read_to_string(workspace.join("package.json"))
                 .ok()
                 .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
                 .map(|v| v.get("jest").is_some())
@@ -350,7 +350,7 @@ async fn scaffold_typescript(workspace: &Path, extra_deps: &[String]) -> Scaffol
     // FIX H-08: only remove jest.config.js if package.json has jest config
     let jest_cfg = workspace.join("jest.config.js");
     let jest_cfg_ts = workspace.join("jest.config.ts");
-    let pkg_has_jest = std::fs::read_to_string(&workspace.join("package.json"))
+    let pkg_has_jest = std::fs::read_to_string(workspace.join("package.json"))
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
         .map(|v| v.get("jest").is_some())
