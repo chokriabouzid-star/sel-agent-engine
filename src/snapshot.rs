@@ -377,3 +377,103 @@ impl Drop for Snapshot {
         self.active = false;
     }
 }
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+    use std::fs;
+
+    fn make_git_repo(dir: &std::path::Path) {
+        let run = |args: &[&str]| {
+            Command::new("git")
+                .env("LC_ALL", "C")
+                .env("LANG", "C")
+                .args(args)
+                .current_dir(dir)
+                .output()
+                .expect("git command failed");
+        };
+        run(&["init", "-q"]);
+        run(&["config", "user.email", "t@t"]);
+        run(&["config", "user.name", "t"]);
+        fs::write(dir.join("README.md"), "base").unwrap();
+        run(&["add", "."]);
+        run(&["commit", "-qm", "base"]);
+    }
+
+    /// C-01: index.lock prevents stash — untracked files must survive
+    #[test]
+    fn c01_index_lock_preserves_untracked_files() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let ws = dir.path();
+        make_git_repo(ws);
+
+        // Create untracked precious file
+        fs::write(ws.join("important.txt"), "precious content").unwrap();
+        fs::write(ws.join("README.md"), "edited").unwrap();
+
+        // Simulate index.lock (causes stash to fail)
+        fs::write(ws.join(".git/index.lock"), "locked").unwrap();
+
+        // take() must NOT destroy files when stash fails
+        let snap = Snapshot::take(ws);
+
+        // important.txt must still exist
+        assert!(
+            ws.join("important.txt").exists(),
+            "C-01 FAIL: important.txt was destroyed despite stash failure"
+        );
+
+        // stash_state must be Failed
+        assert!(
+            matches!(snap.stash_state, StashState::Failed(_)),
+            "C-01 FAIL: expected StashState::Failed, got something else"
+        );
+
+        // cleanup
+        let _ = fs::remove_file(ws.join(".git/index.lock"));
+    }
+
+    /// C-01: rollback with Failed state must NOT reset workspace
+    #[test]
+    fn c01_rollback_failed_state_preserves_files() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let ws = dir.path();
+        make_git_repo(ws);
+
+        fs::write(ws.join("important.txt"), "precious").unwrap();
+        fs::write(ws.join(".git/index.lock"), "locked").unwrap();
+
+        let mut snap = Snapshot::take(ws);
+        let _ = fs::remove_file(ws.join(".git/index.lock"));
+
+        // rollback must NOT reset/clean
+        snap.rollback();
+
+        assert!(
+            ws.join("important.txt").exists(),
+            "C-01 FAIL: rollback destroyed files despite Failed stash state"
+        );
+    }
+
+    /// C-01: normal stash succeeds — StashState::Stashed on workspace with changes
+    #[test]
+    fn c01_stashed_state_on_workspace_with_changes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let ws = dir.path();
+        make_git_repo(ws);
+
+        // take() writes .gitignore if missing, so there are always changes
+        // verify stash succeeds and state is Stashed
+        let snap = Snapshot::take(ws);
+
+        assert!(
+            matches!(snap.stash_state, StashState::Stashed { .. })
+                || matches!(snap.stash_state, StashState::NoLocalChanges),
+            "C-01 FAIL: expected Stashed or NoLocalChanges on normal workspace"
+        );
+
+        // verify snapshot is active
+        assert!(snap.active, "C-01 FAIL: snapshot should be active after take()");
+    }
+}

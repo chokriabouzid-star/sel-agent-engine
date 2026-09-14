@@ -404,4 +404,78 @@ mod tests {
         let e = ex(d.path());
         assert!(e.safety_check("cargo test").is_ok());
     }
+    /// C-03: safe_path must reject symlinks pointing outside workspace
+    #[test]
+    fn c03_safe_path_rejects_symlink_escape() {
+        let ws_dir = tempdir().expect("tempdir");
+        let outside_dir = tempdir().expect("tempdir outside");
+        let ws = ws_dir.path();
+
+        // إنشاء symlink داخل workspace يشير لخارجه
+        let link = ws.join("escape_link");
+        std::os::unix::fs::symlink(outside_dir.path(), &link)
+            .expect("symlink creation failed");
+
+        let e = ex(ws);
+
+        // safe_path عبر symlink يجب أن يُرفض
+        let result = e.safe_path("escape_link/secret.txt");
+        assert!(
+            result.is_err(),
+            "C-03 FAIL: safe_path allowed symlink escape, expected Err"
+        );
+    }
+
+    /// C-03: safe_path must reject ".." traversal
+    #[test]
+    fn c03_safe_path_rejects_dotdot_traversal() {
+        let ws_dir = tempdir().expect("tempdir");
+        let e = ex(ws_dir.path());
+
+        let result = e.safe_path("../../etc/passwd");
+        assert!(
+            result.is_err(),
+            "C-03 FAIL: safe_path allowed .. traversal, expected Err"
+        );
+    }
+
+    /// H-01: mkdir must reject ".." traversal
+    #[test]
+    fn h01_mkdir_rejects_dotdot_traversal() {
+        let ws_dir = tempdir().expect("tempdir");
+        let outside = ws_dir.path().parent().unwrap().join("escaped_dir_h01");
+
+        let e = ex(ws_dir.path());
+        let result = e.mkdir("../escaped_dir_h01");
+
+        assert!(
+            result.is_err(),
+            "H-01 FAIL: mkdir allowed .. traversal, expected Err"
+        );
+        assert!(
+            !outside.exists(),
+            "H-01 FAIL: directory was created outside workspace"
+        );
+    }
+
+    /// H-01: mkdir must reject symlink escape
+    #[test]
+    fn h01_mkdir_rejects_symlink_escape() {
+        let ws_dir = tempdir().expect("tempdir");
+        let outside_dir = tempdir().expect("tempdir outside");
+        let ws = ws_dir.path();
+
+        let link = ws.join("link_to_outside");
+        std::os::unix::fs::symlink(outside_dir.path(), &link)
+            .expect("symlink creation failed");
+
+        let e = ex(ws);
+        let result = e.mkdir("link_to_outside/new_subdir");
+
+        assert!(
+            result.is_err(),
+            "H-01 FAIL: mkdir allowed symlink escape, expected Err"
+        );
+    }
+
 }
