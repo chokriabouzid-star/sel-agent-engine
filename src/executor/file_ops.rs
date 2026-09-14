@@ -580,3 +580,85 @@ impl SafeExecutor {
         Ok(ExecResult::ok(format!("mkdir: {}", path)))
     }
 }
+
+#[cfg(test)]
+mod file_ops_tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    fn make_executor(ws: &std::path::Path) -> SafeExecutor {
+        SafeExecutor::new(ws.to_path_buf(), 30)
+    }
+
+    /// M-02: delete_file must not delete protected test files
+    #[test]
+    fn m02_delete_file_rejects_protected_test_file() {
+        let dir = tempdir().expect("tempdir");
+        let ws = dir.path();
+
+        // إنشاء ملف اختبار
+        let test_file = ws.join("test_main.py");
+        fs::write(&test_file, "def test_foo(): pass").unwrap();
+
+        let mut e = make_executor(ws);
+
+        // تسجيل الملف كمحمي
+        e.protected_test_files.insert(test_file.clone());
+
+        // محاولة حذفه يجب أن تُرفض
+        let result = e.delete_file("test_main.py").unwrap();
+
+        assert!(
+            !result.success,
+            "M-02 FAIL: delete_file succeeded on protected test file"
+        );
+        assert!(
+            test_file.exists(),
+            "M-02 FAIL: protected test file was deleted"
+        );
+    }
+
+    /// M-02: delete_file must allow non-protected files
+    #[test]
+    fn m02_delete_file_allows_unprotected_file() {
+        let dir = tempdir().expect("tempdir");
+        let ws = dir.path();
+
+        let regular_file = ws.join("helper.py");
+        fs::write(&regular_file, "def helper(): pass").unwrap();
+
+        let e = make_executor(ws);
+
+        let result = e.delete_file("helper.py").unwrap();
+
+        assert!(
+            result.success,
+            "M-02 FAIL: delete_file rejected unprotected file"
+        );
+        assert!(
+            !regular_file.exists(),
+            "M-02 FAIL: unprotected file was not deleted"
+        );
+    }
+
+    /// M-02: delete_file must allow test files not in protected set
+    #[test]
+    fn m02_delete_file_allows_new_test_file_not_protected() {
+        let dir = tempdir().expect("tempdir");
+        let ws = dir.path();
+
+        // ملف اختبار لكن غير مسجل كمحمي
+        let test_file = ws.join("test_new.py");
+        fs::write(&test_file, "def test_new(): pass").unwrap();
+
+        let e = make_executor(ws); // protected_test_files فارغ
+
+        let result = e.delete_file("test_new.py").unwrap();
+
+        assert!(
+            result.success,
+            "M-02 FAIL: delete_file rejected unprotected new test file"
+        );
+    }
+}
