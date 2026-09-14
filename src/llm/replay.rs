@@ -77,12 +77,28 @@ impl LLMProvider for ReplayProvider {
             }
         }
 
-        // FIX M-13: warn if system prompt changed since recording
-        if !record.req.system.is_empty() && record.req.system != req.system && count == 1 {
-            eprintln!(
-                "  [WARN] Replay: system prompt mismatch at step 1 — \
-                 fixture may be stale. Re-run with --record to refresh."
-            );
+        // FIX M-13: compare system prompt at every step — not just step 1
+        // Use prefix comparison (first 120 chars) to catch constitution/goal changes
+        // while tolerating minor dynamic context differences
+        if !record.req.system.is_empty() && !req.system.is_empty() {
+            let recorded_prefix = &record.req.system[..record.req.system.len().min(120)];
+            let current_prefix = &req.system[..req.system.len().min(120)];
+            if recorded_prefix != current_prefix {
+                let allow_stale = std::env::var("SEL_ALLOW_STALE_REPLAY")
+                    .map(|v| v == "1" || v == "true")
+                    .unwrap_or(false);
+                if allow_stale {
+                    eprintln!(
+                        "  [WARN] Replay step {}: system prompt mismatch ignored (SEL_ALLOW_STALE_REPLAY=1)",
+                        count
+                    );
+                } else {
+                    return Err(anyhow!(
+                        "REPLAY_STALE: system prompt mismatch at step {}                          (first 120 chars differ).                          Re-run with --record to refresh fixtures.                          To skip: SEL_ALLOW_STALE_REPLAY=1",
+                        count
+                    ));
+                }
+            }
         }
 
         // Simulate network delay
@@ -189,6 +205,96 @@ mod replay_tests {
         assert!(
             result.is_ok(),
             "M-14 FAIL: SEL_ALLOW_STALE_REPLAY=1 should bypass check, got: {:?}",
+            result.err()
+        );
+    }
+
+    /// M-13: system prompt mismatch must return Err by default
+    #[tokio::test]
+    async fn m13_system_prompt_mismatch_rejects_by_default() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let dir = tempdir().expect("tempdir");
+        let current_hash = crate::constitution::constitution_hash();
+
+        // record مع system prompt مختلف
+        let record = format!(
+            r#"{{
+                "req": {{"system": "{}", "messages": [], "model": "test", "temperature": 0.0, "seed": null}},
+                "resp": {{"content": "ok", "tokens_in": 1, "tokens_out": 1, "finish_reason": "stop"}},
+                "latency_ms": 0,
+                "constitution_hash": "{}",
+                "recorded_at": "",
+                "provider_used": "",
+                "task_kind": "",
+                "tokens_used": 0
+            }}"#,
+            "OLD SYSTEM PROMPT that is completely different from current",
+            current_hash
+        );
+        fs::write(dir.path().join("001.json"), &record).unwrap();
+        std::env::remove_var("SEL_ALLOW_STALE_REPLAY");
+
+        let provider = ReplayProvider::new(dir.path());
+        let req = LLMRequest {
+            system: "NEW SYSTEM PROMPT that is different from recorded one for testing".to_string(),
+            messages: vec![],
+            model: "test".to_string(),
+            temperature: 0.0,
+            seed: None,
+        };
+
+        let result = provider.complete(req).await;
+        assert!(
+            result.is_err(),
+            "M-13 FAIL: system prompt mismatch should return Err by default"
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("REPLAY_STALE"),
+            "M-13 FAIL: error should contain REPLAY_STALE, got: {}",
+            err
+        );
+    }
+
+    /// M-13: SEL_ALLOW_STALE_REPLAY=1 bypasses system prompt check
+    #[tokio::test]
+    async fn m13_allow_stale_bypasses_system_prompt_check() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let dir = tempdir().expect("tempdir");
+        let current_hash = crate::constitution::constitution_hash();
+
+        let record = format!(
+            r#"{{
+                "req": {{"system": "{}", "messages": [], "model": "test", "temperature": 0.0, "seed": null}},
+                "resp": {{"content": "ok", "tokens_in": 1, "tokens_out": 1, "finish_reason": "stop"}},
+                "latency_ms": 0,
+                "constitution_hash": "{}",
+                "recorded_at": "",
+                "provider_used": "",
+                "task_kind": "",
+                "tokens_used": 0
+            }}"#,
+            "OLD SYSTEM PROMPT that is completely different from current",
+            current_hash
+        );
+        fs::write(dir.path().join("001.json"), &record).unwrap();
+        std::env::set_var("SEL_ALLOW_STALE_REPLAY", "1");
+
+        let provider = ReplayProvider::new(dir.path());
+        let req = LLMRequest {
+            system: "NEW SYSTEM PROMPT that is different from recorded one for testing".to_string(),
+            messages: vec![],
+            model: "test".to_string(),
+            temperature: 0.0,
+            seed: None,
+        };
+
+        let result = provider.complete(req).await;
+        std::env::remove_var("SEL_ALLOW_STALE_REPLAY");
+
+        assert!(
+            result.is_ok(),
+            "M-13 FAIL: SEL_ALLOW_STALE_REPLAY=1 should bypass check, got: {:?}",
             result.err()
         );
     }
