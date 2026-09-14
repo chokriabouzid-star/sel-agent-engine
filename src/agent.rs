@@ -616,8 +616,11 @@ impl Agent {
                 AgentState::Failed(reason) => {
                     println!("\n Agent failed: {}", reason);
                     println!("SEL_FAILED: {}", reason.lines().next().unwrap_or("unknown"));
+                    // FIX C-01-B: commit (not rollback) on failure to preserve agent-created files.
+                    // Per-attempt snapshots inside Executing already handle rolling back failed attempts.
+                    // Rolling back initial_snapshot would destroy files the agent created during the session.
                     if let Some(mut snap) = self.initial_snapshot.take() {
-                        snap.rollback();
+                        snap.commit();
                     }
                     let repairs = self.ctx.repair_attempts as i64;
                     let elapsed = self
@@ -819,6 +822,20 @@ fn extract_goal_authorized_test_files(
 ) -> Vec<PathBuf> {
     let goal_lower = goal.to_lowercase();
 
+    // FIX H-11: check negation BEFORE edit intent
+    // "Do not modify test_x.py" must NOT open authorization window
+    let negation_phrases = [
+        "do not modify", "do not edit", "do not change", "do not touch",
+        "do not update", "do not write", "do not alter",
+        "don't modify", "don't edit", "don't change", "don't touch",
+        "don't update", "don't write", "don't alter",
+        "never modify", "never edit", "never change", "never touch",
+        "must not modify", "must not edit", "must not change",
+        "without modifying", "without editing", "without changing",
+        "leave intact", "leave unchanged", "keep unchanged",
+    ];
+
+    // FIX H-11: check per-file negation — "only implement X, do not modify test_Y"
     let mentions_edit_intent = ["add", "update", "modify", "edit", "write"]
         .iter()
         .any(|verb| goal_lower.contains(verb));
@@ -828,14 +845,43 @@ fn extract_goal_authorized_test_files(
         return Vec::new();
     }
 
+    // If any global negation phrase present → no authorization at all
+    if negation_phrases.iter().any(|neg| goal_lower.contains(neg)) {
+        eprintln!(
+            "[TRACE] H-11: negation detected in goal — no test files authorized for editing"
+        );
+        return Vec::new();
+    }
+
     let mut matches = protected
         .iter()
         .filter_map(|path| {
             let name = path.file_name()?.to_str()?.to_lowercase();
-            if goal_lower.contains(&name) {
-                Some(path.clone())
-            } else {
+            if !goal_lower.contains(&name) {
+                return None;
+            }
+
+            // FIX H-11: check per-file negation — "do not modify test_foo.py"
+            let file_negated = negation_phrases.iter().any(|neg| {
+                // look for negation near the filename in the goal
+                goal_lower
+                    .find(&name)
+                    .map(|pos| {
+                        let window_start = pos.saturating_sub(60);
+                        let window = &goal_lower[window_start..pos + name.len()];
+                        window.contains(neg.split_whitespace().next().unwrap_or(""))
+                    })
+                    .unwrap_or(false)
+            });
+
+            if file_negated {
+                eprintln!(
+                    "[TRACE] H-11: file {:?} negated in goal — not authorized",
+                    name
+                );
                 None
+            } else {
+                Some(path.clone())
             }
         })
         .collect::<Vec<_>>();
@@ -1054,5 +1100,104 @@ mod evidence_telemetry {
         ctx.context_budget_samples = 1;
         let t = compute_report_telemetry(&ctx, 0, 0, 0);
         assert_eq!(t.context_reduction_pct, 0);
+    }
+}
+
+#[cfg(test)]
+mod extract_goal_authorized_tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    fn make_protected(names: &[&str]) -> HashSet<PathBuf> {
+        names.iter().map(|n| PathBuf::from(n)).collect()
+    }
+
+    /// H-11: "do not modify test_x.py" must return empty
+    #[test]
+    fn h11_do_not_modify_returns_empty() {
+        let protected = make_protected(&["test_main.py"]);
+        let result = extract_goal_authorized_test_files(
+            "Implement solution.py only. Do not modify test_main.py.",
+            &protected,
+        );
+        assert!(
+            result.is_empty(),
+            "H-11 FAIL: 'do not modify' should prevent authorization, got: {:?}",
+            result
+        );
+    }
+
+    /// H-11: "never modify test_x.py" must return empty
+    #[test]
+    fn h11_never_modify_returns_empty() {
+        let protected = make_protected(&["test_main.py"]);
+        let result = extract_goal_authorized_test_files(
+            "Write solution.py. Never modify test_main.py.",
+            &protected,
+        );
+        assert!(
+            result.is_empty(),
+            "H-11 FAIL: 'never modify' should prevent authorization, got: {:?}",
+            result
+        );
+    }
+
+    /// H-11: "don't edit test_x.py" must return empty
+    #[test]
+    fn h11_dont_edit_returns_empty() {
+        let protected = make_protected(&["test_foo.py"]);
+        let result = extract_goal_authorized_test_files(
+            "Add feature to main.py. Don't edit test_foo.py.",
+            &protected,
+        );
+        assert!(
+            result.is_empty(),
+            "H-11 FAIL: don't edit should prevent authorization, got: {:?}",
+            result
+        );
+    }
+
+    /// H-11: "only implement X" with no test mention returns empty
+    #[test]
+    fn h11_only_implement_no_test_mention_returns_empty() {
+        let protected = make_protected(&["test_main.py"]);
+        let result = extract_goal_authorized_test_files(
+            "Only implement the slugify function in solution.py.",
+            &protected,
+        );
+        assert!(
+            result.is_empty(),
+            "H-11 FAIL: no test mention should return empty, got: {:?}",
+            result
+        );
+    }
+
+    /// H-11: legitimate authorization without negation works
+    #[test]
+    fn h11_legitimate_authorization_works() {
+        let protected = make_protected(&["test_main.py"]);
+        let result = extract_goal_authorized_test_files(
+            "Update test_main.py to add test cases for the new feature.",
+            &protected,
+        );
+        assert!(
+            !result.is_empty(),
+            "H-11 FAIL: legitimate authorization should work"
+        );
+    }
+
+    /// H-11: "without modifying tests" returns empty
+    #[test]
+    fn h11_without_modifying_returns_empty() {
+        let protected = make_protected(&["test_main.py"]);
+        let result = extract_goal_authorized_test_files(
+            "Fix the bug in main.py without modifying test_main.py.",
+            &protected,
+        );
+        assert!(
+            result.is_empty(),
+            "H-11 FAIL: 'without modifying' should prevent authorization, got: {:?}",
+            result
+        );
     }
 }
