@@ -206,10 +206,19 @@ async fn prepare_from_cache(workspace: &Path, goal: &str) -> ScaffoldResult {
                 std::fs::write(&ts_path, TSCONFIG_JSON).ok();
             }
 
+            // FIX H-08: only remove jest.config.js if package.json already has jest config
+            // removing it unconditionally breaks workspaces that rely on jest.config.js
             let jest_cfg = workspace.join("jest.config.js");
             let jest_cfg_ts = workspace.join("jest.config.ts");
-            std::fs::remove_file(jest_cfg).ok();
-            std::fs::remove_file(jest_cfg_ts).ok();
+            let pkg_has_jest_config = std::fs::read_to_string(&workspace.join("package.json"))
+                .ok()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                .map(|v| v.get("jest").is_some())
+                .unwrap_or(false);
+            if pkg_has_jest_config {
+                std::fs::remove_file(&jest_cfg).ok();
+                std::fs::remove_file(&jest_cfg_ts).ok();
+            }
 
             let cached_nm = cache_dir.join("node/node_modules");
             if cached_nm.exists() {
@@ -338,17 +347,28 @@ async fn scaffold_typescript(workspace: &Path, extra_deps: &[String]) -> Scaffol
         println!("   ⏭  tsconfig.json exists  skip");
     }
 
-    // 3)  jest.config.js   ( conflict)
+    // FIX H-08: only remove jest.config.js if package.json has jest config
     let jest_cfg = workspace.join("jest.config.js");
     let jest_cfg_ts = workspace.join("jest.config.ts");
-    for cfg in [&jest_cfg, &jest_cfg_ts] {
-        if cfg.exists() {
-            std::fs::remove_file(cfg).ok();
-            println!(
-                "     Removed {:?}  config in package.json only",
-                cfg.file_name().unwrap_or_default()
-            );
+    let pkg_has_jest = std::fs::read_to_string(&workspace.join("package.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .map(|v| v.get("jest").is_some())
+        .unwrap_or(false);
+    if pkg_has_jest {
+        for cfg in [&jest_cfg, &jest_cfg_ts] {
+            if cfg.exists() {
+                std::fs::remove_file(cfg).ok();
+                println!(
+                    "     Removed {:?}  config in package.json only",
+                    cfg.file_name().unwrap_or_default()
+                );
+            }
         }
+    } else {
+        eprintln!(
+            "[TRACE] H-08: jest.config.js preserved (package.json has no jest config)"
+        );
     }
 
     // 4) npm install  pinned stack
@@ -542,26 +562,50 @@ async fn scaffold_python(workspace: &Path, extra_deps: &[String]) -> ScaffoldRes
 fn normalize_existing_package_json(path: &Path) -> String {
     let src = std::fs::read_to_string(path).unwrap_or_default();
     if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&src) {
-        //  jest config  package.json
-        v["jest"] = serde_json::json!({
-            "preset": "ts-jest",
-            "testEnvironment": "node",
-            "testMatch": ["**/*.test.ts"]
-        });
-        //  scripts
-        v["scripts"]["test"] = serde_json::json!("jest");
-        v["scripts"]["build"] = serde_json::json!("tsc");
-        //  devDependencies  pinned stack
-        v["devDependencies"] = serde_json::json!({
+        // FIX H-08: add jest config only if not already present
+        if v.get("jest").is_none() {
+            v["jest"] = serde_json::json!({
+                "preset": "ts-jest",
+                "testEnvironment": "node",
+                "testMatch": ["**/*.test.ts"]
+            });
+        }
+
+        // FIX H-08: scripts — only set if missing
+        if v["scripts"]["test"].is_null() || v["scripts"]["test"] == "" {
+            v["scripts"]["test"] = serde_json::json!("jest");
+        }
+        if v["scripts"]["build"].is_null() || v["scripts"]["build"] == "" {
+            v["scripts"]["build"] = serde_json::json!("tsc");
+        }
+
+        // FIX H-08: MERGE devDependencies — do NOT replace existing ones
+        let pinned = serde_json::json!({
             "typescript": "5.3.3",
             "ts-jest": "29.1.1",
             "jest": "29.7.0",
             "@types/jest": "29.5.11"
         });
-        //  "type":"module"   jest
-        if let Some(obj) = v.as_object_mut() {
-            obj.remove("type");
+        if let Some(pinned_map) = pinned.as_object() {
+            let dev_deps = v["devDependencies"]
+                .as_object_mut()
+                .map(|m| m.clone())
+                .unwrap_or_default();
+            let mut merged = serde_json::Map::new();
+            // existing deps first (preserved)
+            for (k, val) in &dev_deps {
+                merged.insert(k.clone(), val.clone());
+            }
+            // pinned deps fill gaps only
+            for (k, val) in pinned_map {
+                merged.entry(k.clone()).or_insert_with(|| val.clone());
+            }
+            v["devDependencies"] = serde_json::Value::Object(merged);
         }
+
+        // FIX H-08: preserve "type":"module" — do NOT remove it
+        // ts-jest supports ESM; removing "type" breaks user's module setup
+
         return serde_json::to_string_pretty(&v).unwrap_or(PACKAGE_JSON_TS.to_string());
     }
     PACKAGE_JSON_TS.to_string()
