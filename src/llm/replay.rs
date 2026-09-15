@@ -147,6 +147,7 @@ mod replay_tests {
 
     /// M-14: stale constitution hash must return Err by default
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // ENV_LOCK serializes env-var access in tests; no real deadlock risk
     async fn m14_stale_constitution_rejects_by_default() {
         let _lock = ENV_LOCK.lock().unwrap();
         let dir = tempdir().expect("tempdir");
@@ -181,6 +182,7 @@ mod replay_tests {
 
     /// M-14: SEL_ALLOW_STALE_REPLAY=1 allows stale constitution with warning
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // ENV_LOCK serializes env-var access in tests; no real deadlock risk
     async fn m14_allow_stale_env_var_bypasses_check() {
         let _lock = ENV_LOCK.lock().unwrap();
         let dir = tempdir().expect("tempdir");
@@ -211,6 +213,7 @@ mod replay_tests {
 
     /// M-13: system prompt mismatch must return Err by default
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // ENV_LOCK serializes env-var access in tests; no real deadlock risk
     async fn m13_system_prompt_mismatch_rejects_by_default() {
         let _lock = ENV_LOCK.lock().unwrap();
         let dir = tempdir().expect("tempdir");
@@ -257,6 +260,7 @@ mod replay_tests {
 
     /// M-13: SEL_ALLOW_STALE_REPLAY=1 bypasses system prompt check
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // ENV_LOCK serializes env-var access in tests; no real deadlock risk
     async fn m13_allow_stale_bypasses_system_prompt_check() {
         let _lock = ENV_LOCK.lock().unwrap();
         let dir = tempdir().expect("tempdir");
@@ -299,6 +303,7 @@ mod replay_tests {
 
     /// M-14: matching hash proceeds normally
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // ENV_LOCK serializes env-var access in tests; no real deadlock risk
     async fn m14_matching_hash_proceeds_normally() {
         let _lock = ENV_LOCK.lock().unwrap();
         let dir = tempdir().expect("tempdir");
