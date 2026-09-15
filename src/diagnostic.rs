@@ -118,6 +118,16 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
         });
     }
 
+    // P1 (2026-09-15): literal `\"` written into Go source (JSON double-escape artifact)
+    if error_text.contains("U+005C") && error_text.contains(".go") {
+        hints.push(Hint {
+            severity: Severity::Error,
+            category: "go/escaped-quotes",
+            message: "backslash-escaped double quotes written literally into Go source (e.g. `import \\\"testing\\\"`)".into(),
+            suggestion: "The file content was JSON double-escaped. Rewrite the WHOLE file with write_file using plain double quotes — do not patch it line by line".into(),
+        });
+    }
+
     // --- Rust: zero tests ---
     if (error_text.contains("running 0 tests") || error_text.contains("0 passed, 0 failed"))
         && !error_text.contains("error[E")
@@ -569,5 +579,20 @@ mod tests {
             .filter(|h| h.category == "ts/mock-never")
             .count();
         assert_eq!(ts2345_count, 1, "Expected exactly 1 hint for TS2345 never");
+    }
+}
+
+#[cfg(test)]
+mod p1_diagnostic_tests {
+    use super::analyze;
+
+    #[test]
+    fn p1_go_u005c_gets_specific_hint_not_generic() {
+        let report = analyze("./main_test.go:3:8: illegal character U+005C '\\'");
+        assert!(report
+            .hints
+            .iter()
+            .any(|h| h.category == "go/escaped-quotes"));
+        assert!(!report.hints.iter().any(|h| h.category == "generic"));
     }
 }

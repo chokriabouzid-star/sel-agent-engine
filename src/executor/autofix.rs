@@ -907,3 +907,97 @@ mod autofix_python_import_tests {
         assert_eq!(result, None);
     }
 }
+
+// ---------------------------------------------------------------------------
+// P1 (2026-09-15): `illegal/invalid character U+005C '\'` in Go source
+// ---------------------------------------------------------------------------
+
+/// Compile-triggered repair for literal `\"` in Go source. Fires only when the
+/// Go toolchain already rejects the file with `U+005C`, so it can never touch a
+/// file that compiles. Prefers the exact line reported (`main_test.go:3:8:`);
+/// falls back to the whole-file rule (`fix_go_escaped_quotes`) if no line parses.
+/// Returns a short message on change, `None` otherwise.
+pub fn autofix_go_escaped_quotes(path: &std::path::Path, err: &str) -> Option<String> {
+    if !err.contains("U+005C") {
+        return None;
+    }
+    let file_name = path.file_name()?.to_str()?;
+    let src = std::fs::read_to_string(path).ok()?;
+
+    let line_no = err
+        .lines()
+        .filter(|l| l.contains("U+005C") && l.contains(file_name))
+        .find_map(|l| {
+            let after = &l[l.find(file_name)? + file_name.len()..];
+            after
+                .trim_start_matches(':')
+                .split(':')
+                .next()?
+                .trim()
+                .parse::<usize>()
+                .ok()
+        });
+
+    let fixed = match line_no {
+        Some(n) => crate::executor::sanitizers::unescape_go_quotes_on_line(&src, n),
+        None => crate::executor::sanitizers::fix_go_escaped_quotes(&src),
+    }?;
+
+    std::fs::write(path, fixed.as_bytes()).ok()?;
+    Some(match line_no {
+        Some(n) => format!("unescaped \\\" on line {} of {}", n, file_name),
+        None => format!("unescaped \\\" across {}", file_name),
+    })
+}
+
+#[cfg(test)]
+mod p1_autofix_go_escaped_quotes_tests {
+    use super::autofix_go_escaped_quotes;
+    use crate::executor::sanitizers::P1_GO_FIXTURE;
+
+    fn temp_go_file(tag: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("sel_p1_autofix_{}_{}", tag, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let p = dir.join("main_test.go");
+        std::fs::write(&p, P1_GO_FIXTURE).expect("write fixture");
+        p
+    }
+
+    #[test]
+    fn p1_autofix_fixes_reported_line_only() {
+        let p = temp_go_file("line");
+        let err = "./main_test.go:3:8: illegal character U+005C '\\'";
+        let msg = autofix_go_escaped_quotes(&p, err).expect("autofix must fire on U+005C");
+        assert!(msg.contains("line 3"), "{msg}");
+        let on_disk = std::fs::read_to_string(&p).expect("read back");
+        let lines: Vec<&str> = on_disk.lines().collect();
+        assert_eq!(lines[2], "import \"testing\"");
+        assert!(lines[6].contains("\\\"Add(2,3)"), "other lines untouched");
+    }
+
+    #[test]
+    fn p1_autofix_whole_file_when_no_line_parses() {
+        let p = temp_go_file("whole");
+        let err = "illegal character U+005C '\\' reported for main_test.go";
+        let msg = autofix_go_escaped_quotes(&p, err).expect("whole-file fallback");
+        assert!(msg.contains("across"), "{msg}");
+        let on_disk = std::fs::read_to_string(&p).expect("read back");
+        assert!(!on_disk.contains('\\'));
+        assert!(on_disk.contains("import \"testing\""));
+    }
+
+    #[test]
+    fn p1_autofix_is_noop_without_u005c() {
+        let p = temp_go_file("noop");
+        assert_eq!(
+            autofix_go_escaped_quotes(&p, "./main_test.go:5:1: undefined: Add"),
+            None
+        );
+        assert_eq!(
+            std::fs::read_to_string(&p).expect("read back"),
+            P1_GO_FIXTURE
+        );
+    }
+}

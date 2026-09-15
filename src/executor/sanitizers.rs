@@ -402,3 +402,103 @@ pub fn pop(&mut self) -> Result<f64, String> {
         assert_eq!(got, expected);
     }
 }
+
+// ---------------------------------------------------------------------------
+// P1 (2026-09-15): literal `\"` in Go source — JSON double-escaping artifact
+// ---------------------------------------------------------------------------
+
+/// Go source in which EVERY double quote arrived backslash-escaped
+/// (`import \"testing\"`). Reasoning models (openai/gpt-oss-120b) sometimes emit
+/// real newlines together with `\\\"` inside the JSON `content`, so
+/// `protocol::smart_unescape` (mixed-mode guard) intentionally leaves it alone.
+///
+/// Safety: a backslash outside a literal/comment is never valid Go, and a file
+/// with zero unescaped `"` cannot compile — so this can only turn an already
+/// broken file into a candidate that may compile. Any file containing at least
+/// one unescaped `"` is returned untouched (`None`).
+pub fn fix_go_escaped_quotes(src: &str) -> Option<String> {
+    if !src.contains("\\\"") {
+        return None;
+    }
+    let bytes = src.as_bytes();
+    let has_unescaped_quote = bytes
+        .iter()
+        .enumerate()
+        .any(|(i, &b)| b == b'"' && (i == 0 || bytes[i - 1] != b'\\'));
+    if has_unescaped_quote {
+        return None;
+    }
+    Some(src.replace("\\\"", "\""))
+}
+
+/// Unescape `\"` on one 1-based line only. Used by the compile-triggered
+/// autofix, which knows the exact line from `file.go:LINE:COL: ... U+005C`.
+pub fn unescape_go_quotes_on_line(src: &str, line_no: usize) -> Option<String> {
+    let had_trailing_newline = src.ends_with('\n');
+    let mut changed = false;
+    let mut out_lines: Vec<String> = Vec::new();
+    for (idx, line) in src.lines().enumerate() {
+        if idx + 1 == line_no && line.contains("\\\"") {
+            changed = true;
+            out_lines.push(line.replace("\\\"", "\""));
+        } else {
+            out_lines.push(line.to_string());
+        }
+    }
+    if !changed {
+        return None;
+    }
+    let mut out = out_lines.join("\n");
+    if had_trailing_newline {
+        out.push('\n');
+    }
+    Some(out)
+}
+
+/// Byte-exact copy of `/tmp/sel-bench-0-12/main_test.go` (bench 2026-09-15, 234 bytes,
+/// sha256 477f080a…). Written by gpt-oss-120b for the `go add` task.
+#[cfg(test)]
+pub(crate) const P1_GO_FIXTURE: &str = "package main\n\nimport \\\"testing\\\"\n\nfunc TestAdd(t *testing.T) {\n    if Add(2,3) != 5 {\n        t.Errorf(\\\"Add(2,3) = %d, want 5\\\", Add(2,3))\n    }\n    if Add(-1,1) != 0 {\n        t.Errorf(\\\"Add(-1,1) = %d, want 0\\\", Add(-1,1))\n    }\n}\n";
+
+#[cfg(test)]
+mod p1_go_escaped_quotes_tests {
+    use super::*;
+
+    #[test]
+    fn p1_fixture_is_byte_exact_234() {
+        assert_eq!(P1_GO_FIXTURE.len(), 234);
+        assert!(P1_GO_FIXTURE.contains("import \\\"testing\\\""));
+    }
+
+    #[test]
+    fn p1_fix_go_escaped_quotes_repairs_fixture() {
+        let fixed = fix_go_escaped_quotes(P1_GO_FIXTURE).expect("artifact must be detected");
+        assert!(fixed.contains("import \"testing\""));
+        assert!(fixed.contains("t.Errorf(\"Add(2,3) = %d, want 5\", Add(2,3))"));
+        assert!(!fixed.contains('\\'), "no backslash may survive:\n{fixed}");
+        // fix_go_backslashes (next stage in the pipeline) must not undo it
+        assert_eq!(fix_go_backslashes(&fixed), fixed);
+    }
+
+    #[test]
+    fn p1_fix_go_escaped_quotes_keeps_valid_go_untouched() {
+        let valid = "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"say \\\"hi\\\"\")\n}\n";
+        assert_eq!(fix_go_escaped_quotes(valid), None);
+        let no_quotes = "package main\n\nfunc Add(a, b int) int { return a + b }\n";
+        assert_eq!(fix_go_escaped_quotes(no_quotes), None);
+    }
+
+    #[test]
+    fn p1_unescape_on_line_touches_only_that_line() {
+        let fixed = unescape_go_quotes_on_line(P1_GO_FIXTURE, 3).expect("line 3 has \\\"");
+        let lines: Vec<&str> = fixed.lines().collect();
+        assert_eq!(lines[2], "import \"testing\"");
+        assert!(
+            lines[6].contains("\\\"Add(2,3)"),
+            "line 7 must stay untouched"
+        );
+        assert!(fixed.ends_with('\n'));
+        assert_eq!(unescape_go_quotes_on_line(P1_GO_FIXTURE, 1), None);
+        assert_eq!(unescape_go_quotes_on_line(P1_GO_FIXTURE, 99), None);
+    }
+}

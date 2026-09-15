@@ -61,6 +61,13 @@ impl FailureKind {
         {
             return Self::TypeError;
         }
+        // P1 (2026-09-15): literal `\"` in Go source — go/scanner says "illegal character",
+        // cmd/compile says "invalid character"; both carry U+005C.
+        if (s.contains("illegal character U+") || s.contains("invalid character U+"))
+            && s.contains(".go")
+        {
+            return Self::SyntaxError;
+        }
         if s.contains("syntax error:") && (s.contains(".go:") || s.contains("unexpected")) {
             return Self::SyntaxError;
         }
@@ -141,5 +148,19 @@ impl FailureKind {
             Self::MissingTests => 2,
             _ => 3,
         }
+    }
+}
+
+#[cfg(test)]
+mod p1_failure_tests {
+    use super::FailureKind;
+
+    #[test]
+    fn p1_go_u005c_is_syntax_error_not_unknown() {
+        let err =
+            "COMPILE ERROR in 'main_test.go':\n./main_test.go:3:8: illegal character U+005C '\\'";
+        assert_eq!(FailureKind::classify(err), FailureKind::SyntaxError);
+        let err2 = "./main_test.go:3:8: invalid character U+005C '\\'";
+        assert_eq!(FailureKind::classify(err2), FailureKind::SyntaxError);
     }
 }

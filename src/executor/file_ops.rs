@@ -100,6 +100,14 @@ impl SafeExecutor {
         // Go: أضف package declaration إذا كانت مفقودة
         let content_str = if ext == "go" {
             let fixed = fix_go_missing_package(&content_str, "main");
+            // P1 (2026-09-15): every `"` escaped as `\"` = JSON double-escape artifact
+            let fixed = match fix_go_escaped_quotes(&fixed) {
+                Some(unescaped) => {
+                    println!("   ⚡ AutoFix Go escaped quotes: unescaped \\\" (JSON double-escape artifact)");
+                    unescaped
+                }
+                None => fixed,
+            };
             fix_go_backslashes(&fixed)
         } else {
             content_str
@@ -191,7 +199,10 @@ impl SafeExecutor {
                 while err_mentions_this_file {
                     let mut changed = false;
 
-                    if let Some(fixed) = autofix_go_missing_comma(&p, &err) {
+                    if let Some(fixed) = autofix_go_escaped_quotes(&p, &err) {
+                        println!("   ⚡ AutoFix Go escaped quotes: {}", fixed);
+                        changed = true;
+                    } else if let Some(fixed) = autofix_go_missing_comma(&p, &err) {
                         println!("   ⚡ AutoFix Go missing comma: {}", fixed);
                         changed = true;
                     } else if let Some(fixed) = autofix_go_unused_import(&p, &err) {
@@ -495,7 +506,7 @@ impl SafeExecutor {
         }
         if count > 1 {
             return Ok(ExecResult::fail(format!(
-                "patch_file: search block found {} times in '{}'  must be unique, use more context",
+                "patch_file: search block found {} times in '{}'  must be unique, use more context — or send write_file with the COMPLETE file content instead",
                 count, path
             )));
         }
@@ -527,6 +538,7 @@ impl SafeExecutor {
             let fixed = fix_rust_string_types(&fixed);
             fix_rust_test_attributes(&fixed)
         } else if ext == "go" {
+            let new_content = fix_go_escaped_quotes(&new_content).unwrap_or(new_content);
             fix_go_backslashes(&new_content)
         } else if ext == "py" {
             fix_python_string_quoting(&new_content)
@@ -660,5 +672,51 @@ mod file_ops_tests {
             result.success,
             "M-02 FAIL: delete_file rejected unprotected new test file"
         );
+    }
+}
+
+#[cfg(test)]
+mod p1_go_escaped_quotes_write_tests {
+    use crate::executor::sanitizers::P1_GO_FIXTURE;
+    use crate::executor::SafeExecutor;
+
+    /// End-to-end on the real bench artifact: write_file must never let `\"` reach disk.
+    #[test]
+    fn p1_write_file_repairs_double_escaped_go_test() {
+        let ws = std::env::temp_dir().join(format!("sel_p1_write_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        std::fs::create_dir_all(&ws).expect("workspace");
+        std::fs::write(ws.join("go.mod"), "module gotest\n\ngo 1.21\n").expect("go.mod");
+        std::fs::write(
+            ws.join("main.go"),
+            "package main\n\nfunc Add(a, b int) int {\n    return a + b\n}\n",
+        )
+        .expect("main.go");
+
+        let exec = SafeExecutor::new(ws.clone(), 60);
+        let result = exec
+            .write_file("main_test.go", P1_GO_FIXTURE)
+            .expect("write_file must not error");
+
+        let on_disk = std::fs::read_to_string(ws.join("main_test.go")).expect("read back");
+        assert!(on_disk.contains("import \"testing\""), "got:\n{on_disk}");
+        assert!(
+            !on_disk.contains("\\\""),
+            "literal \\\" reached disk:\n{on_disk}"
+        );
+
+        // Full compile assertion only when a Go toolchain exists (compile check shells out to `go`).
+        let go_available = std::process::Command::new("go")
+            .arg("version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if go_available {
+            assert!(
+                result.success,
+                "write_file must pass go compile check, stderr: {}",
+                result.stderr
+            );
+        }
     }
 }
