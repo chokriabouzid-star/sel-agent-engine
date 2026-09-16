@@ -35,6 +35,7 @@ pub struct SafeExecutor {
     goal_authorized_test_files: RwLock<HashSet<PathBuf>>,
     allow_goal_test_writes: AtomicBool,
     broken_authorized_test_repair: AtomicBool,
+    pub(crate) force_go_race: AtomicBool,
 }
 
 fn shell_single_quote(s: &str) -> String {
@@ -73,6 +74,7 @@ impl SafeExecutor {
             goal_authorized_test_files: RwLock::new(HashSet::new()),
             allow_goal_test_writes: AtomicBool::new(false),
             broken_authorized_test_repair: AtomicBool::new(false),
+            force_go_race: AtomicBool::new(false),
         }
     }
 
@@ -104,6 +106,11 @@ impl SafeExecutor {
     pub(crate) fn set_broken_authorized_test_repair(&self, allow: bool) {
         self.broken_authorized_test_repair
             .store(allow, Ordering::Relaxed);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn set_force_go_race(&self, v: bool) {
+        self.force_go_race.store(v, Ordering::Relaxed);
     }
 
     pub(crate) fn goal_authorized_test_write_allowed(&self, path: &std::path::Path) -> bool {

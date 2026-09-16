@@ -38,6 +38,16 @@ impl FailureKind {
         {
             return Self::MissingTests;
         }
+        // P0: test runner timeouts -> BuildError (enters repair loop)
+        if (s.contains("go test timeout")
+            || s.contains("cargo test timeout")
+            || s.contains("pytest timeout")
+            || s.contains("Node.js test timeout"))
+            && !s.contains("Connection error")
+            && !s.contains("ECONNREFUSED")
+        {
+            return Self::BuildError;
+        }
         // Infra errors: Must be strictly contextual to avoid catching mocked HTTP status codes in user tests.
         // Bare numbers like "503" or "429" will trigger false positives in API/web testing tasks.
         if s.contains("Connection error")

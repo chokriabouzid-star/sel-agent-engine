@@ -2,7 +2,7 @@ use crate::executor::autofix::*;
 use crate::executor::core::*;
 use crate::executor::parsers::*;
 use crate::types::ExecResult;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use tokio::process::Command as TCmd;
 
 fn capture_stderr(combined: &str, max_chars: usize) -> String {
@@ -29,7 +29,7 @@ fn capture_stderr(combined: &str, max_chars: usize) -> String {
 
 impl SafeExecutor {
     pub async fn run_tests(&self, target: &str) -> Result<ExecResult> {
-        let (prog, args) = self.oracle.resolve_test_command(target);
+        let (prog, mut args) = self.oracle.resolve_test_command(target);
         let start = std::time::Instant::now();
         let p_type = self.oracle.current_type();
 
@@ -53,12 +53,24 @@ impl SafeExecutor {
                 eprintln!("[TRACE] Rust replay: forcing cargo offline mode");
             }
 
-            let out = tokio::time::timeout(
+            let out = match tokio::time::timeout(
                 std::time::Duration::from_secs(self.timeout_secs),
                 cmd.output(),
             )
             .await
-            .map_err(|_| anyhow!("cargo test timeout"))??;
+            {
+                Err(_) => {
+                    return Ok(ExecResult {
+                        success: false,
+                        exit_code: -1,
+                        stdout: String::new(),
+                        stderr: "cargo test timeout: test suite exceeded time limit.".into(),
+                        duration_ms: start.elapsed().as_millis() as u64,
+                        autofix_triggered: false,
+                    })
+                }
+                Ok(r) => r?,
+            };
 
             let stdout = String::from_utf8_lossy(&out.stdout).to_string();
             let stderr = String::from_utf8_lossy(&out.stderr).to_string();
@@ -175,7 +187,15 @@ test result: ok. 0 passed; 0 failed; 0 ignored
                     .await;
             }
 
-            let out = tokio::time::timeout(
+            if self
+                .force_go_race
+                .load(std::sync::atomic::Ordering::Relaxed)
+                && !args.iter().any(|a| a == "-race")
+            {
+                args.insert(1, "-race".to_string());
+                eprintln!("[TRACE] P0: injected -race -> go {}", args.join(" "));
+            }
+            let out = match tokio::time::timeout(
                 std::time::Duration::from_secs(self.timeout_secs),
                 TCmd::new("go")
                     .args(&args)
@@ -183,7 +203,16 @@ test result: ok. 0 passed; 0 failed; 0 ignored
                     .output(),
             )
             .await
-            .map_err(|_| anyhow!("go test timeout"))??;
+            {
+                Err(_) => return Ok(ExecResult {
+                    success: false, exit_code: -1,
+                    stdout: String::new(),
+                    stderr: "go test timeout: test suite exceeded time limit. Likely caused by a deadlock, infinite loop, or time.Sleep in production code.".into(),
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    autofix_triggered: autofix_active,
+                }),
+                Ok(r) => r?,
+            };
 
             let combined = format!(
                 "{}\n{}",
@@ -222,7 +251,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored
         {
             let mut autofix_active = false;
 
-            let mut out = tokio::time::timeout(
+            let mut out = match tokio::time::timeout(
                 std::time::Duration::from_secs(self.timeout_secs),
                 TCmd::new(&prog)
                     .args(&args)
@@ -230,7 +259,19 @@ test result: ok. 0 passed; 0 failed; 0 ignored
                     .output(),
             )
             .await
-            .map_err(|_| anyhow!("Node.js test timeout"))??;
+            {
+                Err(_) => {
+                    return Ok(ExecResult {
+                        success: false,
+                        exit_code: -1,
+                        stdout: String::new(),
+                        stderr: "Node.js test timeout: test suite exceeded time limit.".into(),
+                        duration_ms: start.elapsed().as_millis() as u64,
+                        autofix_triggered: false,
+                    })
+                }
+                Ok(r) => r?,
+            };
 
             let mut combined = format!(
                 "{}\n{}",
@@ -239,8 +280,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored
             );
 
             if combined.contains("Cannot find module '") {
-                if let Some(start) = combined.find("Cannot find module '") {
-                    let rest = &combined[start + "Cannot find module '".len()..];
+                if let Some(start_pos) = combined.find("Cannot find module '") {
+                    let rest = &combined[start_pos + "Cannot find module '".len()..];
                     if let Some(end) = rest.find('\'') {
                         let module = &rest[..end];
                         if !module.starts_with('.') && !module.starts_with('/') {
@@ -266,7 +307,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored
                                     .output()
                                     .await;
 
-                                out = tokio::time::timeout(
+                                out = match tokio::time::timeout(
                                     std::time::Duration::from_secs(self.timeout_secs),
                                     TCmd::new(&prog)
                                         .args(&args)
@@ -274,7 +315,19 @@ test result: ok. 0 passed; 0 failed; 0 ignored
                                         .output(),
                                 )
                                 .await
-                                .map_err(|_| anyhow!("Node.js test timeout after AutoFix"))??;
+                                {
+                                    Err(_) => {
+                                        return Ok(ExecResult {
+                                            success: false,
+                                            exit_code: -1,
+                                            stdout: String::new(),
+                                            stderr: "Node.js test timeout after AutoFix.".into(),
+                                            duration_ms: start.elapsed().as_millis() as u64,
+                                            autofix_triggered: true,
+                                        })
+                                    }
+                                    Ok(r) => r?,
+                                };
 
                                 combined = format!(
                                     "{}\n{}",
@@ -389,7 +442,16 @@ test result: ok. 0 passed; 0 failed; 0 ignored
             )
             .await
             {
-                Err(_) => return Err(anyhow!("pytest timeout")),
+                Err(_) => {
+                    return Ok(ExecResult {
+                        success: false,
+                        exit_code: -1,
+                        stdout: String::new(),
+                        stderr: "pytest timeout: test suite exceeded time limit.".into(),
+                        duration_ms: start.elapsed().as_millis() as u64,
+                        autofix_triggered: autofix_active,
+                    })
+                }
                 Ok(Ok(out)) => out,
                 Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {
                     return Ok(ExecResult::fail(format!(
@@ -433,5 +495,146 @@ test result: ok. 0 passed; 0 failed; 0 ignored
             duration_ms: start.elapsed().as_millis() as u64,
             autofix_triggered: false,
         })
+    }
+}
+
+#[cfg(test)]
+mod p0_race_timeout_tests {
+    use crate::workspace_oracle::goal_requires_go_race;
+
+    #[test]
+    fn p0_goal_race_pos() {
+        assert!(goal_requires_go_race("go test -race ./... must pass"));
+        assert!(goal_requires_go_race("ensure -race ./... passes"));
+        assert!(goal_requires_go_race("race detector must find nothing"));
+        assert!(goal_requires_go_race(
+            "1000 concurrent requests — no race conditions — must pass",
+        ));
+    }
+
+    #[test]
+    fn p0_goal_race_neg() {
+        assert!(!goal_requires_go_race("go test ./..."));
+        assert!(!goal_requires_go_race("cargo test --nocapture"));
+        assert!(!goal_requires_go_race(""));
+    }
+
+    #[test]
+    fn p0_timeout_classified_as_build_error() {
+        use crate::failure::FailureKind;
+        assert_eq!(
+            FailureKind::classify("go test timeout: exceeded."),
+            FailureKind::BuildError
+        );
+        assert_eq!(
+            FailureKind::classify("cargo test timeout: exceeded."),
+            FailureKind::BuildError
+        );
+        assert_eq!(
+            FailureKind::classify("pytest timeout: exceeded."),
+            FailureKind::BuildError
+        );
+        assert_eq!(
+            FailureKind::classify("Node.js test timeout: exceeded."),
+            FailureKind::BuildError
+        );
+    }
+
+    #[test]
+    fn p0_timeout_hint_not_generic() {
+        use crate::diagnostic::analyze;
+        let r = analyze("go test timeout: test suite exceeded time limit.");
+        assert!(r.hints.iter().any(|h| h.category == "test/runner-timeout"));
+        assert!(!r.hints.iter().any(|h| h.category == "generic"));
+    }
+}
+
+#[cfg(test)]
+mod p0_behavioral_tests {
+    //! Real-toolchain regression coverage for P0:
+    //! (a) force_go_race flips a racy-but-passing Go suite into a detector failure;
+    //! (b) a runner timeout comes back as Ok(ExecResult::fail) — repairable — not Err.
+    use crate::executor::SafeExecutor;
+    use std::path::PathBuf;
+
+    fn tool_available(tool: &str, arg: &str) -> bool {
+        std::process::Command::new(tool)
+            .arg(arg)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    fn fresh_ws(tag: &str) -> PathBuf {
+        let ws = std::env::temp_dir().join(format!("sel_p0_{}_{}", tag, std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        std::fs::create_dir_all(&ws).expect("workspace");
+        ws
+    }
+
+    fn block_on<F: std::future::Future>(f: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime")
+            .block_on(f)
+    }
+
+    // Canonical unsynchronised counter: passes plain `go test`, fails `go test -race`.
+    const RACY_GO: &str = "package racy\n\nimport \"sync\"\n\nvar Counter int\n\nfunc Bump(n int) {\n\tvar wg sync.WaitGroup\n\tfor i := 0; i < n; i++ {\n\t\twg.Add(1)\n\t\tgo func() {\n\t\t\tdefer wg.Done()\n\t\t\tCounter++\n\t\t}()\n\t}\n\twg.Wait()\n}\n";
+    const RACY_TEST_GO: &str =
+        "package racy\n\nimport \"testing\"\n\nfunc TestBump(t *testing.T) {\n\tBump(50)\n}\n";
+
+    #[test]
+    fn p0_force_go_race_turns_racy_success_into_failure() {
+        if !tool_available("go", "version") {
+            eprintln!("skip: go toolchain not available");
+            return;
+        }
+        let ws = fresh_ws("race");
+        std::fs::write(ws.join("go.mod"), "module racy\n\ngo 1.21\n").expect("go.mod");
+        std::fs::write(ws.join("racy.go"), RACY_GO).expect("racy.go");
+        std::fs::write(ws.join("racy_test.go"), RACY_TEST_GO).expect("racy_test.go");
+
+        let exec = SafeExecutor::new(ws, 180);
+
+        let plain = block_on(exec.run_tests("go")).expect("run_tests must return Ok");
+        assert!(
+            plain.success,
+            "plain go test must pass the racy suite: {}",
+            plain.stderr
+        );
+
+        exec.set_force_go_race(true);
+        let raced = block_on(exec.run_tests("go")).expect("run_tests must return Ok");
+        assert!(!raced.success, "forced -race must fail the racy suite");
+        assert!(
+            raced.stderr.contains("DATA RACE"),
+            "stderr must carry race detector output:\n{}",
+            raced.stderr
+        );
+    }
+
+    #[test]
+    fn p0_runner_timeout_is_repairable_failure_not_err() {
+        if !tool_available("node", "--version") {
+            eprintln!("skip: node not available");
+            return;
+        }
+        let ws = fresh_ws("timeout");
+        // Unknown project type -> smart split -> ("node", ["sleep.js"]) -> Node branch.
+        std::fs::write(ws.join("sleep.js"), "setTimeout(() => {}, 3000);\n").expect("sleep.js");
+
+        let exec = SafeExecutor::new(ws, 1);
+        let r = block_on(exec.run_tests("node sleep.js"))
+            .expect("timeout must be Ok(ExecResult::fail), never Err");
+        assert!(!r.success);
+        assert_eq!(r.exit_code, -1);
+        assert!(
+            r.stderr.contains("Node.js test timeout"),
+            "stderr: {}",
+            r.stderr
+        );
+        // state_handlers maps Ok(!success) -> AgentState::Repairing; Err -> fatal.
     }
 }

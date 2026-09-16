@@ -251,3 +251,36 @@ impl WorkspaceOracle {
         }
     }
 }
+
+pub fn goal_requires_go_race(goal: &str) -> bool {
+    let lc = goal.to_lowercase();
+    lc.contains("go test -race")
+        || lc.contains("-race ./...")
+        || lc.contains("-race .")
+        || lc.contains("race detector")
+        || (lc.contains("race condition") && (lc.contains("must pass") || lc.contains("no race")))
+        || (lc.contains("-race") && lc.contains("pass"))
+}
+
+#[cfg(test)]
+mod p0_goal_race_tests {
+    use super::goal_requires_go_race;
+
+    #[test]
+    fn p0_race_positive() {
+        assert!(goal_requires_go_race("go test -race ./... must pass"));
+        assert!(goal_requires_go_race("ensure -race ./... passes"));
+        assert!(goal_requires_go_race("race detector must find nothing"));
+        assert!(goal_requires_go_race(
+            "simulate 1000 concurrent requests — no race conditions — must pass",
+        ));
+    }
+
+    #[test]
+    fn p0_race_negative() {
+        assert!(!goal_requires_go_race("go test ./... must pass"));
+        assert!(!goal_requires_go_race("run all Go tests"));
+        assert!(!goal_requires_go_race("cargo test -- --nocapture"));
+        assert!(!goal_requires_go_race(""));
+    }
+}

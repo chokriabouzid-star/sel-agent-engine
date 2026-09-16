@@ -38,7 +38,7 @@ impl Agent {
         max_repairs: u8,
         context_config: ContextConfig,
     ) -> Self {
-        Self {
+        let agent = Self {
             state: AgentState::Planning,
             ctx: ExecutionContext::new(max_repairs),
             executor: SafeExecutor::new(workspace, 120),
@@ -53,7 +53,12 @@ impl Agent {
             bench_mode: false,
             goal_authorized_test_files: Vec::new(),
             initial_goal_test_write_window_open: false,
+        };
+        if crate::workspace_oracle::goal_requires_go_race(&agent.goal) {
+            agent.executor.set_force_go_race(true);
+            eprintln!("[TRACE] P0: goal requires Go race detector");
         }
+        agent
     }
     pub fn new_with_model(
         _api_key: String,
@@ -64,7 +69,7 @@ impl Agent {
         context_config: ContextConfig,
         llm: Box<dyn crate::llm::LLMProvider>,
     ) -> Self {
-        Self {
+        let agent = Self {
             state: AgentState::Planning,
             ctx: ExecutionContext::new(max_repairs),
             executor: SafeExecutor::new(workspace, 120),
@@ -79,7 +84,12 @@ impl Agent {
             bench_mode: false,
             goal_authorized_test_files: Vec::new(),
             initial_goal_test_write_window_open: false,
+        };
+        if crate::workspace_oracle::goal_requires_go_race(&agent.goal) {
+            agent.executor.set_force_go_race(true);
+            eprintln!("[TRACE] P0: goal requires Go race detector");
         }
+        agent
     }
 
     pub fn call_stats(&self) -> crate::llm::LlmCallStats {

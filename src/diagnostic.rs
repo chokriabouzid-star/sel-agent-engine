@@ -408,6 +408,20 @@ pub fn analyze(error_text: &str) -> DiagnosticReport {
         });
     }
 
+    // P0: test runner timeout hint
+    if error_text.contains("go test timeout")
+        || error_text.contains("cargo test timeout")
+        || error_text.contains("pytest timeout")
+        || error_text.contains("Node.js test timeout")
+    {
+        hints.push(Hint {
+            severity: Severity::Fatal,
+            category: "test/runner-timeout",
+            message: "test suite exceeded time limit".into(),
+            suggestion: "The test runner timed out. This is almost always a deadlock or unbounded sleep. For Go: never use time.Sleep(N*time.Minute) in tests; use context.WithTimeout. For Rust: check Mutex/RwLock deadlocks. For Python: check infinite loops or blocking I/O.".into(),
+        });
+    }
+
     // Fallback  no specific pattern matched
     if hints.is_empty() {
         hints.push(Hint {

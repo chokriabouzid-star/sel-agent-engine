@@ -1,3 +1,33 @@
+## ✅ DONE 2026-09-16 — P0 — go test -race enforcement + runner timeout recovery
+
+**Evidence (live, 2026-09-15):** `workerpool` goal demanded `go test -race ./... must pass`;
+Oracle ran `go test ./... -v` -> `SEL_SUCCESS`. Manual `go test -race` on the same
+workspace: `WARNING: DATA RACE … Found 1 data race(s)`, exit 1 -> **false-positive success**.
+`ratelimit` task: `go test timeout` returned `Err(anyhow!)` -> fatal `SEL_FAILED`, no repair.
+
+**Root cause:** `WorkspaceOracle::resolve_test_command` hard-codes `["test","./...","-v"]`;
+every runner branch mapped `tokio::time::timeout` -> `Err`, and `state_handlers` treats `Err`
+as fatal while `Ok(!success)` enters `Repairing`.
+
+**Fix (6 files):**
+- `workspace_oracle::goal_requires_go_race(goal)` — pure, explicit phrases only.
+- `SafeExecutor.force_go_race: AtomicBool` + `set_force_go_race`; both `Agent` constructors set
+  it from the goal (`[TRACE] P0: goal requires Go race detector`).
+- `runner` Go branch injects `-race` when forced and absent (`[TRACE] P0: injected -race -> go …`).
+- `runner` ALL branches (cargo/go/node×2/pytest): timeout -> `Ok(ExecResult::fail)`.
+- `failure.rs`: `* test timeout` -> `BuildError` (repair via LLM, not silent InfraError retry).
+- `diagnostic.rs`: `test/runner-timeout` hint (deadlock / time.Sleep guidance).
+- Tests: 6 unit + 2 behavioral (real `go test -race` flips racy suite to FAIL; real node
+  timeout returns repairable failure). Skip gracefully without toolchains.
+
+**Not covered / follow-ups:**
+- `-race` needs cgo (`CGO_ENABLED=1`, gcc). If unavailable, `go test -race` itself fails ->
+  surfaces as BuildError to the LLM; consider a preflight message.
+- Timed-out child processes are not killed (`kill_on_drop` not set) — orphan until they exit.
+- No enforcement yet for Rust/Node equivalents (e.g. `cargo miri`, jest `--detectOpenHandles`).
+
+---
+
 
 ## ✅ DONE 2026-09-15 — P1: Go literal `\"` from JSON double-escaping
 
