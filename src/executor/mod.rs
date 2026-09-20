@@ -6,6 +6,7 @@ pub mod file_ops;
 pub mod mutation;
 pub mod node_builtins;
 pub mod parsers;
+pub mod process;
 pub mod run_policy;
 pub mod runner;
 pub mod sanitizers;

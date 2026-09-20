@@ -1,3 +1,50 @@
+## ✅ DONE 2026-09-20 — Phase 2 — timed-out processes are killed and reaped
+
+**Evidence (reproduced on 8c9ad86):** `tests/process_lifecycle_safety.rs` recorded a
+child PID, forced a 1s timeout, then `kill -0 <pid>` — both cases FAILED:
+`Process with PID 31326 is still running` (shell) and
+`Node runner with PID 31327 is still running` (run_tests).
+
+**Root cause:** every call site used `tokio::time::timeout(d, cmd.output())`.
+That only drops the future; without `kill_on_drop` the OS process keeps running
+while the agent already moved into Repairing and started rewriting files.
+
+**Fix:** new `src/executor/process.rs::output_with_timeout(&mut TCmd, Duration)`
+- `kill_on_drop(true)`, piped stdio, explicit `spawn()`
+- timeout → `child.kill().await` (start_kill + wait) → terminated AND reaped
+  before returning, then `Ok(None)`
+- normal exit → `Ok(Some(Output))`; spawn failure → `Err` (NotFound preserved)
+Call sites migrated: `core.rs::shell`, `runner.rs` cargo / go / node / node-retry / pytest.
+`core.rs::shell` timeout stays `Err(anyhow)` (unchanged contract); runner timeouts
+stay `Ok(ExecResult::fail)` — P0 behavioral tests still green.
+
+**Guarantee scope:** the DIRECT child only.
+
+---
+
+### 🟡 P2 — grandchildren survive a killed parent (discovered 2026-09-20)
+`child.kill()` signals one PID. `npm test`, `pytest -n`, `go test` sub-binaries can
+outlive it. Needs a process group (`setsid` / `process_group(0)` + `killpg`), plus a
+regression that spawns parent→child and asserts both die.
+
+### 🟡 P2 — mutation.rs still uses the unsafe timeout pattern
+`src/executor/mutation.rs:226` still calls `tokio::time::timeout(30s, Command::output())`.
+Each surviving mutant run can leak a process. Migrate to `output_with_timeout` after
+reading the restore/`std::fs::write(&source_path, &original)` path — it must stay correct
+on timeout.
+
+### 🟢 P3 — compile.rs / run_policy.rs use blocking std::process with NO timeout
+`go_compile_check`, `python_syntax_check`, `python_importable_in_workspace_venv` call
+`std::process::Command::output()` with no deadline — a hanging toolchain blocks the
+whole async runtime. Needs its own design pass (not a mechanical swap).
+
+### 🟢 P3 — per-phase timeouts still missing
+`go mod tidy`, `go mod init`, `npm install`, `python3 -m venv`, `pip install` run
+un-timed inside `run_tests`. Roadmap §5c asks for separate deadlines for dependency
+setup / compile / test.
+
+---
+
 ## ✅ DONE 2026-09-16 — P0 — go test -race enforcement + runner timeout recovery
 
 **Evidence (live, 2026-09-15):** `workerpool` goal demanded `go test -race ./... must pass`;

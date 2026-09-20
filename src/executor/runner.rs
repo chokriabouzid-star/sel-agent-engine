@@ -53,13 +53,13 @@ impl SafeExecutor {
                 eprintln!("[TRACE] Rust replay: forcing cargo offline mode");
             }
 
-            let out = match tokio::time::timeout(
+            let out = match crate::executor::process::output_with_timeout(
+                &mut cmd,
                 std::time::Duration::from_secs(self.timeout_secs),
-                cmd.output(),
             )
-            .await
+            .await?
             {
-                Err(_) => {
+                None => {
                     return Ok(ExecResult {
                         success: false,
                         exit_code: -1,
@@ -69,7 +69,7 @@ impl SafeExecutor {
                         autofix_triggered: false,
                     })
                 }
-                Ok(r) => r?,
+                Some(o) => o,
             };
 
             let stdout = String::from_utf8_lossy(&out.stdout).to_string();
@@ -195,23 +195,22 @@ test result: ok. 0 passed; 0 failed; 0 ignored
                 args.insert(1, "-race".to_string());
                 eprintln!("[TRACE] P0: injected -race -> go {}", args.join(" "));
             }
-            let out = match tokio::time::timeout(
+            let mut go_cmd = TCmd::new("go");
+            go_cmd.args(&args).current_dir(&self.workspace);
+            let out = match crate::executor::process::output_with_timeout(
+                &mut go_cmd,
                 std::time::Duration::from_secs(self.timeout_secs),
-                TCmd::new("go")
-                    .args(&args)
-                    .current_dir(&self.workspace)
-                    .output(),
             )
-            .await
+            .await?
             {
-                Err(_) => return Ok(ExecResult {
+                None => return Ok(ExecResult {
                     success: false, exit_code: -1,
                     stdout: String::new(),
                     stderr: "go test timeout: test suite exceeded time limit. Likely caused by a deadlock, infinite loop, or time.Sleep in production code.".into(),
                     duration_ms: start.elapsed().as_millis() as u64,
                     autofix_triggered: autofix_active,
                 }),
-                Ok(r) => r?,
+                Some(o) => o,
             };
 
             let combined = format!(
@@ -251,16 +250,15 @@ test result: ok. 0 passed; 0 failed; 0 ignored
         {
             let mut autofix_active = false;
 
-            let mut out = match tokio::time::timeout(
+            let mut node_cmd = TCmd::new(&prog);
+            node_cmd.args(&args).current_dir(&self.workspace);
+            let mut out = match crate::executor::process::output_with_timeout(
+                &mut node_cmd,
                 std::time::Duration::from_secs(self.timeout_secs),
-                TCmd::new(&prog)
-                    .args(&args)
-                    .current_dir(&self.workspace)
-                    .output(),
             )
-            .await
+            .await?
             {
-                Err(_) => {
+                None => {
                     return Ok(ExecResult {
                         success: false,
                         exit_code: -1,
@@ -270,7 +268,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored
                         autofix_triggered: false,
                     })
                 }
-                Ok(r) => r?,
+                Some(o) => o,
             };
 
             let mut combined = format!(
@@ -307,16 +305,15 @@ test result: ok. 0 passed; 0 failed; 0 ignored
                                     .output()
                                     .await;
 
-                                out = match tokio::time::timeout(
+                                let mut retry_cmd = TCmd::new(&prog);
+                                retry_cmd.args(&args).current_dir(&self.workspace);
+                                out = match crate::executor::process::output_with_timeout(
+                                    &mut retry_cmd,
                                     std::time::Duration::from_secs(self.timeout_secs),
-                                    TCmd::new(&prog)
-                                        .args(&args)
-                                        .current_dir(&self.workspace)
-                                        .output(),
                                 )
-                                .await
+                                .await?
                                 {
-                                    Err(_) => {
+                                    None => {
                                         return Ok(ExecResult {
                                             success: false,
                                             exit_code: -1,
@@ -326,7 +323,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored
                                             autofix_triggered: true,
                                         })
                                     }
-                                    Ok(r) => r?,
+                                    Some(o) => o,
                                 };
 
                                 combined = format!(
@@ -432,17 +429,17 @@ test result: ok. 0 passed; 0 failed; 0 ignored
                 TCmd::new(&final_prog)
             };
 
-            let out = match tokio::time::timeout(
+            cmd.args(&args)
+                .current_dir(&self.workspace)
+                .env("PYTHONPATH", &self.workspace)
+                .env("PYTHONDONTWRITEBYTECODE", "1");
+            let out = match crate::executor::process::output_with_timeout(
+                &mut cmd,
                 std::time::Duration::from_secs(self.timeout_secs),
-                cmd.args(&args)
-                    .current_dir(&self.workspace)
-                    .env("PYTHONPATH", &self.workspace)
-                    .env("PYTHONDONTWRITEBYTECODE", "1")
-                    .output(),
             )
             .await
             {
-                Err(_) => {
+                Ok(None) => {
                     return Ok(ExecResult {
                         success: false,
                         exit_code: -1,
@@ -452,14 +449,14 @@ test result: ok. 0 passed; 0 failed; 0 ignored
                         autofix_triggered: autofix_active,
                     })
                 }
-                Ok(Ok(out)) => out,
-                Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                Ok(Some(out)) => out,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                     return Ok(ExecResult::fail(format!(
                         "pytest runner not found in workspace or system (resolved target: '{}')",
                         final_prog
                     )));
                 }
-                Ok(Err(e)) => return Err(e.into()),
+                Err(e) => return Err(e.into()),
             };
 
             let combined = format!(

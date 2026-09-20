@@ -186,15 +186,14 @@ impl SafeExecutor {
         };
 
         let start = Instant::now();
-        let out = tokio::time::timeout(
+        let mut cmd = TCmd::new(&prog_to_exec);
+        cmd.args(&args).current_dir(&self.workspace);
+        let out = crate::executor::process::output_with_timeout(
+            &mut cmd,
             Duration::from_secs(self.timeout_secs),
-            TCmd::new(&prog_to_exec)
-                .args(&args)
-                .current_dir(&self.workspace)
-                .output(),
         )
-        .await
-        .map_err(|_| anyhow!("Timeout after {}s: {}", self.timeout_secs, command))??;
+        .await?
+        .ok_or_else(|| anyhow!("Timeout after {}s: {}", self.timeout_secs, command))?;
 
         Ok(ExecResult {
             success: out.status.success(),
