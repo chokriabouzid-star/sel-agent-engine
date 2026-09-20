@@ -37,9 +37,23 @@ impl WorkspaceOracle {
     }
 
     fn detect_project_type(path: &Path) -> ProjectType {
+        if let Some(t) = Self::detect_root_markers(path) {
+            return t;
+        }
+        // Nested project: a manifest can live one or two levels down
+        // (e.g. `mylib/Cargo.toml` created by `cargo new mylib --lib`).
+        if let Some(t) = Self::detect_nested_markers(path, 2) {
+            return t;
+        }
+        ProjectType::Unknown
+    }
+
+    /// Root-only detection. Order matters: manifests first, loose sources last.
+    fn detect_root_markers(path: &Path) -> Option<ProjectType> {
         if path.join("Cargo.toml").exists() {
-            ProjectType::Rust
-        } else if path.join("go.mod").exists()
+            return Some(ProjectType::Rust);
+        }
+        if path.join("go.mod").exists()
             || std::fs::read_dir(path)
                 .map(|dir| {
                     dir.filter_map(Result::ok)
@@ -47,10 +61,12 @@ impl WorkspaceOracle {
                 })
                 .unwrap_or(false)
         {
-            ProjectType::Go
-        } else if path.join("package.json").exists() {
-            ProjectType::Node
-        } else if path.join("setup.py").exists()
+            return Some(ProjectType::Go);
+        }
+        if path.join("package.json").exists() {
+            return Some(ProjectType::Node);
+        }
+        if path.join("setup.py").exists()
             || path.join("pyproject.toml").exists()
             || path.join("requirements.txt").exists()
             || path.join("venv").exists()
@@ -61,10 +77,63 @@ impl WorkspaceOracle {
                 })
                 .unwrap_or(false)
         {
-            ProjectType::Python
-        } else {
-            ProjectType::Unknown
+            return Some(ProjectType::Python);
         }
+        None
+    }
+
+    /// Bounded search for a manifest in child directories.
+    fn detect_nested_markers(path: &Path, depth: usize) -> Option<ProjectType> {
+        if depth == 0 {
+            return None;
+        }
+        const SKIP: &[&str] = &[
+            "target",
+            "node_modules",
+            "venv",
+            ".git",
+            ".venv",
+            "dist",
+            "build",
+            "__pycache__",
+        ];
+        let entries = std::fs::read_dir(path).ok()?;
+        let mut dirs: Vec<std::path::PathBuf> = entries
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| !n.starts_with('.') && !SKIP.contains(&n))
+                    .unwrap_or(false)
+            })
+            .collect();
+        dirs.sort();
+
+        for dir in &dirs {
+            if dir.join("Cargo.toml").exists() {
+                return Some(ProjectType::Rust);
+            }
+            if dir.join("go.mod").exists() {
+                return Some(ProjectType::Go);
+            }
+            if dir.join("package.json").exists() {
+                return Some(ProjectType::Node);
+            }
+            if dir.join("pyproject.toml").exists()
+                || dir.join("setup.py").exists()
+                || dir.join("requirements.txt").exists()
+            {
+                return Some(ProjectType::Python);
+            }
+        }
+        for dir in &dirs {
+            if let Some(t) = Self::detect_nested_markers(dir, depth - 1) {
+                return Some(t);
+            }
+        }
+        None
     }
 
     /// Checks whether the given file extension is allowed in the detected project type.
@@ -254,12 +323,53 @@ impl WorkspaceOracle {
 
 pub fn goal_requires_go_race(goal: &str) -> bool {
     let lc = goal.to_lowercase();
-    lc.contains("go test -race")
-        || lc.contains("-race ./...")
-        || lc.contains("-race .")
-        || lc.contains("race detector")
-        || (lc.contains("race condition") && (lc.contains("must pass") || lc.contains("no race")))
-        || (lc.contains("-race") && lc.contains("pass"))
+    // Split into clauses so a negation in one sentence cannot be cancelled by
+    // an unrelated positive phrase elsewhere in the goal.
+    for clause in lc.split([';', '\n', '!', '?']) {
+        let c = clause.trim();
+        if c.is_empty() {
+            continue;
+        }
+        if !clause_mentions_race(c) {
+            continue;
+        }
+        if clause_negates(c) {
+            // Explicit refusal in this clause -> never force the detector.
+            return false;
+        }
+        if clause_requests_race(c) {
+            return true;
+        }
+    }
+    false
+}
+
+/// True when the clause talks about Go race detection at all.
+fn clause_mentions_race(c: &str) -> bool {
+    c.contains("race")
+}
+
+/// Explicit refusal markers. Conservative on purpose: only clear negations.
+fn clause_negates(c: &str) -> bool {
+    c.contains("do not")
+        || c.contains("don't")
+        || c.contains("dont ")
+        || c.contains("never")
+        || c.contains("without")
+        || c.contains("disable")
+        || c.contains("skip the race")
+        || c.contains("no -race")
+        || c.contains("must not")
+}
+
+/// Positive request patterns (same surface as the original P0 rule).
+fn clause_requests_race(c: &str) -> bool {
+    c.contains("go test -race")
+        || c.contains("-race ./...")
+        || c.contains("-race .")
+        || c.contains("race detector")
+        || (c.contains("race condition") && (c.contains("must pass") || c.contains("no race")))
+        || (c.contains("-race") && c.contains("pass"))
 }
 
 #[cfg(test)]

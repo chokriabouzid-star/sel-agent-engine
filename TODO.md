@@ -129,3 +129,27 @@ quotes escaped, some not) — the line-targeted compile autofix handles those.
   الطبقة الثانية (compile-triggered, سطرًا بسطر) بعد رفض المترجم. مقبول، لكن يستحق
   اختبار regression لملف مختلط حقيقي عند توفّره من bench.
 
+
+## ✅ DONE 2026-09-20 — Phase 3a — Oracle: race negation + nested manifest discovery
+
+**Evidence (reproduced on a752295):** `tests/oracle_neg_regressions.rs` —
+`goal_requires_go_race("Fix bug. DO NOT enable the race detector. Run go test.")` returned
+true (substring match); `WorkspaceOracle::current_type()` returned `Unknown` for a
+workspace whose only manifest is `mylib/Cargo.toml`.
+
+**Fix (`src/workspace_oracle.rs`):**
+- `goal_requires_go_race`: clause-based. Split on `; \n ! ?` (NOT `.`, which would break
+  `./...`). A clause mentioning "race" with an explicit negation (`do not`, `don't`, `never`,
+  `without`, `disable`, `must not`, `no -race`, `skip the race`) returns false; otherwise the
+  original P0 positive patterns apply per clause.
+- `detect_project_type` = `detect_root_markers` (unchanged order/priority) then
+  `detect_nested_markers(depth=2)`, skipping `target node_modules venv .git .venv dist build
+  __pycache__`; child dirs visited in sorted order for determinism.
+
+**Known limits (deliberate, conservative):**
+- A negation word and a positive race request in the SAME clause (no `;`/newline between)
+  resolves to "do not force" — we prefer not injecting `-race` over injecting it wrongly.
+- Nested discovery picks the FIRST manifest in sorted order; multi-project workspaces still
+  need an explicit policy (roadmap §6c).
+- `resolve_test_command` still drops most caller flags for known project types and the
+  cargo branch does not build `--manifest-path` from the nested location — next Phase 3 step.
