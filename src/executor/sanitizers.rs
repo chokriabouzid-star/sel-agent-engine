@@ -265,9 +265,7 @@ pub fn fix_toml_duplicates(src: &str) -> String {
 
 pub fn fix_go_backslashes(src: &str) -> String {
     // v7.5: Fix for illegal backslash escapes in Go strings (common hallucination)
-    src.replace("\\\\n", "\\n")
-        .replace("\\\\t", "\\t")
-        .replace("\\\\\"", "\\\"")
+    src.replace("\\\\n", "\\n").replace("\\\\t", "\\t")
 }
 
 pub fn fix_rust_string_types(content: &str) -> String {
@@ -417,7 +415,24 @@ pub fn pop(&mut self) -> Result<f64, String> {
 /// broken file into a candidate that may compile. Any file containing at least
 /// one unescaped `"` is returned untouched (`None`).
 pub fn fix_go_escaped_quotes(src: &str) -> Option<String> {
+    // Safety: raw-string literals (`...`) contain literal backslashes;
+    // do not touch files with backticks.
+    if src.contains('`') {
+        return None;
+    }
     if !src.contains("\\\"") {
+        return None;
+    }
+    // Escaped quotes living only inside line comments are valid Go, not a JSON
+    // artifact. Fire only if at least one `\"` sits outside a `//` comment.
+    let has_artifact_outside_comment = src.lines().any(|line| {
+        let code = match line.find("//") {
+            Some(pos) => &line[..pos],
+            None => line,
+        };
+        code.contains("\\\"")
+    });
+    if !has_artifact_outside_comment {
         return None;
     }
     let bytes = src.as_bytes();
@@ -439,8 +454,11 @@ pub fn unescape_go_quotes_on_line(src: &str, line_no: usize) -> Option<String> {
     let mut out_lines: Vec<String> = Vec::new();
     for (idx, line) in src.lines().enumerate() {
         if idx + 1 == line_no && line.contains("\\\"") {
-            changed = true;
-            out_lines.push(line.replace("\\\"", "\""));
+            let fixed = unescape_artifact_quotes_in_line(line);
+            if fixed != line {
+                changed = true;
+            }
+            out_lines.push(fixed);
         } else {
             out_lines.push(line.to_string());
         }
@@ -453,6 +471,35 @@ pub fn unescape_go_quotes_on_line(src: &str, line_no: usize) -> Option<String> {
         out.push('\n');
     }
     Some(out)
+}
+
+/// Unescape only the `\"` artifacts that sit OUTSIDE a real string literal.
+/// Genuine `\"` escapes inside a proper `"..."` string are preserved: only an
+/// unescaped `"` toggles the in-string state, a `\"` never does.
+fn unescape_artifact_quotes_in_line(line: &str) -> String {
+    let chars: Vec<char> = line.chars().collect();
+    let mut out = String::with_capacity(line.len());
+    let mut in_string = false;
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '\\' && i + 1 < chars.len() && chars[i + 1] == '"' {
+            if in_string {
+                out.push('\\');
+                out.push('"');
+            } else {
+                out.push('"');
+            }
+            i += 2;
+        } else if chars[i] == '"' {
+            in_string = !in_string;
+            out.push('"');
+            i += 1;
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    out
 }
 
 /// Byte-exact copy of `/tmp/sel-bench-0-12/main_test.go` (bench 2026-09-15, 234 bytes,
