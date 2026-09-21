@@ -164,25 +164,30 @@ impl WorkspaceOracle {
 
         match p_type {
             ProjectType::Go => {
-                if t.contains("cargo") {
-                    return (
+                // Phase 3b: honour an explicit `go test ...` invocation from the caller.
+                match caller_test_extras(target, |tool| tool == "go" || tool.ends_with("/go")) {
+                    Some(extras) => ("go".to_string(), go_args_from_extras(extras)),
+                    None => (
                         "go".to_string(),
                         vec!["test".to_string(), "./...".to_string(), "-v".to_string()],
-                    );
+                    ),
                 }
-                (
-                    "go".to_string(),
-                    vec!["test".to_string(), "./...".to_string(), "-v".to_string()],
-                )
             }
-            ProjectType::Rust => (
-                "cargo".to_string(),
-                vec![
-                    "test".to_string(),
-                    "--".to_string(),
-                    "--nocapture".to_string(),
-                ],
-            ),
+            ProjectType::Rust => {
+                // Phase 3b: honour an explicit `cargo test ...` invocation from the caller.
+                match caller_test_extras(target, |tool| tool == "cargo" || tool.ends_with("/cargo"))
+                {
+                    Some(extras) => ("cargo".to_string(), cargo_args_from_extras(extras)),
+                    None => (
+                        "cargo".to_string(),
+                        vec![
+                            "test".to_string(),
+                            "--".to_string(),
+                            "--nocapture".to_string(),
+                        ],
+                    ),
+                }
+            }
             ProjectType::Node => {
                 if t.contains("jest")
                     || t.ends_with(".ts")
@@ -373,6 +378,7 @@ fn clause_requests_race(c: &str) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod p0_goal_race_tests {
     use super::goal_requires_go_race;
 
@@ -393,4 +399,85 @@ mod p0_goal_race_tests {
         assert!(!goal_requires_go_race("cargo test -- --nocapture"));
         assert!(!goal_requires_go_race(""));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3b: caller-flag preservation helpers (pure, no I/O).
+// ---------------------------------------------------------------------------
+
+/// Characters that mean "this target is a shell pipeline, not a bare argv".
+const SHELL_METACHARS: [char; 9] = ['&', '|', ';', '>', '<', '$', '`', '\'', '"'];
+
+/// Go flags that consume the NEXT token as their value (so it is not a package).
+const GO_VALUE_FLAGS: [&str; 8] = [
+    "-run",
+    "-bench",
+    "-timeout",
+    "-count",
+    "-parallel",
+    "-tags",
+    "-benchtime",
+    "-cpu",
+];
+
+/// Returns the tokens AFTER `<tool> test` when `target` is a plain, safe
+/// `<tool> test <something>` invocation. Returns `None` (-> caller keeps its
+/// hard-coded default) for bare targets, non-`test` subcommands and anything
+/// containing shell metacharacters.
+fn caller_test_extras(target: &str, tool_matches: fn(&str) -> bool) -> Option<Vec<String>> {
+    if target.chars().any(|c| SHELL_METACHARS.contains(&c)) {
+        return None;
+    }
+    let toks: Vec<&str> = target.split_whitespace().collect();
+    if toks.len() < 3 || !tool_matches(toks[0]) || toks[1] != "test" {
+        return None;
+    }
+    Some(toks[2..].iter().map(|s| s.to_string()).collect())
+}
+
+/// Builds `go test ...` args, guaranteeing `args[0] == "test"` (the `-race`
+/// injection in runner.rs inserts at index 1), a package scope, and `-v`
+/// (parse_go_tests counts `--- PASS:` lines, which only exist with `-v`).
+fn go_args_from_extras(extras: Vec<String>) -> Vec<String> {
+    let mut args = vec!["test".to_string()];
+    let mut has_pkg = false;
+    let mut expect_value = false;
+
+    for tok in extras {
+        if expect_value {
+            expect_value = false;
+            args.push(tok);
+            continue;
+        }
+        if tok.starts_with('-') {
+            if GO_VALUE_FLAGS.contains(&tok.as_str()) {
+                expect_value = true;
+            }
+            args.push(tok);
+            continue;
+        }
+        has_pkg = true;
+        args.push(tok);
+    }
+
+    if !has_pkg {
+        args.push("./...".to_string());
+    }
+    if !args.iter().any(|a| a == "-v") {
+        args.push("-v".to_string());
+    }
+    args
+}
+
+/// Builds `cargo test ...` args, appending the `-- --nocapture` tail when absent.
+fn cargo_args_from_extras(extras: Vec<String>) -> Vec<String> {
+    let mut args = vec!["test".to_string()];
+    args.extend(extras);
+    if !args.iter().any(|a| a == "--") {
+        args.push("--".to_string());
+    }
+    if !args.iter().any(|a| a == "--nocapture") {
+        args.push("--nocapture".to_string());
+    }
+    args
 }

@@ -1,3 +1,27 @@
+## ✅ DONE 2026-09-21 — Phase 3b — Oracle flag preservation & nested Cargo manifest path resolution
+
+**Evidence:** `tests/oracle_flag_regressions.rs` (14 tests: 4 bug + 6 guard + 4 E2E).
+Before fix, `resolve_test_command` collapsed every Go/Rust target into hardcoded defaults,
+dropping caller flags (`-race`, `-count=1`, `-run`, `--lib`, `--manifest-path`), and `runner.rs`
+hardcoded `cargo test -- --nocapture`, ignoring resolved arguments and running the root package instead of nested manifests.
+
+**Fix (`src/workspace_oracle.rs` & `src/executor/runner.rs`):**
+- `workspace_oracle.rs`:
+  - `caller_test_extras`: extracts tokens after `<tool> test` when target is a plain, safe invocation (no shell metachars `& | ; > < $ \` ' "`).
+  - `go_args_from_extras`: preserves explicit flags (`-run`, `-count`, etc.), guarantees `args[0] == "test"` for `-race` injection, enforces package scope (`./...` default), and ensures `-v` for `parse_go_tests`.
+  - `cargo_args_from_extras`: preserves explicit flags (`--lib`, `-p`, `--manifest-path`) and appends `-- --nocapture` tail when absent.
+- `runner.rs`:
+  - Cargo branch executes the Oracle-resolved `cargo_args` instead of discarding them.
+  - `resolve_manifest_path_args`: normalizes relative `--manifest-path` values against the workspace root so execution in `find_cargo_workspace` points to the correct manifest.
+
+**Guarantee scope & limits:**
+- Applies to Go and Rust test command resolution when targets start with `<tool> test`.
+- Shell pipelines (`go test ./... && echo ok`) fall back safely to defaults.
+- Node and Python resolution arms remain untouched in this pass.
+- `find_cargo_workspace` non-deterministic directory scan for multi-manifest subdirs remains P2.
+
+---
+
 ## ✅ DONE 2026-09-20 — Phase 2 — timed-out processes are killed and reaped
 
 **Evidence (reproduced on 8c9ad86):** `tests/process_lifecycle_safety.rs` recorded a

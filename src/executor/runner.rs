@@ -43,9 +43,19 @@ impl SafeExecutor {
         // --- RUST ---
         if prog == "cargo" || prog.ends_with("/cargo") {
             let rust_ws = find_cargo_workspace(&self.workspace);
+
+            // Phase 3b: run what the Oracle resolved (the log line must not lie).
+            // Fall back to the historical default for empty / non-`test` argv
+            // (e.g. Unknown-project pass-through of "cargo build").
+            let mut cargo_args: Vec<String> = if args.first().map(|a| a.as_str()) == Some("test") {
+                args.clone()
+            } else {
+                vec!["test".into(), "--".into(), "--nocapture".into()]
+            };
+            resolve_manifest_path_args(&mut cargo_args, &self.workspace);
+
             let mut cmd = TCmd::new("cargo");
-            cmd.args(["test", "--", "--nocapture"])
-                .current_dir(&rust_ws);
+            cmd.args(&cargo_args).current_dir(&rust_ws);
 
             if self.replay_mode {
                 cmd.env("CARGO_NET_OFFLINE", "true")
@@ -633,5 +643,29 @@ mod p0_behavioral_tests {
             r.stderr
         );
         // state_handlers maps Ok(!success) -> AgentState::Repairing; Err -> fatal.
+    }
+}
+
+/// Phase 3b: `--manifest-path` from an LLM plan is relative to the WORKSPACE ROOT,
+/// but cargo runs with `current_dir = find_cargo_workspace(...)`, which may already
+/// be the nested package. Rewrite relative values to absolute so both agree.
+/// A missing path is deliberately NOT dropped: an explicit cargo error is a truthful,
+/// repairable failure, whereas silently running another package is a false success.
+fn resolve_manifest_path_args(args: &mut [String], workspace: &std::path::Path) {
+    for i in 0..args.len() {
+        let cur = args[i].clone();
+        if cur == "--manifest-path" {
+            if let Some(value) = args.get(i + 1).cloned() {
+                let p = std::path::Path::new(&value);
+                if p.is_relative() {
+                    args[i + 1] = workspace.join(p).to_string_lossy().into_owned();
+                }
+            }
+        } else if let Some(value) = cur.strip_prefix("--manifest-path=") {
+            let p = std::path::Path::new(value);
+            if p.is_relative() {
+                args[i] = format!("--manifest-path={}", workspace.join(p).to_string_lossy());
+            }
+        }
     }
 }
