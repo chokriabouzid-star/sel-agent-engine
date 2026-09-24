@@ -5,13 +5,29 @@
 //! spawns the child explicitly and, on timeout, kills it and WAITS for it
 //! (`tokio::process::Child::kill` = start_kill + wait) so no zombie is left.
 //!
-//! Guarantee scope: the direct child only. Grandchildren spawned by the child
-//! are NOT covered — that needs process groups and is tracked separately.
+//! On Unix, the direct child and descendants that remain in its process
+//! group are terminated before this function returns. Other platforms retain
+//! the direct-child guarantee.
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::process::{Output, Stdio};
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command as TCmd;
+
+#[cfg(unix)]
+fn kill_process_group(pid: u32) {
+    let pgid = match libc::pid_t::try_from(pid) {
+        Ok(pgid) => pgid,
+        Err(_) => return,
+    };
+
+    // SAFETY: the child was placed in a process group whose id is its own pid.
+    unsafe {
+        let _ = libc::kill(-pgid, libc::SIGKILL);
+    }
+}
 
 /// Run `cmd` with a deadline.
 ///
@@ -23,6 +39,9 @@ pub async fn output_with_timeout(cmd: &mut TCmd, dur: Duration) -> std::io::Resu
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    #[cfg(unix)]
+    cmd.as_std_mut().process_group(0);
 
     let mut child = cmd.spawn()?;
     let mut so = child.stdout.take();
@@ -55,8 +74,23 @@ pub async fn output_with_timeout(cmd: &mut TCmd, dur: Duration) -> std::io::Resu
         }
         Ok(Err(e)) => Err(e),
         Err(_) => {
-            // kill() awaits the child: terminated AND reaped before we return.
-            let _ = child.kill().await;
+            #[cfg(unix)]
+            {
+                if let Some(pid) = child.id() {
+                    kill_process_group(pid);
+                } else {
+                    let _ = child.kill().await;
+                }
+
+                // Reap the direct child before returning to the caller.
+                let _ = child.wait().await;
+            }
+
+            #[cfg(not(unix))]
+            {
+                let _ = child.kill().await;
+            }
+
             out_task.abort();
             err_task.abort();
             Ok(None)

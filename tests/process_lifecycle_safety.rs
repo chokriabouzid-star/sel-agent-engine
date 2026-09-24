@@ -44,7 +44,10 @@ fn lifecycle_1_timed_out_shell_process_must_be_killed() {
     let pid_file = ws.join("child.pid");
 
     // Script records its own PID and sleeps for 30 seconds
-    let script_content = format!("#!/bin/sh\necho $$ > '{}'\nsleep 30\n", pid_file.display());
+    let script_content = format!(
+        "#!/bin/sh\nsleep 30 &\necho $! > '{}'\nwait\n",
+        pid_file.display()
+    );
     let script_path = ws.join("hang.sh");
     std::fs::write(&script_path, script_content).expect("write script");
 
@@ -65,6 +68,12 @@ fn lifecycle_1_timed_out_shell_process_must_be_killed() {
     // Allow a tiny grace window (50ms) for OS cleanup
     std::thread::sleep(Duration::from_millis(50));
 
+    // A missing or malformed PID file must fail the test, never skip the check.
+    let _recorded_pid: u32 = std::fs::read_to_string(&pid_file)
+        .expect("fixture did not record a descendant PID")
+        .trim()
+        .parse()
+        .expect("fixture recorded an invalid descendant PID");
     if pid_file.exists() {
         let pid_str = std::fs::read_to_string(&pid_file).unwrap_or_default();
         if let Ok(pid) = pid_str.trim().parse::<u32>() {
@@ -92,12 +101,15 @@ fn lifecycle_2_timed_out_node_test_runner_must_be_killed() {
     let pid_file = ws.join("node.pid");
 
     let script = format!(
-        "const fs = require('fs');\nfs.writeFileSync('{}', String(process.pid));\nsetInterval(() => {{}}, 1000);\n",
+        "const fs = require('fs');\nconst {{ spawn }} = require('child_process');\nconst child = spawn('sleep', ['30'], {{ stdio: 'ignore' }});\nfs.writeFileSync('{}', String(child.pid));\nsetInterval(() => {{}}, 1000);\n",
         pid_file.display()
     );
     std::fs::write(ws.join("hang.js"), script).expect("write hang.js");
 
-    let exec = SafeExecutor::new(ws.clone(), 1);
+    // 3s, not 1s: Node start-up on a loaded host can exceed 1s, so the group
+    // termination fired before the fixture recorded its PID (observed flake).
+    // The descendant sleeps 30s, so the timeout contract is unchanged.
+    let exec = SafeExecutor::new(ws.clone(), 3);
     let r = block_on(exec.run_tests("node hang.js"));
 
     // Timeout must return Ok(ExecResult::fail)
@@ -105,6 +117,12 @@ fn lifecycle_2_timed_out_node_test_runner_must_be_killed() {
 
     std::thread::sleep(Duration::from_millis(50));
 
+    // A missing or malformed PID file must fail the test, never skip the check.
+    let _recorded_pid: u32 = std::fs::read_to_string(&pid_file)
+        .expect("fixture did not record a descendant PID")
+        .trim()
+        .parse()
+        .expect("fixture recorded an invalid descendant PID");
     if pid_file.exists() {
         let pid_str = std::fs::read_to_string(&pid_file).unwrap_or_default();
         if let Ok(pid) = pid_str.trim().parse::<u32>() {
