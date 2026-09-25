@@ -5,10 +5,23 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const EXHAUSTION_TTL_SECS: u64 = 86400; // 24 hours
 
+/// Stable identifier for a provider key. This is for cache identity only,
+/// not authentication; the raw key is never written to the state cache.
+pub fn key_fingerprint(key: &str) -> String {
+    let mut hash: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d;
+    for byte in key.as_bytes() {
+        hash ^= u128::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0000_0100_0000_0000_0000_0000_013b);
+    }
+    format!("fnv1a128:{hash:032x}")
+}
+
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct KeyState {
     pub exhausted_at: Option<u64>, // Unix timestamp
     pub expired: bool,             // v7.9.9 P2b: permanently expired
+    #[serde(default)]
+    pub key_fp: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone)]
@@ -127,6 +140,81 @@ impl ProviderStateCache {
             .map(|(name, key_count)| self.available_key_count(name, *key_count) * 50)
             .sum()
     }
+
+    fn key_state_mut_for(&mut self, provider: &str, key_idx: usize, key_fp: &str) -> &mut KeyState {
+        let provider_state = self.providers.entry(provider.to_string()).or_default();
+
+        if let Some(index) = provider_state
+            .keys
+            .iter()
+            .position(|state| state.key_fp.as_deref() == Some(key_fp))
+        {
+            return &mut provider_state.keys[index];
+        }
+
+        if key_idx >= provider_state.keys.len() {
+            provider_state
+                .keys
+                .resize_with(key_idx + 1, KeyState::default);
+        }
+
+        if provider_state.keys[key_idx].key_fp.is_none() {
+            provider_state.keys[key_idx] = KeyState {
+                key_fp: Some(key_fp.to_owned()),
+                ..KeyState::default()
+            };
+            return &mut provider_state.keys[key_idx];
+        }
+
+        provider_state.keys.push(KeyState {
+            key_fp: Some(key_fp.to_owned()),
+            ..KeyState::default()
+        });
+        let index = provider_state.keys.len() - 1;
+        &mut provider_state.keys[index]
+    }
+
+    pub fn mark_exhausted_for(&mut self, provider: &str, key_idx: usize, key_fp: &str) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        self.key_state_mut_for(provider, key_idx, key_fp)
+            .exhausted_at = Some(now);
+        self.save();
+    }
+
+    pub fn mark_permanently_expired_for(&mut self, provider: &str, key_idx: usize, key_fp: &str) {
+        self.key_state_mut_for(provider, key_idx, key_fp).expired = true;
+        self.save();
+    }
+
+    pub fn is_blocked_for(&self, provider: &str, _key_idx: usize, key_fp: &str) -> bool {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let state = match self.providers.get(provider).and_then(|provider_state| {
+            provider_state
+                .keys
+                .iter()
+                .find(|state| state.key_fp.as_deref() == Some(key_fp))
+        }) {
+            Some(state) => state,
+            None => return false,
+        };
+
+        if state.expired {
+            return true;
+        }
+
+        state
+            .exhausted_at
+            .map(|timestamp| now.saturating_sub(timestamp) < EXHAUSTION_TTL_SECS)
+            .unwrap_or(false)
+    }
 }
 
 #[cfg(test)]
@@ -189,5 +277,32 @@ mod tests {
 
         let remaining = cache.estimated_remaining_calls(&providers);
         assert_eq!(remaining, 100);
+    }
+
+    #[test]
+    fn bug_expired_slot_does_not_block_a_different_key() {
+        let mut cache = ProviderStateCache::default();
+        cache.mark_permanently_expired_for("PROV", 0, "fp-dead");
+        assert!(
+            !cache.is_blocked_for("PROV", 0, "fp-fresh"),
+            "a replacement key in an expired slot inherited the old block"
+        );
+    }
+
+    #[test]
+    fn bug_legacy_slot_block_without_fingerprint_is_not_applied() {
+        let mut cache = ProviderStateCache::default();
+        cache.mark_permanently_expired("PROV", 0);
+        assert!(
+            !cache.is_blocked_for("PROV", 0, "fp-current"),
+            "legacy index-only block was applied without key identity"
+        );
+    }
+
+    #[test]
+    fn guard_same_key_fingerprint_stays_blocked() {
+        let mut cache = ProviderStateCache::default();
+        cache.mark_permanently_expired_for("PROV", 0, "fp-dead");
+        assert!(cache.is_blocked_for("PROV", 7, "fp-dead"));
     }
 }

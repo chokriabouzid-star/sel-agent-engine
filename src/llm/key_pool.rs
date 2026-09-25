@@ -48,8 +48,9 @@ impl KeyPool {
         let mut exhausted = std::collections::HashSet::new();
         // v7.9.9 P2: Load from disk cache
         let cache = crate::provider_state::ProviderStateCache::load();
-        for i in 0..keys.len() {
-            if cache.is_key_exhausted(prefix, i) {
+        for (i, key) in keys.iter().enumerate() {
+            let key_fp = crate::provider_state::key_fingerprint(key);
+            if cache.is_blocked_for(prefix, i, &key_fp) {
                 exhausted.insert(i);
                 eprintln!(
                     "   🔑 Key #{} for {} pre-skipped (exhausted in previous session)",
@@ -96,8 +97,9 @@ impl KeyPool {
         );
         self.exhausted.insert(self.current);
 
+        let key_fp = crate::provider_state::key_fingerprint(&self.keys[self.current]);
         let mut cache = crate::provider_state::ProviderStateCache::load();
-        cache.mark_permanently_expired(&self.prefix, self.current);
+        cache.mark_permanently_expired_for(&self.prefix, self.current, &key_fp);
 
         self.current = (self.current + 1) % self.keys.len();
     }
@@ -115,8 +117,9 @@ impl KeyPool {
         self.exhausted.insert(self.current);
 
         // v7.9.9 P2: Save to disk cache
+        let key_fp = crate::provider_state::key_fingerprint(&self.keys[self.current]);
         let mut cache = crate::provider_state::ProviderStateCache::load();
-        cache.mark_exhausted(&self.prefix, self.current);
+        cache.mark_exhausted_for(&self.prefix, self.current, &key_fp);
 
         self.current = (self.current + 1) % self.keys.len();
     }
