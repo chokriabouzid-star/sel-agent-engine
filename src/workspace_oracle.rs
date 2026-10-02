@@ -328,9 +328,36 @@ impl WorkspaceOracle {
 
 pub fn goal_requires_go_race(goal: &str) -> bool {
     let lc = goal.to_lowercase();
-    // Split into clauses so a negation in one sentence cannot be cancelled by
-    // an unrelated positive phrase elsewhere in the goal.
-    for clause in lc.split([';', '\n', '!', '?']) {
+
+    // Protect Go package patterns and ellipses before splitting on sentence periods.
+    const GO_ALL_PLACEHOLDER: &str = "__SEL_GO_ALL_PACKAGES__";
+    const ELLIPSIS_PLACEHOLDER: &str = "__SEL_ELLIPSIS__";
+    let protected = lc
+        .replace("./...", GO_ALL_PLACEHOLDER)
+        .replace("...", ELLIPSIS_PLACEHOLDER);
+
+    let mut clauses = Vec::new();
+    let mut clause_start = 0usize;
+    for (index, ch) in protected.char_indices() {
+        let next_index = index + ch.len_utf8();
+        let sentence_period = ch == '.'
+            && protected
+                .get(next_index..)
+                .and_then(|tail| tail.chars().next())
+                .map(|next| next.is_whitespace())
+                .unwrap_or(true);
+
+        if matches!(ch, ';' | '\n' | '!' | '?') || sentence_period {
+            clauses.push(protected[clause_start..index].to_owned());
+            clause_start = next_index;
+        }
+    }
+    clauses.push(protected[clause_start..].to_owned());
+
+    for clause in clauses {
+        let clause = clause
+            .replace(GO_ALL_PLACEHOLDER, "./...")
+            .replace(ELLIPSIS_PLACEHOLDER, "...");
         let c = clause.trim();
         if c.is_empty() {
             continue;
@@ -480,4 +507,51 @@ fn cargo_args_from_extras(extras: Vec<String>) -> Vec<String> {
         args.push("--nocapture".to_string());
     }
     args
+}
+
+#[cfg(test)]
+mod race_clause_split_tests {
+    //! W1: a negation in a separate sentence (split by '.') must not
+    //! suppress an explicit -race request in another sentence.
+    use super::goal_requires_go_race;
+
+    #[test]
+    fn bug_dot_separated_negation_suppresses_race() {
+        assert!(goal_requires_go_race(
+            "Fix the data race. go test -race ./... must pass. Do not modify the test files."
+        ));
+    }
+
+    #[test]
+    fn bug_concurrent_phrasing_with_dot_negation() {
+        assert!(goal_requires_go_race(
+            "It must be safe for concurrent use, and go test -race ./... must pass. Do not modify counter_test.go."
+        ));
+    }
+
+    #[test]
+    fn bug_go_path_dots_followed_by_space() {
+        assert!(goal_requires_go_race(
+            "Run go test -race ./... and make it pass. Do not touch tests."
+        ));
+    }
+
+    #[test]
+    fn guard_newline_separated_still_true() {
+        assert!(goal_requires_go_race(
+            "go test -race ./... must pass.\nDo not modify the test files."
+        ));
+    }
+
+    #[test]
+    fn guard_negated_race_detector_still_false() {
+        assert!(!goal_requires_go_race(
+            "Fix the bug. Do not enable the race detector. Run go test."
+        ));
+    }
+
+    #[test]
+    fn guard_do_not_use_race_still_false() {
+        assert!(!goal_requires_go_race("Do not use -race here."));
+    }
 }
