@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# منع تداخل متغيرات بيئة الـ Hook مع أوامر git داخل البنشماركات
+unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE GIT_PREFIX
+
 MODE="${1:-core}"
 BIN="./target/release/sel-agent"
 

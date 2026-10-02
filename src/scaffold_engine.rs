@@ -97,15 +97,9 @@ pub fn get_cache_dir() -> std::path::PathBuf {
         .join("sel-agent/scaffold")
 }
 
-fn python_module_name_for_dep(dep: &str) -> &str {
-    match dep {
-        "fastapi" => "fastapi",
-        "uvicorn[standard]" => "uvicorn",
-        "flask" => "flask",
-        "httpx" => "httpx",
-        "requests" => "requests",
-        _ => dep,
-    }
+/// Single source of truth for distribution -> import-module mapping.
+fn python_module_name_for_dep(dep: &str) -> String {
+    crate::python_env::import_name(dep)
 }
 
 async fn restore_python_venv_from_path(
@@ -125,7 +119,9 @@ async fn restore_python_venv_from_path(
 
     let target = workspace.join("venv");
     if !target.exists() {
-        let _ = std::os::unix::fs::symlink(cached_venv, &target);
+        std::os::unix::fs::symlink(cached_venv, &target).map_err(|e| {
+            format!("REPLAY_ENV_MISMATCH: cannot link cached Python venv into workspace: {e}")
+        })?;
         println!("   ⚡ Scaffold cache hit: venv symlinked");
     }
 
@@ -178,13 +174,47 @@ async fn restore_python_venv_from_path(
     Ok(vec!["venv".to_string()])
 }
 
+/// Resolve a verified profile for `spec` under `cache_root` and attach it.
+/// A legacy `python/venv` without a manifest is never accepted.
+async fn restore_verified_profile(
+    cache_root: &Path,
+    spec: &crate::python_env::PythonEnvSpec,
+    workspace: &Path,
+    extra_deps: &[String],
+    replay_mode: bool,
+) -> Result<Vec<String>, String> {
+    let profile = crate::python_env::profile_dir(cache_root, spec);
+    let venv = crate::python_env::verify_profile(&profile, spec)?;
+    restore_python_venv_from_path(&venv, workspace, extra_deps, replay_mode).await
+}
+
+fn host_python_tag() -> Result<String, String> {
+    crate::python_env::detect_python_tag(Path::new("python3"))
+        .map_err(|e| format!("REPLAY_ENV_MISMATCH: {e}"))
+}
+
+/// Scaffold path (bench --suite all): base profile + goal-inferred extras.
 pub async fn restore_python_venv_from_cache(
     workspace: &Path,
     extra_deps: &[String],
     replay_mode: bool,
 ) -> Result<Vec<String>, String> {
-    let cached_venv = get_cache_dir().join("python/venv");
-    restore_python_venv_from_path(&cached_venv, workspace, extra_deps, replay_mode).await
+    let tag = host_python_tag()?;
+    let refs: Vec<&str> = extra_deps.iter().map(String::as_str).collect();
+    let spec = crate::python_env::scaffold_spec_with_extras(&tag, &refs);
+    restore_verified_profile(&get_cache_dir(), &spec, workspace, extra_deps, replay_mode).await
+}
+
+/// Benchmark-case path (bench-swe / bench-sel): pinned pytest + case extras only.
+pub async fn restore_python_case_venv_from_cache(
+    workspace: &Path,
+    extra_deps: &[String],
+    replay_mode: bool,
+) -> Result<Vec<String>, String> {
+    let tag = host_python_tag()?;
+    let refs: Vec<&str> = extra_deps.iter().map(String::as_str).collect();
+    let spec = crate::python_env::case_spec(&tag, &refs);
+    restore_verified_profile(&get_cache_dir(), &spec, workspace, extra_deps, replay_mode).await
 }
 
 async fn prepare_from_cache(workspace: &Path, goal: &str) -> ScaffoldResult {
@@ -749,5 +779,84 @@ mod tests {
 
         assert!(err.contains("REPLAY_ENV_MISMATCH"));
         assert!(err.contains("cached Python venv unavailable"));
+    }
+
+    fn write_fake_profile(cache_root: &Path, spec: &crate::python_env::PythonEnvSpec) {
+        use crate::python_env::{profile_dir, EnvManifest, ENV_SCHEMA};
+        let dir = profile_dir(cache_root, spec);
+        std::fs::create_dir_all(dir.join("venv/bin")).expect("profile");
+        std::fs::write(dir.join("venv/bin/pytest"), b"fixture").expect("pytest");
+        let m = EnvManifest {
+            schema: ENV_SCHEMA,
+            fingerprint: spec.fingerprint(),
+            platform: crate::python_env::PythonEnvSpec::platform(),
+            python_tag: spec.python_tag.clone(),
+            packages: spec.packages.clone(),
+            resolved: vec![],
+        };
+        std::fs::write(
+            dir.join("manifest.json"),
+            serde_json::to_vec(&m).expect("json"),
+        )
+        .expect("manifest");
+    }
+
+    #[test]
+    fn verified_resolver_attaches_matching_profile() {
+        let ws = tempdir().expect("ws");
+        let cache = tempdir().expect("cache");
+        let spec = crate::python_env::case_spec("py312", &[]);
+        write_fake_profile(cache.path(), &spec);
+        block_on(restore_verified_profile(
+            cache.path(),
+            &spec,
+            ws.path(),
+            &[],
+            true,
+        ))
+        .expect("verified profile attaches");
+        assert!(ws.path().join("venv/bin/pytest").exists());
+    }
+
+    #[test]
+    fn verified_resolver_rejects_legacy_python_venv_layout() {
+        let ws = tempdir().expect("ws");
+        let cache = tempdir().expect("cache");
+        // Legacy layout the old code accepted: python/venv/bin/pytest, no manifest.
+        write_fake_cached_python_venv(cache.path(), &[]);
+        let spec = crate::python_env::case_spec("py312", &[]);
+        let err = block_on(restore_verified_profile(
+            cache.path(),
+            &spec,
+            ws.path(),
+            &[],
+            true,
+        ))
+        .expect_err("legacy layout must be rejected");
+        assert!(err.contains("REPLAY_ENV_MISMATCH"));
+        assert!(
+            err.contains("provision-python-environments"),
+            "not actionable: {err}"
+        );
+        assert!(!ws.path().join("venv").exists());
+    }
+
+    #[test]
+    fn bug_case_restore_maps_pytest_asyncio_import_name() {
+        let ws = tempdir().expect("ws");
+        let cache = tempdir().expect("cache");
+        // The cached venv CAN import pytest_asyncio (module name).
+        let cached = write_fake_cached_python_venv(cache.path(), &["pytest_asyncio"]);
+        // The case declares the DISTRIBUTION name.
+        let res = block_on(restore_python_venv_from_path(
+            &cached,
+            ws.path(),
+            &[String::from("pytest-asyncio")],
+            true,
+        ));
+        assert!(
+            res.is_ok(),
+            "distribution 'pytest-asyncio' must be checked as module 'pytest_asyncio': {res:?}"
+        );
     }
 }

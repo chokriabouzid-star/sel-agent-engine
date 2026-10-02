@@ -190,7 +190,29 @@ pub async fn run_bench_sel(
         }
 
         // تهيئة البيئة
-        prepare_env(&ws, case).await;
+        if let Err(msg) = prepare_env(&ws, case, replay).await {
+            let elapsed = start.elapsed().as_secs_f64();
+            println!(
+                " → ❌ ({:.1}s) env: {}",
+                elapsed,
+                safe_truncate(&msg, 60).dimmed()
+            );
+            results.push(SelBenchResult {
+                id: case.id.to_string(),
+                language: case.language.to_string(),
+                category: case.category.to_string(),
+                title: case.title.to_string(),
+                passed: false,
+                repairs: 0,
+                time_secs: elapsed,
+                protocol_auto_injections: 0,
+                patch_fallbacks: 0,
+                replan_count: 0,
+                loop_detections: 0,
+            });
+            let _ = std::fs::remove_dir_all(&ws);
+            continue;
+        }
 
         // trajectory directory
         let traj_dir = std::env::current_dir()
@@ -282,17 +304,40 @@ fn write_files(ws: &Path, case: &SelBenchCase) -> Result<()> {
     Ok(())
 }
 
-async fn prepare_env(ws: &Path, case: &SelBenchCase) {
+async fn prepare_env(
+    ws: &Path,
+    case: &SelBenchCase,
+    replay: bool,
+) -> std::result::Result<(), String> {
     match case.language {
-        "python" => prepare_python(ws, case).await,
-        "go" => prepare_go(ws).await,
-        "rust" => prepare_rust(ws),
-        "typescript" => prepare_typescript(ws).await,
-        _ => {}
+        "python" => prepare_python(ws, case, replay).await,
+        "go" => {
+            prepare_go(ws).await;
+            Ok(())
+        }
+        "rust" => {
+            prepare_rust(ws);
+            Ok(())
+        }
+        "typescript" => {
+            prepare_typescript(ws).await;
+            Ok(())
+        }
+        _ => Ok(()),
     }
 }
 
-async fn prepare_python(ws: &Path, case: &SelBenchCase) {
+async fn prepare_python(
+    ws: &Path,
+    case: &SelBenchCase,
+    replay: bool,
+) -> std::result::Result<(), String> {
+    if python_prepare_plan(replay) == PythonPrepareAction::RestoreFromCache {
+        let extra: Vec<String> = case.extra_deps.iter().map(|d| d.to_string()).collect();
+        let restored =
+            crate::scaffold_engine::restore_python_case_venv_from_cache(ws, &extra, true).await;
+        return replay_restore_outcome(restored);
+    }
     let venv = ws.join("venv");
     if !venv.exists() {
         let _ = tokio::process::Command::new("python3")
@@ -315,6 +360,7 @@ async fn prepare_python(ws: &Path, case: &SelBenchCase) {
             .output()
             .await;
     }
+    Ok(())
 }
 
 async fn prepare_go(ws: &Path) {
@@ -1858,7 +1904,29 @@ pub async fn run_bench_sel_v11(
             continue;
         }
 
-        prepare_env(&ws, case).await;
+        if let Err(msg) = prepare_env(&ws, case, replay).await {
+            let elapsed = start.elapsed().as_secs_f64();
+            println!(
+                " → ❌ ({:.1}s) env: {}",
+                elapsed,
+                safe_truncate(&msg, 60).dimmed()
+            );
+            results.push(SelBenchResult {
+                id: case.id.to_string(),
+                language: case.language.to_string(),
+                category: case.category.to_string(),
+                title: case.title.to_string(),
+                passed: false,
+                repairs: 0,
+                time_secs: elapsed,
+                protocol_auto_injections: 0,
+                patch_fallbacks: 0,
+                replan_count: 0,
+                loop_detections: 0,
+            });
+            let _ = std::fs::remove_dir_all(&ws);
+            continue;
+        }
 
         let traj_dir = std::env::current_dir()
             .unwrap_or_default()
@@ -2038,4 +2106,58 @@ fn print_results_v11(results: &[SelBenchResult], core_total: usize, sys_total: u
         "{}",
         "╚══════════════════════════════════════════════════╝".cyan()
     );
+}
+
+/// How bench_sel may prepare a Python workspace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PythonPrepareAction {
+    LiveInstall,
+    RestoreFromCache,
+}
+
+/// Replay must never create an environment or install packages:
+/// it restores the provisioned cache (same path as bench_swe) or fails closed.
+pub fn python_prepare_plan(replay: bool) -> PythonPrepareAction {
+    if replay {
+        PythonPrepareAction::RestoreFromCache
+    } else {
+        PythonPrepareAction::LiveInstall
+    }
+}
+
+/// A failed replay restore fails the case: the agent never starts on an
+/// unverified environment, so no broader profile can mask the gap.
+fn replay_restore_outcome(
+    restore: std::result::Result<Vec<String>, String>,
+) -> std::result::Result<(), String> {
+    restore.map(|_| ())
+}
+
+#[cfg(test)]
+mod python_prepare_replay_tests {
+    use super::{python_prepare_plan as plan, replay_restore_outcome, PythonPrepareAction as A};
+
+    #[test]
+    fn bug_replay_must_restore_from_cache_not_install() {
+        assert_eq!(plan(true), A::RestoreFromCache);
+    }
+
+    #[test]
+    fn guard_live_still_installs() {
+        assert_eq!(plan(false), A::LiveInstall);
+    }
+
+    #[test]
+    fn bug_replay_restore_failure_fails_the_case() {
+        let err = replay_restore_outcome(Err(
+            "REPLAY_ENV_MISMATCH: python package 'x' missing".to_string()
+        ))
+        .expect_err("a failed replay restore must fail the case, not be swallowed");
+        assert!(err.contains("REPLAY_ENV_MISMATCH"));
+    }
+
+    #[test]
+    fn guard_successful_restore_is_ok() {
+        assert!(replay_restore_outcome(Ok(vec!["venv".to_string()])).is_ok());
+    }
 }

@@ -20,3 +20,20 @@ When the agent runs in `--replay` mode:
 ## Environment Isolation
 
 When the Agent detects `self.llm.mode() == "replay"`, it also sets `self.executor.replay_mode = true`. This puts the execution environment into a strict offline mode. For example, any commands that attempt to reach out to the internet (like downloading un-cached packages via `npm install` or `pip install`) are either skipped or simulated, guaranteeing complete environment purity.
+
+
+## Python Environment Lifecycle & Replay Roadmap
+
+### Current Implementation (v9.3.x / A-min)
+- **Producer/Consumer Separation**: Replay never installs dependencies over the network. Environments are provisioned explicitly via `sel-agent provision-python-environments`.
+- **Content-Addressed Profiles**: Environments live under `~/.cache/sel-agent/scaffold/environments/v1/python/<platform>-<tag>-<fp>/`.
+- **Atomic Verification**: Profiles are considered valid only if a matching `manifest.json` (containing `pip freeze` metadata and spec fingerprint) is present.
+- **Fail-Closed Policy**: If an environment profile is missing or invalid during replay, the runner and benchmarks fail closed with `REPLAY_ENV_MISMATCH`.
+
+### Future Roadmap: EnvProvider Architecture (v9.4+)
+The current implementation serves as the concrete foundation for the future multi-language `EnvProvider` architecture:
+1. **Hermetic Wheelhouses**: Transition from pre-built read-only venvs to locally cached wheelhouses with strict hash verification (`--require-hashes`).
+2. **Per-Workspace Materialization**: Each workspace will build its own lightweight venv from local wheels rather than symlinking to a shared profile, eliminating any risk of cross-workspace mutation.
+3. **Trajectory Provenance**: Embedding the exact environment hash and dependency manifest directly into recorded trajectory metadata.
+4. **Multi-Language Providers**: Extending the same contract to Node (`node_modules`), Rust toolchains, and Go modules.
+5. **Cache Lifecycle & GC**: Automatic cleanup and garbage collection of stale environment profiles based on LRU access.

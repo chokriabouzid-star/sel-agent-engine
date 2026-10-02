@@ -343,7 +343,7 @@ fn prepare_go(ws: &Path, case: &SweCase) -> Result<()> {
 async fn prepare_python(ws: &Path, case: &SweCase, replay: bool) -> Result<()> {
     if replay {
         let extra_deps: Vec<String> = case.extra_deps.iter().map(|dep| dep.to_string()).collect();
-        crate::scaffold_engine::restore_python_venv_from_cache(ws, &extra_deps, true)
+        crate::scaffold_engine::restore_python_case_venv_from_cache(ws, &extra_deps, true)
             .await
             .map(|_| ())
             .map_err(|msg| anyhow!(msg))?;

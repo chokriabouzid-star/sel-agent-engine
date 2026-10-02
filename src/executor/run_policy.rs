@@ -276,8 +276,14 @@ fn replay_python_venv_bootstrap_policy(
         )));
     }
 
-    // كاش miss — اترك الأمر يُنفَّذ (محلي، حتمي، لا شبكة)
-    None
+    // A replay cache miss must fail closed. Do not create a new venv here:
+    // creation alone changes the environment and permits a later install path
+    // to diverge from the recorded execution.
+    Some(ShellPolicyDecision::Return(ExecResult::fail(
+        "REPLAY_ENV_MISMATCH: Python replay environment is unavailable; \
+         run `sel-agent provision-python-environments` before replay"
+            .to_string(),
+    )))
 }
 
 fn pip_install_missing_package_policy(command: &str) -> Option<ShellPolicyDecision> {
@@ -696,17 +702,25 @@ mod tests {
     }
 
     #[test]
-    fn replay_allows_venv_bootstrap_when_venv_missing() {
+    fn replay_rejects_venv_bootstrap_when_venv_missing() {
         let d = tempdir().expect("test setup/use should succeed");
 
         let decision = preflight_shell("python3 -m venv venv", d.path(), true)
             .expect("test setup/use should succeed");
 
         match decision {
-            ShellPolicyDecision::Execute { prog, .. } => {
-                assert_eq!(prog, "python3");
+            ShellPolicyDecision::Return(result) => {
+                assert!(!result.success);
+                assert!(
+                    result.stdout.contains("REPLAY_ENV_MISMATCH")
+                        || result.stderr.contains("REPLAY_ENV_MISMATCH")
+                );
+                assert!(
+                    result.stdout.contains("provision-python-environments")
+                        || result.stderr.contains("provision-python-environments")
+                );
             }
-            _ => panic!("expected execute decision when venv is absent"),
+            _ => panic!("expected replay mismatch result"),
         }
     }
 

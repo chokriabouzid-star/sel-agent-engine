@@ -49,6 +49,9 @@ jobs:
       - name: cargo build --release
         run: cargo build --release
 
+      - name: provision python replay environments
+        run: ./target/release/sel-agent provision-python-environments
+
       - name: bench replay
         run: ./target/release/sel-agent bench --suite all --replay
 

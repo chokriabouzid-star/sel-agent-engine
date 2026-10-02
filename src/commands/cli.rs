@@ -230,4 +230,7 @@ pub enum Commands {
     /// Clear the provider state cache (reset all exhausted/expired flags)
     #[command(name = "reset-providers")]
     ResetProviders,
+    /// Provision verified Python replay environment profiles (uses network)
+    #[command(name = "provision-python-environments")]
+    ProvisionPythonEnvironments,
 }

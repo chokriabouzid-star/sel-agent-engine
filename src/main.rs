@@ -26,6 +26,7 @@ mod memory;
 mod pattern_library;
 mod protocol;
 pub mod provider_state;
+mod python_env;
 mod repair_strategy;
 mod report;
 mod report_writer;
@@ -213,6 +214,35 @@ async fn main() -> Result<()> {
             limit,
         } => {
             commands::run_observatory(refresh_secs, limit)?;
+        }
+        Commands::ProvisionPythonEnvironments => {
+            let cache_root = crate::scaffold_engine::get_cache_dir();
+            let python_bin = std::path::PathBuf::from("python3");
+            let mut extras: Vec<Vec<&str>> = Vec::new();
+            for case in crate::bench_swe::all_cases() {
+                if case.lang == "python" {
+                    extras.push(case.extra_deps.to_vec());
+                }
+            }
+            for case in crate::bench_sel::all_cases()
+                .into_iter()
+                .chain(crate::bench_sel::all_cases_v11())
+            {
+                if case.language == "python" {
+                    extras.push(case.extra_deps.to_vec());
+                }
+            }
+            println!("\n Provisioning Python replay environments");
+            println!("   cache root: {}", cache_root.display());
+            match crate::python_env::provision_all(&cache_root, &python_bin, &extras).await {
+                Ok((built, present)) => {
+                    println!("\n Done: {built} built, {present} already present.\n");
+                }
+                Err(e) => {
+                    eprintln!("\n Provisioning failed: {e}\n");
+                    std::process::exit(1);
+                }
+            }
         }
         Commands::ResetProviders => {
             // v9.3.4 FIX: Use the canonical path from ProviderStateCache

@@ -369,7 +369,10 @@ impl Agent {
         } else {
             eprintln!("[TRACE] H-05: workspace already has git history — skipping scaffold_baseline commit");
         }
-        self.initial_snapshot = Some(crate::snapshot::Snapshot::take(&ws));
+        self.initial_snapshot = Some(crate::snapshot::Snapshot::take_with_mode(
+            &ws,
+            self.executor.replay_mode,
+        ));
 
         loop {
             match self.state.clone() {
@@ -399,7 +402,10 @@ impl Agent {
                     self.executor
                         .set_allow_goal_test_writes(allow_goal_test_writes);
 
-                    let mut snapshot = crate::snapshot::Snapshot::take(&self.executor.workspace);
+                    let mut snapshot = crate::snapshot::Snapshot::take_with_mode(
+                        &self.executor.workspace,
+                        self.executor.replay_mode,
+                    );
                     let execute_result = crate::state_handlers::do_executing(
                         &mut self.ctx,
                         &self.executor,

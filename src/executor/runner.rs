@@ -373,26 +373,9 @@ test result: ok. 0 passed; 0 failed; 0 ignored
                 || prog == "venv/bin/pytest"
                 || prog.ends_with("/venv/bin/pytest");
 
-            // Replay must honor the recorded environment.
-            // If a recorded trajectory expects workspace venv, try restoring it
-            // from scaffold cache instead of silently degrading to system pytest.
-            if self.replay_mode
-                && wants_workspace_venv
-                && !self.workspace.join("venv/bin/pytest").exists()
-            {
-                let cached_venv = dirs::cache_dir()
-                    .unwrap_or_else(|| std::path::PathBuf::from("~/.cache"))
-                    .join("sel-agent/scaffold/python/venv");
-                if cached_venv.exists() && cached_venv.join("bin/pytest").exists() {
-                    let target_venv = self.workspace.join("venv");
-                    if !target_venv.exists() {
-                        match std::os::unix::fs::symlink(&cached_venv, &target_venv) {
-                            Ok(_) => println!("   ⚡ Replay Env: restored cached Python venv"),
-                            Err(e) => eprintln!("   [TRACE] replay venv symlink failed: {}", e),
-                        }
-                    }
-                }
-            }
+            // Replay never provisions here: the environment is attached before
+            // execution (scaffold / bench preparation). A missing venv falls
+            // through to the fail-closed REPLAY_ENV_MISMATCH branch below.
 
             if !self.replay_mode && !self.workspace.join("venv").exists() {
                 println!("   ⚡ AutoFix: creating venv and installing pytest...");

@@ -21,11 +21,18 @@ pub struct Snapshot {
     workspace: PathBuf,
     active: bool,
     stash_state: StashState,
+    replay_mode: bool,
+    /// Symlink target of `workspace/venv` captured at snapshot time, if it was
+    /// a symlink. Used to relink the same environment after a rollback removes it.
+    venv_link_target: Option<PathBuf>,
 }
 
 impl Snapshot {
     fn resolve_stash_ref(workspace: &Path, tag: &str) -> Option<String> {
         let out = Command::new("git")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
             .env("LC_ALL", "C")
             .env("LANG", "C")
             .args(["stash", "list"])
@@ -41,11 +48,51 @@ impl Snapshot {
     }
 
     fn restore_python_infra(&self, had_venv: bool) {
-        if had_venv && !self.workspace.join("venv").exists() {
-            let cache_venv = crate::scaffold_engine::get_cache_dir().join("python/venv");
-            if cache_venv.exists() {
-                let _ = std::os::unix::fs::symlink(&cache_venv, self.workspace.join("venv"));
+        // Replay restores exactly the environment that was attached when the
+        // snapshot was taken. Live keeps its historical bootstrap behaviour.
+        let target = self.venv_link_target.clone().or_else(|| {
+            if self.replay_mode {
+                None
             } else {
+                Some(crate::scaffold_engine::get_cache_dir().join("python/venv"))
+            }
+        });
+        if let Some(target) = target {
+            if let Err(message) = self.restore_python_infra_from_cache(had_venv, &target) {
+                eprintln!("[WARN] {message}");
+            }
+        }
+    }
+
+    fn restore_python_infra_from_cache(
+        &self,
+        had_venv: bool,
+        cache_venv: &Path,
+    ) -> Result<(), String> {
+        let workspace_venv = self.workspace.join("venv");
+        let pytest_bin = workspace_venv.join("bin/pytest");
+        let pip_bin = workspace_venv.join("bin/pip");
+        let cache_available = cache_venv.exists() && cache_venv.join("bin/pytest").exists();
+
+        let action = python_infra_restore_plan(
+            had_venv,
+            workspace_venv.exists(),
+            pytest_bin.exists(),
+            pip_bin.exists(),
+            cache_available,
+            self.replay_mode,
+        );
+
+        match action {
+            PythonInfraAction::Nothing => Ok(()),
+            PythonInfraAction::RelinkCache => {
+                std::os::unix::fs::symlink(cache_venv, &workspace_venv).map_err(|error| {
+                    format!(
+                        "REPLAY_ENV_MISMATCH: failed to restore cached Python venv: {error}"
+                    )
+                })
+            }
+            PythonInfraAction::CreateVenvAndInstallPytest => {
                 let _ = Command::new("python3")
                     .args(["-m", "venv", "venv"])
                     .current_dir(&self.workspace)
@@ -55,27 +102,36 @@ impl Snapshot {
                     .args(["install", "pytest", "-q"])
                     .current_dir(&self.workspace)
                     .output();
+                Ok(())
             }
-        }
-
-        let pytest_bin = self.workspace.join("venv/bin/pytest");
-        let pip_bin = self.workspace.join("venv/bin/pip");
-        if self.workspace.join("venv").exists() && !pytest_bin.exists() && pip_bin.exists() {
-            let _ = Command::new(&pip_bin)
-                .args(["install", "pytest", "-q"])
-                .current_dir(&self.workspace)
-                .output();
+            PythonInfraAction::InstallPytest => {
+                let _ = Command::new(&pip_bin)
+                    .args(["install", "pytest", "-q"])
+                    .current_dir(&self.workspace)
+                    .output();
+                Ok(())
+            }
+            PythonInfraAction::FailReplay => Err(
+                "REPLAY_ENV_MISMATCH: snapshot rollback cannot repair Python                  infrastructure during replay; provision the Python replay                  environment before running the replay gate"
+                    .to_string(),
+            ),
         }
     }
 
     fn git_reset_clean(workspace: &Path) {
         let _ = Command::new("git")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
             .env("LC_ALL", "C")
             .env("LANG", "C")
             .args(["reset", "--hard"])
             .current_dir(workspace)
             .output();
         let _ = Command::new("git")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
             .env("LC_ALL", "C")
             .env("LANG", "C")
             .args(["clean", "-fd"])
@@ -86,10 +142,25 @@ impl Snapshot {
     /// Take a snapshot of the current workspace while KEEPING the current
     /// worktree intact. We use git stash as a backup, then re-apply it
     /// immediately so repair code can still see the created files.
+    /// Live-mode convenience used by the snapshot tests; production code
+    /// always states the mode explicitly via `take_with_mode`.
+    #[cfg(test)]
     pub fn take(workspace: &Path) -> Self {
+        Self::take_with_mode(workspace, false)
+    }
+
+    pub fn take_with_mode(workspace: &Path, replay_mode: bool) -> Self {
+        // Capture the venv symlink target before anything can remove it.
+        // In replay the scaffold attached a profile link; in live the venv is
+        // usually a real directory and this is None.
+        let venv_link_target = std::fs::read_link(workspace.join("venv")).ok();
+
         // Ensure it's a git repo
         if !workspace.join(".git").exists() {
             let _ = Command::new("git")
+                .env_remove("GIT_INDEX_FILE")
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_WORK_TREE")
                 .env("LC_ALL", "C")
                 .env("LANG", "C")
                 .arg("init")
@@ -111,6 +182,9 @@ impl Snapshot {
 
         // Ensure there is at least one commit so stash/reset work correctly
         let has_head = Command::new("git")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
             .env("LC_ALL", "C")
             .env("LANG", "C")
             .args(["rev-parse", "HEAD"])
@@ -121,24 +195,36 @@ impl Snapshot {
 
         if !has_head {
             let _ = Command::new("git")
+                .env_remove("GIT_INDEX_FILE")
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_WORK_TREE")
                 .env("LC_ALL", "C")
                 .env("LANG", "C")
                 .args(["config", "user.name", "SEL Agent"])
                 .current_dir(workspace)
                 .output();
             let _ = Command::new("git")
+                .env_remove("GIT_INDEX_FILE")
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_WORK_TREE")
                 .env("LC_ALL", "C")
                 .env("LANG", "C")
                 .args(["config", "user.email", "sel@local.test"])
                 .current_dir(workspace)
                 .output();
             let _ = Command::new("git")
+                .env_remove("GIT_INDEX_FILE")
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_WORK_TREE")
                 .env("LC_ALL", "C")
                 .env("LANG", "C")
                 .args(["add", "."])
                 .current_dir(workspace)
                 .output();
             let _ = Command::new("git")
+                .env_remove("GIT_INDEX_FILE")
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_WORK_TREE")
                 .env("LC_ALL", "C")
                 .env("LANG", "C")
                 .args(["commit", "--allow-empty", "-m", "Initial commit baseline"])
@@ -164,10 +250,15 @@ impl Snapshot {
                 workspace: workspace.to_path_buf(),
                 active: true,
                 stash_state: StashState::Failed("index.lock present".to_string()),
+                replay_mode,
+                venv_link_target,
             };
         }
 
         let output = Command::new("git")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
             .env("LC_ALL", "C")
             .env("LANG", "C")
             .args(["stash", "push", "--include-untracked", "-m"])
@@ -193,6 +284,9 @@ impl Snapshot {
                     if let Some(stash_ref) = Self::resolve_stash_ref(workspace, &tag) {
                         // Re-apply so worktree stays intact for repair code
                         let apply_out = Command::new("git")
+                            .env_remove("GIT_INDEX_FILE")
+                            .env_remove("GIT_DIR")
+                            .env_remove("GIT_WORK_TREE")
                             .env("LC_ALL", "C")
                             .env("LANG", "C")
                             .args(["stash", "apply"])
@@ -249,6 +343,8 @@ impl Snapshot {
             workspace: workspace.to_path_buf(),
             active: true,
             stash_state,
+            replay_mode,
+            venv_link_target,
         }
     }
 
@@ -271,6 +367,9 @@ impl Snapshot {
                 if let Some(stash_ref) = Self::resolve_stash_ref(&self.workspace, tag) {
                     Self::git_reset_clean(&self.workspace);
                     let _ = Command::new("git")
+                        .env_remove("GIT_INDEX_FILE")
+                        .env_remove("GIT_DIR")
+                        .env_remove("GIT_WORK_TREE")
                         .env("LC_ALL", "C")
                         .env("LANG", "C")
                         .args(["stash", "apply"])
@@ -278,6 +377,9 @@ impl Snapshot {
                         .current_dir(&self.workspace)
                         .output();
                     let _ = Command::new("git")
+                        .env_remove("GIT_INDEX_FILE")
+                        .env_remove("GIT_DIR")
+                        .env_remove("GIT_WORK_TREE")
                         .env("LC_ALL", "C")
                         .env("LANG", "C")
                         .args(["stash", "drop"])
@@ -315,6 +417,9 @@ impl Snapshot {
         if let StashState::Stashed { tag } = &self.stash_state {
             if let Some(stash_ref) = Self::resolve_stash_ref(&self.workspace, tag) {
                 let _ = Command::new("git")
+                    .env_remove("GIT_INDEX_FILE")
+                    .env_remove("GIT_DIR")
+                    .env_remove("GIT_WORK_TREE")
                     .env("LC_ALL", "C")
                     .env("LANG", "C")
                     .args(["stash", "drop"])
@@ -345,6 +450,9 @@ impl Drop for Snapshot {
                 if let Some(stash_ref) = Self::resolve_stash_ref(&self.workspace, tag) {
                     Self::git_reset_clean(&self.workspace);
                     let _ = Command::new("git")
+                        .env_remove("GIT_INDEX_FILE")
+                        .env_remove("GIT_DIR")
+                        .env_remove("GIT_WORK_TREE")
                         .env("LC_ALL", "C")
                         .env("LANG", "C")
                         .args(["stash", "apply"])
@@ -352,6 +460,9 @@ impl Drop for Snapshot {
                         .current_dir(&self.workspace)
                         .output();
                     let _ = Command::new("git")
+                        .env_remove("GIT_INDEX_FILE")
+                        .env_remove("GIT_DIR")
+                        .env_remove("GIT_WORK_TREE")
                         .env("LC_ALL", "C")
                         .env("LANG", "C")
                         .args(["stash", "drop"])
@@ -387,6 +498,9 @@ mod snapshot_tests {
     fn make_git_repo(dir: &std::path::Path) {
         let run = |args: &[&str]| {
             Command::new("git")
+                .env_remove("GIT_INDEX_FILE")
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_WORK_TREE")
                 .env("LC_ALL", "C")
                 .env("LANG", "C")
                 .args(args)
@@ -520,5 +634,182 @@ mod snapshot_tests {
             snap.active,
             "C-01 FAIL: snapshot should be active after take()"
         );
+    }
+}
+
+/// Decision for repairing Python infrastructure after a snapshot rollback.
+/// Pure: performs no I/O, so the replay contract can be tested hermetically.
+#[allow(dead_code)] // wired into Snapshot::rollback by the fix commit
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PythonInfraAction {
+    Nothing,
+    RelinkCache,
+    CreateVenvAndInstallPytest,
+    InstallPytest,
+    FailReplay,
+}
+
+/// Decide how rollback may repair Python infrastructure.
+///
+/// Replay is fail-closed: it may relink an already provisioned cache, but it
+/// must never create an environment or install a package.
+#[allow(clippy::fn_params_excessive_bools)]
+pub fn python_infra_restore_plan(
+    had_venv: bool,
+    venv_exists: bool,
+    pytest_exists: bool,
+    pip_exists: bool,
+    cache_available: bool,
+    replay: bool,
+) -> PythonInfraAction {
+    if replay {
+        if had_venv && !venv_exists {
+            return if cache_available {
+                PythonInfraAction::RelinkCache
+            } else {
+                PythonInfraAction::FailReplay
+            };
+        }
+
+        if venv_exists && !pytest_exists {
+            return PythonInfraAction::FailReplay;
+        }
+
+        return PythonInfraAction::Nothing;
+    }
+
+    if had_venv && !venv_exists {
+        if cache_available {
+            PythonInfraAction::RelinkCache
+        } else {
+            PythonInfraAction::CreateVenvAndInstallPytest
+        }
+    } else if venv_exists && !pytest_exists && pip_exists {
+        PythonInfraAction::InstallPytest
+    } else {
+        PythonInfraAction::Nothing
+    }
+}
+
+#[cfg(test)]
+mod python_infra_replay_tests {
+    use super::{python_infra_restore_plan as plan, PythonInfraAction as A, Snapshot, StashState};
+    use std::path::Path;
+    use tempfile::tempdir;
+
+    fn replay_snapshot(workspace: &Path) -> Snapshot {
+        Snapshot {
+            workspace: workspace.to_path_buf(),
+            active: false,
+            stash_state: StashState::NoLocalChanges,
+            replay_mode: true,
+            venv_link_target: None,
+        }
+    }
+
+    // args: had_venv, venv_exists, pytest_exists, pip_exists, cache_available, replay
+
+    #[test]
+    fn bug_replay_rollback_without_cache_must_not_install() {
+        assert_eq!(plan(true, false, false, false, false, true), A::FailReplay);
+    }
+
+    #[test]
+    fn bug_replay_missing_pytest_must_not_install() {
+        assert_eq!(plan(true, true, false, true, true, true), A::FailReplay);
+    }
+
+    #[test]
+    fn guard_replay_with_cache_relinks() {
+        assert_eq!(plan(true, false, false, false, true, true), A::RelinkCache);
+    }
+
+    #[test]
+    fn guard_live_without_cache_still_bootstraps() {
+        assert_eq!(
+            plan(true, false, false, false, false, false),
+            A::CreateVenvAndInstallPytest
+        );
+    }
+
+    #[test]
+    fn guard_replay_intact_env_does_nothing() {
+        assert_eq!(plan(true, true, true, true, true, true), A::Nothing);
+    }
+
+    #[test]
+    fn replay_restore_does_not_bootstrap_when_cache_is_missing() {
+        let workspace = tempdir().expect("workspace");
+        let cache_root = tempdir().expect("cache root");
+        let missing_cache = cache_root.path().join("missing-venv");
+        let snapshot = replay_snapshot(workspace.path());
+
+        let error = snapshot
+            .restore_python_infra_from_cache(true, &missing_cache)
+            .expect_err("replay must fail closed when its cache is missing");
+
+        assert!(error.contains("REPLAY_ENV_MISMATCH"));
+        assert!(!workspace.path().join("venv").exists());
+    }
+
+    #[test]
+    fn replay_restore_relinks_a_complete_cached_environment() {
+        let workspace = tempdir().expect("workspace");
+        let cache_root = tempdir().expect("cache root");
+        let cached_venv = cache_root.path().join("venv");
+        std::fs::create_dir_all(cached_venv.join("bin")).expect("cache setup");
+        std::fs::write(cached_venv.join("bin/pytest"), b"fixture").expect("cache setup");
+
+        let snapshot = replay_snapshot(workspace.path());
+        snapshot
+            .restore_python_infra_from_cache(true, &cached_venv)
+            .expect("replay should relink a complete cache");
+
+        let metadata = std::fs::symlink_metadata(workspace.path().join("venv")).expect("venv link");
+        assert!(metadata.file_type().is_symlink());
+    }
+
+    #[test]
+    fn replay_restore_does_not_install_when_pytest_is_missing() {
+        let workspace = tempdir().expect("workspace");
+        let cache_root = tempdir().expect("cache root");
+        let missing_cache = cache_root.path().join("missing-venv");
+        std::fs::create_dir_all(workspace.path().join("venv/bin")).expect("workspace setup");
+        std::fs::write(workspace.path().join("venv/bin/pip"), b"fixture").expect("workspace setup");
+
+        let snapshot = replay_snapshot(workspace.path());
+        let error = snapshot
+            .restore_python_infra_from_cache(true, &missing_cache)
+            .expect_err("replay must not install missing pytest");
+
+        assert!(error.contains("REPLAY_ENV_MISMATCH"));
+        assert!(!workspace.path().join("venv/bin/pytest").exists());
+    }
+
+    #[test]
+    fn replay_relinks_the_previously_attached_profile_target() {
+        let workspace = tempdir().expect("workspace");
+        let profile = tempdir().expect("profile");
+        let cached_venv = profile.path().join("venv");
+        std::fs::create_dir_all(cached_venv.join("bin")).expect("cache");
+        std::fs::write(cached_venv.join("bin/pytest"), b"fixture").expect("pytest");
+
+        std::os::unix::fs::symlink(&cached_venv, workspace.path().join("venv")).expect("link");
+
+        let snapshot = Snapshot {
+            workspace: workspace.path().to_path_buf(),
+            active: false,
+            stash_state: StashState::NoLocalChanges,
+            replay_mode: true,
+            venv_link_target: std::fs::read_link(workspace.path().join("venv")).ok(),
+        };
+
+        // Simulate `git clean -fd` removing the symlink.
+        std::fs::remove_file(workspace.path().join("venv")).expect("remove link");
+
+        snapshot.restore_python_infra(true);
+
+        let restored = std::fs::read_link(workspace.path().join("venv")).expect("venv relinked");
+        assert_eq!(restored, cached_venv);
     }
 }

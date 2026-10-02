@@ -177,3 +177,6 @@ workspace whose only manifest is `mylib/Cargo.toml`.
   need an explicit policy (roadmap §6c).
 - `resolve_test_command` still drops most caller flags for known project types and the
   cargo branch does not build `--manifest-path` from the nested location — next Phase 3 step.
+
+- [x] Python Replay Environment Provisioning & Fail-Closed Policy (v9.3.x)
+  - [ ] Roadmap: Multi-language EnvProvider, wheelhouses, and per-workspace materialization (v9.4+)
