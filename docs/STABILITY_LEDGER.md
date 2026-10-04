@@ -1,6 +1,6 @@
 # سجل استقرار المشروع — Stability Ledger
 
-**آخر تحديث:** 2026-08-10 (إزالة override الصامت لـ max_repairs وتثبيت --max-repairs كعقد صارم)
+**آخر تحديث:** 2026-10-04 (W2: mutation_check يحترم crates Rust المتداخلة عبر --manifest-path)
 
 ---
 
@@ -19,6 +19,23 @@
 
 ---
 ## القضايا المُغلَقة
+
+### ✅ 2026-10-04 — W2: `mutation_check` كان يصنّف كل طفرات crates Rust المتداخلة كـ `Uncompilable`
+
+**السبب الجذري:** ذراع `"rs"` في `SafeExecutor::mutation_check` (`src/executor/mutation.rs`) كان يشغّل `cargo test --quiet` من `self.workspace` بلا `--manifest-path`. عند crate متداخلة (`add_lib/Cargo.toml`) بلا manifest في الجذر، يفشل cargo بـ `could not find Cargo.toml`، فيلتقطه `src/diagnostic.rs` ويصنّفه `stderr_is_compile_failure` كفشل ترجمة. النتيجة: `Uncompilable` لكل طفرة دون تنفيذ أي اختبار.
+
+**الإصلاح:** إضافة `find_nearest_cargo_manifest()`: بحث صعودي من الملف المصدر بعد `canonicalize`، محدود بجذر الـ workspace شاملًا. يُمرَّر المسار عبر `--manifest-path`، وعند الغياب يُرجَع `MutationResult::Skipped("no Cargo manifest found")`. لم تُلمس المهلة ولا مسار الاستعادة (W4).
+
+**الدليل قبل الإصلاح:** `tests/rust_nested_mutation.rs` على `f0ea08e` أعطى 3 failed، و`left: Uncompilable(...)` في الحالات الثلاث، في 0.35s.
+
+**الدليل بعد الإصلاح:**
+- 3 passed في 2.67s، واختبار `Weak` يثبت تنفيذ الاختبارات فعلًا داخل الـ crate المتداخلة.
+- `cargo fmt --check` = 0، و`cargo clippy --locked --all-targets --all-features -- -D warnings` = 0.
+- `cargo test --locked` = 722 passed / 0 failed (خط الأساس 719).
+- `regression_gate.sh core` عبر hook pre-commit: 36/36 + 30/30 + 18/18.
+- كوميت `d609e7a`.
+
+**حدود الضمان:** symlink يخرج من الـ workspace، وملف خارجه، وworkspace جذري مع member متداخل: كلها غير مختبرة بعد.
 
 ### ✅ 2026-08-10 — إزالة الرفع الصامت لـ `max_repairs` عبر heuristic نصي في `do_repairing`
 
@@ -125,6 +142,7 @@
 
 ## التغييرات الأخيرة
 
+**2026-10-04:** W2 — `mutation_check` يمرّر `--manifest-path` لأقرب `Cargo.toml` صعودًا من الملف المصدر، و`Skipped("no Cargo manifest found")` عند الغياب. RED 3/3 ثم GREEN 3/3، و722/0، والبوابة 84/84 عبر الـ hook. كوميت `d609e7a`.
 **2026-08-11:** حسم نهائي لالتباس وجود/غياب حرف `N` في `src/repair_strategy.rs:233`. الدليل الحاسم هذه المرة لا يعتمد على النسخ اليدوي فقط: `sed -n '233p' src/repair_strategy.rs | cat -A` أظهر `CONSTITUTION_VIOLATION:no-modify-tests` كاملة، وchecksum السطر هو `11fbf22d4789df456b2eb57be2389f0a77a8d435afae8d38a5edb552534c56eb`. أُضيف أيضاً اختبار سلوكي في `repair_strategy.rs` يبني خطأ `no-modify-tests` الحقيقي من `constitution.rs` عبر `check_write(...).unwrap_err().to_string()` ثم يمرّره إلى `build_prompt()` ليثبت أن فرع `no-modify-tests` يُفعَّل فعلاً، وبذلك يُغلَق التناقض بين الجلستين السابقة والحالية بدليل حرفي + سلوكي دائم.
 **2026-08-11:** فحص تشخيصي لاشتباه خطأ إملائي (`CONSTITUTION_VIOLATIO` بلا `N`) في `src/repair_strategy.rs`. النتيجة السلبية المؤكدة: لا يوجد الخطأ في المصدر؛ `sed` أظهر `CONSTITUTION_VIOLATION` كاملة في `repair_strategy.rs`، وموضع `pattern_library.rs` كان صحيحاً أيضاً، كما أن `grep -rn "VIOLATIO[^N]" src/ --include="*.rs"` لم يُرجع أي تطابقات. مراجعة لوج حي لاحق لم تُظهر `CONSTITUTION_VIOLATION:no-modify-tests` فعلياً (ظهر فقط مسار `Goal-authorized existing test edits` ورسائل دستور أخرى)، لذا لا يوجد ادعاء تحقق حي لهذا الفرع؛ فقط توثيق أن الاشتباه الأصلي كان إنذاراً كاذباً ناتجاً عن النسخ/الاقتطاع.
 **2026-08-10:** جعل رسائل `CONSTITUTION_VIOLATION` خاصة بكل قاعدة في `src/constitution.rs` بدل نص ثابت عن "test contract" لكل الانتهاكات. الإصلاح: إضافة `Violation::critical_instruction()` مع `match` على `rule_id` ورسائل منفصلة للقواعد السبع. الدليل: في تحقق حي، `no-empty-write` صار يطبع `You attempted to write empty or blank content to a source file...`، و`no-dangerous-command` صار يطبع `You attempted to run a dangerous shell command...` بدل نص الاختبارات، مع مرور `cargo test`, `cargo build --release`, و`regression_gate core`.
