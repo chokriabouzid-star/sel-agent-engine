@@ -62,6 +62,32 @@ pub fn stderr_is_compile_failure(stderr: &str) -> bool {
         || l.contains("ts2552")
 }
 
+fn find_nearest_cargo_manifest(
+    source_path: &std::path::Path,
+    workspace: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    let workspace = std::fs::canonicalize(workspace).ok()?;
+    let source_path = std::fs::canonicalize(source_path).ok()?;
+    let mut directory = source_path.parent()?;
+
+    if !directory.starts_with(&workspace) {
+        return None;
+    }
+
+    loop {
+        let manifest = directory.join("Cargo.toml");
+        if manifest.is_file() {
+            return Some(manifest);
+        }
+
+        if directory == workspace.as_path() {
+            return None;
+        }
+
+        directory = directory.parent()?;
+    }
+}
+
 pub fn apply_all_mutations(code: &str) -> Vec<(String, String, String)> {
     let strategies: &[(&str, &str)] = &[
         //  Operators (existing)
@@ -209,7 +235,19 @@ impl SafeExecutor {
                     "--no-cache".into(),
                 ]
             }
-            "rs" => vec!["cargo".into(), "test".into(), "--quiet".into()],
+            "rs" => {
+                let Some(manifest) = find_nearest_cargo_manifest(&source_path, &self.workspace)
+                else {
+                    return MutationResult::Skipped("no Cargo manifest found".into());
+                };
+                vec![
+                    "cargo".into(),
+                    "test".into(),
+                    "--quiet".into(),
+                    "--manifest-path".into(),
+                    manifest.to_string_lossy().into_owned(),
+                ]
+            }
             _ => return MutationResult::Skipped("Unsupported lang for mutation".into()),
         };
         let mut survived_orig = String::new();
