@@ -261,18 +261,19 @@ impl SafeExecutor {
             }
             // v7.5.3: Safety Buffer  wait for OS file sync/cache invalidation
             std::thread::sleep(std::time::Duration::from_millis(50));
-            let out = tokio::time::timeout(
-                std::time::Duration::from_secs(30),
-                tokio::process::Command::new(&test_cmd[0])
-                    .args(&test_cmd[1..])
-                    .current_dir(&self.workspace)
-                    .env("PYTHONPATH", &self.workspace)
-                    .env("PYTHONDONTWRITEBYTECODE", "1")
-                    .output(),
-            )
-            .await;
+            let mut cmd = tokio::process::Command::new(&test_cmd[0]);
+            cmd.args(&test_cmd[1..])
+                .current_dir(&self.workspace)
+                .env("PYTHONPATH", &self.workspace)
+                .env("PYTHONDONTWRITEBYTECODE", "1");
+
+            // Keep the historical 30s ceiling: mutants run sequentially, so
+            // adopting the uncapped executor timeout would multiply worst-case
+            // time. Smaller executor timeouts are still honoured.
+            let deadline = std::time::Duration::from_secs(self.timeout_secs.min(30));
+            let out = crate::executor::process::output_with_timeout(&mut cmd, deadline).await;
             let _ = std::fs::write(&source_path, &original);
-            if let Ok(Ok(result)) = out {
+            if let Ok(Some(result)) = out {
                 if result.status.success() {
                     if !any_missed {
                         survived_orig = orig_line.clone();
