@@ -51,11 +51,22 @@ stay `Ok(ExecResult::fail)` — P0 behavioral tests still green.
 outlive it. Needs a process group (`setsid` / `process_group(0)` + `killpg`), plus a
 regression that spawns parent→child and asserts both die.
 
-### 🟡 P2 — mutation.rs still uses the unsafe timeout pattern
-`src/executor/mutation.rs:226` still calls `tokio::time::timeout(30s, Command::output())`.
-Each surviving mutant run can leak a process. Migrate to `output_with_timeout` after
-reading the restore/`std::fs::write(&source_path, &original)` path — it must stay correct
-on timeout.
+### ✅ P2 — mutation.rs timeout migrated to output_with_timeout (W4/Part-1, 2026-10-04)
+Was: `tokio::time::timeout(30s, Command::output())` killed only the direct child on
+deadline (grandchildren survived) and ignored `self.timeout_secs`.
+Now: `output_with_timeout` with `deadline = min(self.timeout_secs, 30)`; the 30s cap
+preserves the historical per-mutant worst case because mutants run sequentially.
+`Ok(None)` counts the mutant as neither killed nor survived.
+Commit `a652387`. Regression: `tests/mutation_lifecycle_safety.rs`
+(RED 30.16s with a live grandchild PID → GREEN ~1.1s, dead).
+
+### 🟡 P2 — mutation.rs restore is still manual, not RAII (W4/Part-2)
+`SafeExecutor::mutation_check` restores the source with four scattered
+`std::fs::write(&source_path, &original)` calls. If the future is cancelled at an
+`.await`, or a panic unwinds before the restore line, the user's file stays MUTATED on
+disk. Needs an RAII guard that owns the path + original bytes and restores on `Drop`,
+plus a deterministic regression that cancels `mutation_check` mid-run and asserts the
+file matches the original. Suggested branch: `fix/mutation-raii-restore`.
 
 ### 🟢 P3 — compile.rs / run_policy.rs use blocking std::process with NO timeout
 `go_compile_check`, `python_syntax_check`, `python_importable_in_workspace_venv` call

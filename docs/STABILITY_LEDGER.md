@@ -1,6 +1,6 @@
 # سجل استقرار المشروع — Stability Ledger
 
-**آخر تحديث:** 2026-10-04 (W2: mutation_check يحترم crates Rust المتداخلة عبر --manifest-path)
+**آخر تحديث:** 2026-10-04 (W4/Part-1: mutation_check يقتل مجموعة عمليات الطافر عبر output_with_timeout)
 
 ---
 
@@ -19,6 +19,32 @@
 
 ---
 ## القضايا المُغلَقة
+
+### ✅ 2026-10-04 — W4/Part-1: `mutation_check` كان يترك أحفاد عدّاء الاختبار أحياء عند المهلة
+
+**السبب الجذري:** حلقة الطفرات في `SafeExecutor::mutation_check` (`src/executor/mutation.rs`) كانت تستدعي `tokio::time::timeout(30s, Command::output())`. إسقاط الـ future عند المهلة يقتل الابن المباشر فقط، فينجو الأحفاد (`pytest`، `cargo`، `jest` وما تولّده) ويستمرون أثناء `Repairing`. كذلك كان الثابت `30s` يتجاهل `self.timeout_secs` كليًا. `git blame` أرجع الثابت إلى `c90b218` ضمن `chore: upgrade to v8.3.0 + cleanup` بلا مبرر مكتوب. هذا كان الموضع الوحيد الذي لا يمرّ عبر `executor::process::output_with_timeout`.
+
+**الإصلاح:**
+- بناء `tokio::process::Command` صراحة.
+- تمرير الأمر إلى `executor::process::output_with_timeout`.
+- استخدام deadline: `min(self.timeout_secs, 30)`.
+- تغيير المطابقة من `Ok(Ok(result))` إلى `Ok(Some(result))`.
+- عند `Ok(None)` تُعامل الطفرة كمهلة: لا تُحسب Strong ولا Weak.
+- لم يُلمس مسار الاستعادة اليدوية؛ حارس RAII باقٍ لـ W4/Part-2.
+
+**سبب سقف 30s:** الطفرات تُشغَّل بالتتابع داخل `mutation_check`. اعتماد مهلة المنفِّذ بلا قيد كان سيضاعف أسوأ حالة لكل طفرة. لذلك يحفظ `min(self.timeout_secs, 30)` السلوك التاريخي للإنتاج (`120 → 30` و`60 → 30`) مع احترام المهل الأصغر (`1 → 1` في الاختبار).
+
+**الدليل قبل الإصلاح:** `tests/mutation_lifecycle_safety.rs` على `f44b5d9`: FAILED في 30.16s مع `grandchild PID 35425 is still alive after mutation_check returned`.
+
+**الدليل بعد الإصلاح:**
+- ok في ~1.1s والحفيد ميت، أي أن `timeout_secs = 1` صار محترمًا فعلًا.
+- `cargo fmt --check` = 0، و`cargo clippy --locked --all-targets --all-features -- -D warnings` = 0.
+- `cargo test --locked` = 723 passed / 0 failed.
+- اختبارات W2 (`rust_nested_mutation`) بقيت 3/3 على نفس مسار الكود.
+- `regression_gate.sh core` عبر hook pre-commit: 36/36 + 30/30 + 18/18.
+- كوميت `a652387`، ثم ff-only إلى `main`.
+
+**حدود الضمان:** الاختبار يثبت احترام المهلة الصغيرة وقتل الحفيد، ولا يثبت آليًا التحويل `120 → 30`. حارس RAII للاستعادة عند إلغاء الـ future أو panic لم يُنفَّذ بعد (W4/Part-2).
 
 ### ✅ 2026-10-04 — W2: `mutation_check` كان يصنّف كل طفرات crates Rust المتداخلة كـ `Uncompilable`
 
@@ -142,6 +168,7 @@
 
 ## التغييرات الأخيرة
 
+**2026-10-04:** W4/Part-1 — `mutation_check` صار يشغّل عدّاء اختبار الطافر عبر `output_with_timeout` مع `deadline = min(self.timeout_secs, 30)`، فتُقتل مجموعة العمليات كاملة عند المهلة. RED: 30.16s وحفيد حي؛ GREEN: ~1.1s وحفيد ميت. 723/0، وW2 3/3، والبوابة 84/84 عبر الـ hook. كوميت `a652387`. حارس RAII للاستعادة ما زال مفتوحًا.
 **2026-10-04:** W2 — `mutation_check` يمرّر `--manifest-path` لأقرب `Cargo.toml` صعودًا من الملف المصدر، و`Skipped("no Cargo manifest found")` عند الغياب. RED 3/3 ثم GREEN 3/3، و722/0، والبوابة 84/84 عبر الـ hook. كوميت `d609e7a`.
 **2026-08-11:** حسم نهائي لالتباس وجود/غياب حرف `N` في `src/repair_strategy.rs:233`. الدليل الحاسم هذه المرة لا يعتمد على النسخ اليدوي فقط: `sed -n '233p' src/repair_strategy.rs | cat -A` أظهر `CONSTITUTION_VIOLATION:no-modify-tests` كاملة، وchecksum السطر هو `11fbf22d4789df456b2eb57be2389f0a77a8d435afae8d38a5edb552534c56eb`. أُضيف أيضاً اختبار سلوكي في `repair_strategy.rs` يبني خطأ `no-modify-tests` الحقيقي من `constitution.rs` عبر `check_write(...).unwrap_err().to_string()` ثم يمرّره إلى `build_prompt()` ليثبت أن فرع `no-modify-tests` يُفعَّل فعلاً، وبذلك يُغلَق التناقض بين الجلستين السابقة والحالية بدليل حرفي + سلوكي دائم.
 **2026-08-11:** فحص تشخيصي لاشتباه خطأ إملائي (`CONSTITUTION_VIOLATIO` بلا `N`) في `src/repair_strategy.rs`. النتيجة السلبية المؤكدة: لا يوجد الخطأ في المصدر؛ `sed` أظهر `CONSTITUTION_VIOLATION` كاملة في `repair_strategy.rs`، وموضع `pattern_library.rs` كان صحيحاً أيضاً، كما أن `grep -rn "VIOLATIO[^N]" src/ --include="*.rs"` لم يُرجع أي تطابقات. مراجعة لوج حي لاحق لم تُظهر `CONSTITUTION_VIOLATION:no-modify-tests` فعلياً (ظهر فقط مسار `Goal-authorized existing test edits` ورسائل دستور أخرى)، لذا لا يوجد ادعاء تحقق حي لهذا الفرع؛ فقط توثيق أن الاشتباه الأصلي كان إنذاراً كاذباً ناتجاً عن النسخ/الاقتطاع.
