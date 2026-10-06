@@ -1,6 +1,6 @@
 # سجل استقرار المشروع — Stability Ledger
 
-**آخر تحديث:** 2026-10-04 (W4/Part-1: mutation_check يقتل مجموعة عمليات الطافر عبر output_with_timeout)
+**آخر تحديث:** 2026-10-06 (W4/Part-2: mutation_check يستعيد المصدر عبر حارس RAII عند إلغاء الـ future)
 
 ---
 
@@ -19,6 +19,24 @@
 
 ---
 ## القضايا المُغلَقة
+
+### ✅ 2026-10-06 — W4/Part-2: `mutation_check` كان يترك ملف المستخدم مطفّرًا عند إلغاء الـ future
+
+**السبب الجذري:** الاستعادة في `SafeExecutor::mutation_check` (`src/executor/mutation.rs`) كانت أربع استدعاءات يدوية لـ `std::fs::write(&source_path, &original)`، كلها بعد الـ `.await` الوحيد (`output_with_timeout`). إسقاط الـ future عند تلك النقطة، أو unwind قبل سطر الاستعادة، يتخطى كل الاستعادات، فيبقى ملف المستخدم مطفّرًا على القرص. `kill_on_drop` ينظّف العملية لكنه لا يعرف ملف المصدر.
+
+**الإصلاح:** `SourceRestoreGuard { path, original, armed }`. `arm()` قبل كل كتابة طفرة؛ `restore()` يعيد الأصل ويطفئ عند فشل الكتابة وبعد الـ await وعند الخروج الطبيعي؛ `Drop` يستدعي `restore()` فيغطي الإلغاء والـ panic. أُزيلت الاستعادة اليدوية الزائدة قبل `return Uncompilable`. لم تتغير مهلة Part-1 `min(self.timeout_secs, 30)` ولا دلالات Strong/Weak/Uncompilable.
+
+**الدليل قبل الإصلاح:** `tests/mutation_restore_guard.rs` على `119fc14`: FAILED في 0.09s — `left: return x - y` و`right: return x + y`.
+
+**الدليل بعد الإصلاح:**
+- ok في 0.09s والأصل مُستعاد بعد إسقاط الـ future.
+- W4/Part-1 (`mutation_lifecycle_safety`) 1/1، وW2 (`rust_nested_mutation`) 3/3.
+- `cargo fmt --check` = 0، و`cargo clippy --locked --all-targets --all-features -- -D warnings` = 0.
+- `cargo test --locked` = 724 passed / 0 failed.
+- `regression_gate.sh core` عبر hook pre-commit: 36/36 + 30/30 + 18/18.
+- كوميت `ed3b8fc`.
+
+**حدود الضمان:** الاختبار يغطي إلغاء الـ future لا panic صريحًا. الاختبار unix-only؛ الحارس نفسه ليس خاصًا بمنصة.
 
 ### ✅ 2026-10-04 — W4/Part-1: `mutation_check` كان يترك أحفاد عدّاء الاختبار أحياء عند المهلة
 
@@ -168,6 +186,7 @@
 
 ## التغييرات الأخيرة
 
+**2026-10-06:** W4/Part-2 — `SourceRestoreGuard` يستعيد المصدر عند كل مسار خروج، بما فيها إسقاط الـ future عند `.await`. RED: ملف مطفّر (`return x - y`) في 0.09s؛ GREEN: الأصل مُستعاد. 724/0، وPart-1 1/1، وW2 3/3، والبوابة 84/84 عبر الـ hook. كوميت `ed3b8fc`.
 **2026-10-04:** W4/Part-1 — `mutation_check` صار يشغّل عدّاء اختبار الطافر عبر `output_with_timeout` مع `deadline = min(self.timeout_secs, 30)`، فتُقتل مجموعة العمليات كاملة عند المهلة. RED: 30.16s وحفيد حي؛ GREEN: ~1.1s وحفيد ميت. 723/0، وW2 3/3، والبوابة 84/84 عبر الـ hook. كوميت `a652387`. حارس RAII للاستعادة ما زال مفتوحًا.
 **2026-10-04:** W2 — `mutation_check` يمرّر `--manifest-path` لأقرب `Cargo.toml` صعودًا من الملف المصدر، و`Skipped("no Cargo manifest found")` عند الغياب. RED 3/3 ثم GREEN 3/3، و722/0، والبوابة 84/84 عبر الـ hook. كوميت `d609e7a`.
 **2026-08-11:** حسم نهائي لالتباس وجود/غياب حرف `N` في `src/repair_strategy.rs:233`. الدليل الحاسم هذه المرة لا يعتمد على النسخ اليدوي فقط: `sed -n '233p' src/repair_strategy.rs | cat -A` أظهر `CONSTITUTION_VIOLATION:no-modify-tests` كاملة، وchecksum السطر هو `11fbf22d4789df456b2eb57be2389f0a77a8d435afae8d38a5edb552534c56eb`. أُضيف أيضاً اختبار سلوكي في `repair_strategy.rs` يبني خطأ `no-modify-tests` الحقيقي من `constitution.rs` عبر `check_write(...).unwrap_err().to_string()` ثم يمرّره إلى `build_prompt()` ليثبت أن فرع `no-modify-tests` يُفعَّل فعلاً، وبذلك يُغلَق التناقض بين الجلستين السابقة والحالية بدليل حرفي + سلوكي دائم.

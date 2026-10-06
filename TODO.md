@@ -60,13 +60,14 @@ preserves the historical per-mutant worst case because mutants run sequentially.
 Commit `a652387`. Regression: `tests/mutation_lifecycle_safety.rs`
 (RED 30.16s with a live grandchild PID → GREEN ~1.1s, dead).
 
-### 🟡 P2 — mutation.rs restore is still manual, not RAII (W4/Part-2)
-`SafeExecutor::mutation_check` restores the source with four scattered
-`std::fs::write(&source_path, &original)` calls. If the future is cancelled at an
-`.await`, or a panic unwinds before the restore line, the user's file stays MUTATED on
-disk. Needs an RAII guard that owns the path + original bytes and restores on `Drop`,
-plus a deterministic regression that cancels `mutation_check` mid-run and asserts the
-file matches the original. Suggested branch: `fix/mutation-raii-restore`.
+### ✅ P2 — mutation.rs restore is RAII (W4/Part-2, 2026-10-06)
+Was: four scattered `std::fs::write(&source_path, &original)` calls, all after the
+only `.await`; cancelling the future left the user's file MUTATED on disk.
+Now: `SourceRestoreGuard { path, original, armed }` — `arm()` before each mutant
+write, `restore()` after the await / on write failure / at exit, `Drop` covers
+cancellation and panic. Commit `ed3b8fc`.
+Regression: `tests/mutation_restore_guard.rs`
+(RED 0.09s left mutant / right original → GREEN original restored).
 
 ### 🟢 P3 — compile.rs / run_policy.rs use blocking std::process with NO timeout
 `go_compile_check`, `python_syntax_check`, `python_importable_in_workspace_venv` call
