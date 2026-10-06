@@ -88,6 +88,43 @@ fn find_nearest_cargo_manifest(
     }
 }
 
+/// W4/Part-2: restores the original source on EVERY exit path.
+/// `armed == true` means the file on disk may currently hold a mutant.
+/// Cancellation at the `.await` or a panic between `arm()` and `restore()`
+/// triggers `Drop`, which writes the original back.
+struct SourceRestoreGuard {
+    path: std::path::PathBuf,
+    original: String,
+    armed: bool,
+}
+
+impl SourceRestoreGuard {
+    fn new(path: std::path::PathBuf, original: String) -> Self {
+        Self {
+            path,
+            original,
+            armed: false,
+        }
+    }
+
+    fn arm(&mut self) {
+        self.armed = true;
+    }
+
+    fn restore(&mut self) {
+        if self.armed {
+            let _ = std::fs::write(&self.path, &self.original);
+            self.armed = false;
+        }
+    }
+}
+
+impl Drop for SourceRestoreGuard {
+    fn drop(&mut self) {
+        self.restore();
+    }
+}
+
 pub fn apply_all_mutations(code: &str) -> Vec<(String, String, String)> {
     let strategies: &[(&str, &str)] = &[
         //  Operators (existing)
@@ -250,13 +287,15 @@ impl SafeExecutor {
             }
             _ => return MutationResult::Skipped("Unsupported lang for mutation".into()),
         };
+        let mut restore_guard = SourceRestoreGuard::new(source_path.clone(), original.clone());
         let mut survived_orig = String::new();
         let mut survived_mutd = String::new();
         let mut any_caught = false;
         let mut any_missed = false;
         for (mutation, orig_line, mutd_line) in &mutations {
+            restore_guard.arm();
             if std::fs::write(&source_path, mutation).is_err() {
-                let _ = std::fs::write(&source_path, &original);
+                restore_guard.restore();
                 continue;
             }
             // v7.5.3: Safety Buffer  wait for OS file sync/cache invalidation
@@ -272,7 +311,7 @@ impl SafeExecutor {
             // time. Smaller executor timeouts are still honoured.
             let deadline = std::time::Duration::from_secs(self.timeout_secs.min(30));
             let out = crate::executor::process::output_with_timeout(&mut cmd, deadline).await;
-            let _ = std::fs::write(&source_path, &original);
+            restore_guard.restore();
             if let Ok(Some(result)) = out {
                 if result.status.success() {
                     if !any_missed {
@@ -289,7 +328,8 @@ impl SafeExecutor {
                     );
                     if stderr_is_compile_failure(&combined) {
                         // Skip this mutation entirely — invalid noise, not a kill.
-                        let _ = std::fs::write(&source_path, &original);
+                        // restore_guard already restored after the await; its Drop
+                        // also covers this return path.
                         return MutationResult::Uncompilable(orig_line.clone(), mutd_line.clone());
                     }
                     any_caught = true;
@@ -299,7 +339,7 @@ impl SafeExecutor {
                 break;
             }
         }
-        let _ = std::fs::write(&source_path, &original);
+        restore_guard.restore();
         if any_missed {
             MutationResult::Weak(survived_orig, survived_mutd)
         } else if any_caught {
