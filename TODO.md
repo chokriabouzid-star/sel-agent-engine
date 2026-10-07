@@ -42,14 +42,20 @@ Call sites migrated: `core.rs::shell`, `runner.rs` cargo / go / node / node-retr
 `core.rs::shell` timeout stays `Err(anyhow)` (unchanged contract); runner timeouts
 stay `Ok(ExecResult::fail)` — P0 behavioral tests still green.
 
-**Guarantee scope:** the DIRECT child only.
+**Guarantee scope:** the DIRECT child only at `a752295`. Extended to the whole process group on Unix by `46de35b` (see the closed P2 item below).
 
 ---
 
-### 🟡 P2 — grandchildren survive a killed parent (discovered 2026-09-20)
-`child.kill()` signals one PID. `npm test`, `pytest -n`, `go test` sub-binaries can
-outlive it. Needs a process group (`setsid` / `process_group(0)` + `killpg`), plus a
-regression that spawns parent→child and asserts both die.
+### ✅ P2 — grandchildren survive a killed parent (discovered 2026-09-20, fixed 2026-09-24)
+Was: `child.kill()` signaled one PID; `npm test`, `pytest -n`, `go test` sub-binaries
+could outlive it and keep running during Repairing.
+Now (`46de35b`): `output_with_timeout` spawns with `process_group(0)` on Unix and, on
+deadline, `libc::kill(-pgid, SIGKILL)` terminates the whole group, then reaps the direct
+child. Non-Unix keeps the direct-child guarantee (documented in `process.rs`).
+Regression: `tests/process_lifecycle_safety.rs` (shell + Node) records a descendant PID
+and asserts it is dead; a missing/invalid pid-file fails the test. Audited 2026-10-07:
+2/2 green, and `src/` has no raw `tokio::time::timeout(d, cmd.output())` nor bare
+`.kill()` outside the helper.
 
 ### ✅ P2 — mutation.rs timeout migrated to output_with_timeout (W4/Part-1, 2026-10-04)
 Was: `tokio::time::timeout(30s, Command::output())` killed only the direct child on
