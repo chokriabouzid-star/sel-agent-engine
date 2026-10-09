@@ -348,7 +348,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored
             }
 
             let exit_ok = out.status.success();
-            let (passed, failed) = parse_jest(&combined);
+            let (passed, failed) = parse_node_tests(&combined);
             let success = exit_ok && failed == 0 && passed > 0;
 
             return Ok(ExecResult {

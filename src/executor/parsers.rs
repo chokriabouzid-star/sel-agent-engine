@@ -70,6 +70,25 @@ pub fn parse_go_tests(output: &str) -> (usize, usize) {
     (passed, failed)
 }
 
+pub fn parse_node_tests(output: &str) -> (usize, usize) {
+    let mut tap_pass = None;
+    let mut tap_fail = None;
+
+    for line in output.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("# pass ") {
+            tap_pass = rest.trim().parse::<usize>().ok();
+        } else if let Some(rest) = line.strip_prefix("# fail ") {
+            tap_fail = rest.trim().parse::<usize>().ok();
+        }
+    }
+
+    match (tap_pass, tap_fail) {
+        (Some(passed), Some(failed)) => (passed, failed),
+        _ => parse_jest(output),
+    }
+}
+
 pub fn parse_jest(output: &str) -> (usize, usize) {
     for line in output.lines().rev() {
         let line = line.trim();
@@ -119,6 +138,49 @@ mod tests {
     fn parse_pytest_summary() {
         let out = "================ 2 passed, 1 failed in 0.03s ================";
         assert_eq!(parse_pytest(out), (2, 1));
+    }
+
+    #[test]
+    fn parse_node_test_tap_summary() {
+        let out = r#"
+TAP version 13
+# Subtest: adds
+ok 1 - adds
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+"#;
+        assert_eq!(parse_node_tests(out), (1, 0));
+    }
+
+    #[test]
+    fn parse_node_tests_falls_back_to_jest() {
+        let out = r#"
+Test Suites: 2 passed, 2 total
+Tests:       12 passed, 12 total
+"#;
+        assert_eq!(parse_node_tests(out), (12, 0));
+    }
+
+    #[test]
+    fn parse_node_test_tap_reports_failures() {
+        let out = r#"
+TAP version 13
+# Subtest: adds
+ok 1 - adds
+# Subtest: subtracts
+not ok 2 - subtracts
+1..2
+# tests 2
+# suites 0
+# pass 1
+# fail 1
+# cancelled 0
+"#;
+        assert_eq!(parse_node_tests(out), (1, 1));
     }
 
     #[test]

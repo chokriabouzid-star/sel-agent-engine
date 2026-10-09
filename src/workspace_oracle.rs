@@ -157,6 +157,18 @@ impl WorkspaceOracle {
         }
     }
 
+    /// Read the root package's test script without interpreting shell syntax.
+    fn package_json_test_script(&self) -> Option<String> {
+        let raw = std::fs::read_to_string(self.workspace.join("package.json")).ok()?;
+        let json: serde_json::Value = serde_json::from_str(&raw).ok()?;
+        let script = json.get("scripts")?.get("test")?.as_str()?.trim();
+        if script.is_empty() {
+            None
+        } else {
+            Some(script.to_string())
+        }
+    }
+
     ///            LLM
     pub fn resolve_test_command(&self, target: &str) -> (String, Vec<String>) {
         let t = target.to_lowercase();
@@ -189,7 +201,11 @@ impl WorkspaceOracle {
                 }
             }
             ProjectType::Node => {
-                if t.contains("jest")
+                // Let npm execute the declared script and supply its environment.
+                // Do not inject Jest-only flags into an arbitrary test runner.
+                if self.package_json_test_script().is_some() {
+                    ("npm".to_string(), vec!["test".to_string()])
+                } else if t.contains("jest")
                     || t.ends_with(".ts")
                     || t.ends_with(".js")
                     || t.contains("npm ")
