@@ -1,6 +1,6 @@
 # سجل استقرار المشروع — Stability Ledger
 
-**آخر تحديث:** 2026-10-07 (تدقيق دورة حياة العمليات: إغلاق بند الأحفاد وتوثيق 46de35b بأثر رجعي)
+**آخر تحديث:** 2026-10-09 (W5: Node Oracle يحترم package.json scripts.test ويفهم ملخص TAP)
 
 ---
 
@@ -19,6 +19,25 @@
 
 ---
 ## القضايا المُغلَقة
+
+### ✅ 2026-10-09 — W5: ذراع Node كان يتجاهل `scripts.test` ويحقن أعلام Jest في أي عدّاء
+
+**السبب الجذري:** ذراع `ProjectType::Node` في `resolve_test_command` (`src/workspace_oracle.rs`) كان يقرر من نص الهدف فقط ولا يقرأ محتوى `package.json`. مشروع يعلن `"scripts": {"test": "node --test"}` كان يُعاد له `npx jest --runInBand --forceExit` (هدف صريح) أو `npm test -- --runInBand --forceExit` (هدف auto)، فتصل أعلام Jest إلى `node --test` الذي يرفضها: `node: bad option: --runInBand`. إضافة إلى ذلك، مسار Node في `runner.rs` كان يفسر كل المخرجات عبر `parse_jest`، فملخص TAP (`# pass` / `# fail`) يعطي `(0,0)` ويُصنف النجاح فشلًا.
+
+**الإصلاح (`b333440`):** ثلاث خطوات بملف واحد لكل خطوة: (1) `package_json_test_script()` تقرأ `scripts.test` غير الفارغ من جذر الـ workspace؛ عند وجوده يُعاد `("npm", ["test"])` حرفيًا، والـ fallback القديم محفوظ عند غيابه. (2) `parse_node_tests()` في `parsers.rs` تقرأ ملخص TAP عند وجود `# pass` و`# fail` معًا وإلا fallback لـ `parse_jest`. (3) سطر واحد في `runner.rs` يوصل المسار بالـ parser الجديد.
+
+**الدليل قبل الإصلاح:** `tests/node_scripts_test.rs` على `fa568b6`: 3 failed / 1 passed، والدليل الحاسم offline: `node: bad option: --runInBand` بعد `> node --test --runInBand --forceExit`.
+
+**الدليل بعد الإصلاح:**
+- 4/4 ok؛ E2E يطبع `Running: npm test` ثم `node --test` وينتهي `1 passed, 0 failed`.
+- فشل وسيط موثق بعد خطوة الـ Oracle وحدها (`0 passed, 0 failed` رغم `# pass 1`) أثبت ضرورة خطوة الـ parser.
+- `guard_node_arm_is_untouched` (بلا `scripts.test`) بقي أخضر.
+- اختبارات الوحدة: نجاح TAP، فشل TAP `(1,1)`، وfallback لـ Jest.
+- `cargo fmt --check` = 0، و`clippy --locked --all-targets --all-features -- -D warnings` = 0.
+- `cargo test --locked` = 734 passed / 0 failed.
+- `regression_gate.sh core` عبر hook pre-commit: 36/36 + 30/30 + 18/18 — وبه ثبتت سلامة مهام TypeScript في البنش (fixtures تعلن `"test": "jest"` وصارت تعمل عبر `npm test` بلا الأعلام).
+
+**حدود الضمان:** ذراع `_` للمشروع Unknown ما زال يحقن أعلام Jest؛ ذراع `js|ts` في `mutation.rs` ما زال يفرض jest؛ القراءة من جذر الـ workspace فقط؛ JSON التالف يسقط بصمت إلى الـ fallback.
 
 ### ✅ 2026-09-24 (وُثِّق 2026-10-07) — أحفاد العملية المقتولة كانوا ينجون من المهلة
 
@@ -198,6 +217,7 @@
 
 ## التغييرات الأخيرة
 
+**2026-10-09:** W5 — ذراع Node يحترم `scripts.test` (يُشغَّل عبر `npm test` حرفيًا) و`parse_node_tests` يفهم ملخص TAP مع fallback لـ Jest. RED: 3 failed بدليل `node: bad option: --runInBand`؛ GREEN: 4/4 و`1 passed, 0 failed`. السويت 734/0، والبوابة 84/84 عبر الـ hook. كوميت `b333440`.
 **2026-10-07:** تدقيق دورة حياة العمليات — تأكيد أن `46de35b` أغلق بند "grandchildren survive a killed parent" (مجموعة عمليات + `killpg` + حصاد)، والانحدار 2/2 أخضر، ولا مسار يتجاوز `output_with_timeout`. تحديث TODO وإدخال الالتزام في هذا السجل بأثر رجعي. لا تغيير في الكود.
 **2026-10-06:** W4/Part-2 — `SourceRestoreGuard` يستعيد المصدر عند كل مسار خروج، بما فيها إسقاط الـ future عند `.await`. RED: ملف مطفّر (`return x - y`) في 0.09s؛ GREEN: الأصل مُستعاد. 724/0، وPart-1 1/1، وW2 3/3، والبوابة 84/84 عبر الـ hook. كوميت `ed3b8fc`.
 **2026-10-04:** W4/Part-1 — `mutation_check` صار يشغّل عدّاء اختبار الطافر عبر `output_with_timeout` مع `deadline = min(self.timeout_secs, 30)`، فتُقتل مجموعة العمليات كاملة عند المهلة. RED: 30.16s وحفيد حي؛ GREEN: ~1.1s وحفيد ميت. 723/0، وW2 3/3، والبوابة 84/84 عبر الـ hook. كوميت `a652387`. حارس RAII للاستعادة ما زال مفتوحًا.
