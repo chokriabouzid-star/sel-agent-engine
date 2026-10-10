@@ -504,11 +504,16 @@ impl Agent {
                 }
                 AgentState::WaitingForUserInput(msg) => {
                     // v8.0: In bench mode, skip EXPLAIN MODE immediately using env var or struct field
-                    if self.bench_mode
-                        || std::env::var("SEL_BENCH_MODE").is_ok()
-                        || !std::io::stdin().is_terminal()
-                        || !std::io::stdout().is_terminal()
-                    {
+                    // W6: decision extracted into should_skip_explain (pure, testable).
+                    // SEL_NON_INTERACTIVE="1" skips EXPLAIN even with TTYs present.
+                    let skip_reason = should_skip_explain(
+                        self.bench_mode,
+                        std::env::var("SEL_BENCH_MODE").is_ok(),
+                        std::io::stdin().is_terminal(),
+                        std::io::stdout().is_terminal(),
+                        std::env::var("SEL_NON_INTERACTIVE").as_deref() == Ok("1"),
+                    );
+                    if skip_reason.is_some() {
                         println!(
                             "     [Bench] Repairs exhausted  marking failed (skip EXPLAIN MODE)"
                         );
@@ -710,6 +715,37 @@ impl Agent {
                 }
             }
         }
+    }
+}
+
+// W6: EXPLAIN MODE skip decision — pure and testable.
+// Environment and TTY state are read by the caller and passed as values,
+// so unit tests never mutate global process state.
+#[derive(Debug, PartialEq, Eq)]
+enum ExplainSkipReason {
+    Bench,
+    NonInteractive,
+}
+
+/// Returns Some(reason) when EXPLAIN MODE must be skipped before any stdin read:
+/// - `Bench`: bench_mode field or SEL_BENCH_MODE env is set (historic priority).
+/// - `NonInteractive`: stdin or stdout is not a terminal.
+///
+/// When `sel_noninteractive` is true (caller passes `SEL_NON_INTERACTIVE="1"`),
+/// EXPLAIN MODE is skipped even if both stdin and stdout are terminals.
+fn should_skip_explain(
+    bench_mode: bool,
+    sel_bench_mode: bool,
+    stdin_terminal: bool,
+    stdout_terminal: bool,
+    sel_noninteractive: bool,
+) -> Option<ExplainSkipReason> {
+    if bench_mode || sel_bench_mode {
+        Some(ExplainSkipReason::Bench)
+    } else if sel_noninteractive || !stdin_terminal || !stdout_terminal {
+        Some(ExplainSkipReason::NonInteractive)
+    } else {
+        None
     }
 }
 
@@ -1352,6 +1388,70 @@ mod c01b_h11_regression_tests {
             contains_path(&got, &protected[0]),
             "H-11 FAIL: positive explicit authorization did not authorize the test file. got={:?}",
             got
+        );
+    }
+}
+
+#[cfg(test)]
+mod explain_skip_tests {
+    use super::{should_skip_explain, ExplainSkipReason};
+
+    /// RED: non-interactive flag true, both TTYs present, no bench.
+    /// Extraction-phase implementation ignores the flag, so this must fail
+    /// with actual None vs expected Some(NonInteractive).
+    #[test]
+    fn red_non_interactive_flag_must_skip_even_with_tty() {
+        let got = should_skip_explain(false, false, true, true, true);
+        assert_eq!(
+            got,
+            Some(ExplainSkipReason::NonInteractive),
+            "FAIL: non-interactive flag with TTY must skip, got {:?}",
+            got
+        );
+    }
+
+    #[test]
+    fn guard_bench_field_still_skips() {
+        assert_eq!(
+            should_skip_explain(true, false, true, true, false),
+            Some(ExplainSkipReason::Bench)
+        );
+    }
+
+    #[test]
+    fn guard_bench_env_still_skips() {
+        assert_eq!(
+            should_skip_explain(false, true, true, true, false),
+            Some(ExplainSkipReason::Bench)
+        );
+    }
+
+    #[test]
+    fn guard_no_stdin_tty_still_skips() {
+        assert_eq!(
+            should_skip_explain(false, false, false, true, false),
+            Some(ExplainSkipReason::NonInteractive)
+        );
+    }
+
+    #[test]
+    fn guard_no_stdout_tty_still_skips() {
+        assert_eq!(
+            should_skip_explain(false, false, true, false, false),
+            Some(ExplainSkipReason::NonInteractive)
+        );
+    }
+
+    #[test]
+    fn guard_interactive_proceeds() {
+        assert_eq!(should_skip_explain(false, false, true, true, false), None);
+    }
+
+    #[test]
+    fn guard_bench_has_priority_over_non_interactive_flag() {
+        assert_eq!(
+            should_skip_explain(true, false, true, true, true),
+            Some(ExplainSkipReason::Bench)
         );
     }
 }
