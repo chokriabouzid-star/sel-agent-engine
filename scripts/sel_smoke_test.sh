@@ -27,6 +27,20 @@ NC='\033[0m'
 run_case() {
     local id="$1"
     local lang="$2"
+
+    # W12: SMOKE_CASES — in a partial run, skip cases that were not selected.
+    if [[ "$PARTIAL_RUN" == "true" ]]; then
+        local selected=0 c
+        for c in "${FILTERED[@]}"; do
+            if [[ "$c" == "$id" ]]; then
+                selected=1
+                break
+            fi
+        done
+        if [[ "$selected" -eq 0 ]]; then
+            return 0
+        fi
+    fi
     local workspace
     workspace=$(mktemp -d /tmp/sel-smoke-XXXXXX)
     local goal="$3"
@@ -111,7 +125,70 @@ check_binary() {
 
 banner
 check_binary
-echo -e "${BOLD}Running 12 real-world tasks...${NC}"
+# ── W12: SMOKE_CASES — optional partial-run filter ──────────────
+# SMOKE_CASES="id1,id2" runs ONLY the listed cases, in script order.
+# A partial run is NOT a release judgment: its summary labels never
+# match the regression-gate smoke regex. Unset SMOKE_CASES = full
+# 12-case run (release behavior, unchanged).
+ALL_CASES=(
+    smoke_py_binary_search
+    smoke_py_temperature
+    smoke_go_worker_pool
+    smoke_go_generics
+    smoke_ts_utils
+    smoke_ts_retry
+    smoke_rust_csv
+    smoke_rust_fib
+    smoke_ts_fastapi_client
+    smoke_go_concurrent
+    smoke_py_dataclass
+    smoke_rust_trait_impl
+)
+PARTIAL_RUN=false
+FILTERED=()
+if [[ "${SMOKE_CASES+set}" == "set" ]]; then
+    if [[ -z "$SMOKE_CASES" ]]; then
+        echo "Error: SMOKE_CASES is set but empty; unset it for a full 12-case run." >&2
+        exit 1
+    fi
+    case "$SMOKE_CASES" in
+        ,*|*,|*,,*)
+            echo "Error: SMOKE_CASES contains an empty element." >&2
+            echo "Valid ids: ${ALL_CASES[*]}" >&2
+            exit 1
+            ;;
+    esac
+    IFS=',' read -ra FILTERED <<< "$SMOKE_CASES"
+    dups="$(printf '%s\n' "${FILTERED[@]}" | sort | uniq -d | tr '\n' ' ')"
+    if [[ -n "${dups// /}" ]]; then
+        echo "Error: duplicate SMOKE_CASES id(s): $dups" >&2
+        echo "Valid ids: ${ALL_CASES[*]}" >&2
+        exit 1
+    fi
+    for f in "${FILTERED[@]}"; do
+        found=0
+        for c in "${ALL_CASES[@]}"; do
+            if [[ "$f" == "$c" ]]; then
+                found=1
+                break
+            fi
+        done
+        if [[ "$found" -eq 0 ]]; then
+            echo "Error: unknown SMOKE_CASES id: $f" >&2
+            echo "Valid ids: ${ALL_CASES[*]}" >&2
+            exit 1
+        fi
+    done
+    if [[ "${#FILTERED[@]}" -lt "${#ALL_CASES[@]}" ]]; then
+        PARTIAL_RUN=true
+    fi
+fi
+
+if [[ "$PARTIAL_RUN" == "true" ]]; then
+    echo -e "${BOLD}PARTIAL RUN — ${#FILTERED[@]} of 12 case(s) selected via SMOKE_CASES${NC}"
+else
+    echo -e "${BOLD}Running 12 real-world tasks...${NC}"
+fi
 
 # ── 1. Python: إصلاح خطأ في خوارزمية البحث الثنائي ──────────
 run_case "smoke_py_binary_search" "python" \
@@ -257,11 +334,27 @@ fi
 
 echo -e ""
 echo -e "${BOLD}╔══════════════════════════════════════════════════╗${NC}"
+if [[ "$PARTIAL_RUN" == "true" ]]; then
+    echo -e "${BOLD}║   SEL Smoke Test — نتائج جزئية (PARTIAL RUN)      ║${NC}"
+else
 echo -e "${BOLD}║   SEL Smoke Test — النتائج النهائية             ║${NC}"
+fi
 echo -e "${BOLD}╠══════════════════════════════════════════════════╣${NC}"
+if [[ "$PARTIAL_RUN" == "true" ]]; then
+    printf "${BOLD}║  %-46s ║${NC}\n" "المجموع (جزئي): $TOTAL حالة من 12"
+else
 printf "${BOLD}║  %-46s ║${NC}\n" "المجموع:    $TOTAL / 12"
+fi
+if [[ "$PARTIAL_RUN" == "true" ]]; then
+    printf "${BOLD}║  %-46s ║${NC}\n" "نجح (جزئي): $PASS  |  فشل: $FAIL"
+else
 printf "${BOLD}║  %-46s ║${NC}\n" "نجح:        $PASS  |  فشل: $FAIL"
+fi
+if [[ "$PARTIAL_RUN" == "true" ]]; then
+    printf "${BOLD}║  %-46s ║${NC}\n" "النجاح (جزئي): ${SUCCESS_RATE}% — ليس حكم إصدار"
+else
 printf "${BOLD}║  %-46s ║${NC}\n" "النجاح:     ${SUCCESS_RATE}%"
+fi
 printf "${BOLD}║  %-46s ║${NC}\n" "المدة:      ${DURATION}s"
 echo -e "${BOLD}╠══════════════════════════════════════════════════╣${NC}"
 echo -e "${BOLD}║  حسب المهمة:                                     ║${NC}"
@@ -279,12 +372,24 @@ done
 
 echo ""
 if [[ $FAIL -eq 0 ]]; then
+    if [[ "$PARTIAL_RUN" == "true" ]]; then
+        echo -e "${YELLOW}${BOLD}⚠  PARTIAL RUN — $PASS of $TOTAL selected case(s) passed. Not a release judgment.${NC}"
+    else
     echo -e "${GREEN}${BOLD}🎉 ALL PASSED — Agent is stable. Ready for release.${NC}"
+    fi
     exit 0
 elif [[ $FAIL -le 1 ]]; then
+    if [[ "$PARTIAL_RUN" == "true" ]]; then
+        echo -e "${YELLOW}${BOLD}⚠  PARTIAL RUN — $FAIL of $TOTAL selected case(s) failed. Not a release judgment.${NC}"
+    else
     echo -e "${YELLOW}${BOLD}⚠  $FAIL/12 failed — Minor issues. Review before release.${NC}"
+    fi
     exit 1
 else
+    if [[ "$PARTIAL_RUN" == "true" ]]; then
+        echo -e "${RED}${BOLD}🚫 PARTIAL RUN — $FAIL of $TOTAL selected case(s) failed. Not a release judgment.${NC}"
+    else
     echo -e "${RED}${BOLD}🚫 $FAIL/12 failed — Not ready for release.${NC}"
+    fi
     exit 2
 fi
