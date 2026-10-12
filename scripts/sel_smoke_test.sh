@@ -149,6 +149,7 @@ FILTERED=()
 if [[ "${SMOKE_CASES+set}" == "set" ]]; then
     if [[ -z "$SMOKE_CASES" ]]; then
         echo "Error: SMOKE_CASES is set but empty; unset it for a full 12-case run." >&2
+        echo "Valid ids: ${ALL_CASES[*]}" >&2
         exit 1
     fi
     case "$SMOKE_CASES" in

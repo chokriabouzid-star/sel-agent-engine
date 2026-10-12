@@ -230,6 +230,21 @@ fn empty_selection_is_rejected_before_any_run() {
             run.goals.is_empty(),
             "no case may run for SMOKE_CASES={value:?}"
         );
+        let output = strip_ansi(&combined(&run));
+        let valid_ids_line = output
+            .lines()
+            .find(|line| line.starts_with("Valid ids:"))
+            .unwrap_or_else(|| {
+                panic!(
+                    "rejection for SMOKE_CASES={value:?} must print valid ids; output={output:?}"
+                )
+            });
+        for id in IDS {
+            assert!(
+                valid_ids_line.split_whitespace().any(|listed| listed == id),
+                "valid id {id:?} missing for SMOKE_CASES={value:?}: {valid_ids_line:?}"
+            );
+        }
     }
 }
 
