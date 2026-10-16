@@ -1,6 +1,6 @@
 # سجل استقرار المشروع — Stability Ledger
 
-**آخر تحديث:** 2026-10-14 (تصحيح عقد القيمة الفارغة لـ SMOKE_CASES وتوثيق الجلسة)
+**آخر تحديث:** 2026-10-15 (إعادة تسجيل fixture حالة smoke_py_binary_search؛ Smoke Replay صار 10/12، دون إصدار جديد)
 
 ---
 
@@ -19,6 +19,20 @@
 
 ---
 ## القضايا المُغلَقة
+
+### ✅ 2026-10-15 — إعادة تسجيل fixture حالة smoke_py_binary_search (Smoke Replay من 9/12 إلى 10/12)
+
+**المشكلة:** الاختبار المسجّل في `001.json` لم يستورد `binary_search`، ففشلت الاختبارات الخمسة بـ`NameError`. الإصلاحات المسجلة لم تكفِ أو حُجبت بـ`no-modify-tests`. الملف `004.json` تسجيل أقدم من workspace مختلف. Replay المنفرد على `88a5c1e` أعطى `0/1`.
+
+**الإصلاح (`b3d1c12`):** نسخة احتياطية موثقة وعزل `001–004`، ثم تسجيل حي واحد على Groq `openai/gpt-oss-120b`. الخطة الأولى كتبت الاختبار بالاستيراد الصحيح، دون إصلاحات. حُذف `002–004` وحُدّث الفهرس إلى ملف واحد.
+
+**الدليل:**
+- Live: `PASSED`، و`5 passed / 0 failed`، و`repairs: 0`.
+- Replay منفرد: `REPLAY_RC=0` دون `SEL_ALLOW_STALE_REPLAY` أو `--rerecord`، ودون أخطاء بنيوية.
+- بوابة core: `36/36 + 30/30 + 18/18 = 84/84`، و`CORE_GATE_EXIT=0`.
+- Smoke Replay الكامل على `b3d1c12`: `10/12`، و`STRUCTURAL_ERRORS: NONE`.
+
+**حدود الضمان:** يبقى `smoke_ts_fastapi_client` و`smoke_rust_trait_impl` فاشلين. لا `regression_gate.sh full` ولا إصدار `9.3.6`. الجلسة: `docs/sessions/2026-10-15_fixture_smoke_py_binary_search_rerecord.md`.
 
 ### ✅ 2026-10-14 — عقد القيمة الفارغة لـ SMOKE_CASES لم يكن مطبَّقًا في مسار الرفض
 
