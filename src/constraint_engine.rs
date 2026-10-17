@@ -69,21 +69,17 @@ impl ProjectState {
     ///  workspace
     pub fn scan(workspace: &Path) -> Self {
         let mut files = HashSet::new();
-        let has_jest_config;
-
-        let has_package_json;
-        let jest_in_pkg_json;
 
         //  jest.config.js
-        if workspace.join("jest.config.js").exists() {
+        let has_jest_config = if workspace.join("jest.config.js").exists() {
             files.insert("jest.config.js".to_string());
-            has_jest_config = true;
+            true
         } else if workspace.join("jest.config.ts").exists() {
             files.insert("jest.config.ts".to_string());
-            has_jest_config = true;
+            true
         } else {
-            has_jest_config = false;
-        } //  tsconfig.json
+            false
+        }; //  tsconfig.json
         let has_tsconfig = if workspace.join("tsconfig.json").exists() {
             files.insert("tsconfig.json".to_string());
             true
@@ -93,14 +89,12 @@ impl ProjectState {
 
         //  package.json  jest field
         let pkg_path = workspace.join("package.json");
-        if pkg_path.exists() {
+        let (has_package_json, jest_in_pkg_json) = if pkg_path.exists() {
             files.insert("package.json".to_string());
-            has_package_json = true;
-            jest_in_pkg_json = Self::check_jest_in_package_json(&pkg_path);
+            (true, Self::check_jest_in_package_json(&pkg_path))
         } else {
-            has_package_json = false;
-            jest_in_pkg_json = false;
-        }
+            (false, false)
+        };
 
         Self {
             files,
