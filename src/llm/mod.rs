@@ -98,6 +98,9 @@ pub struct LlmCallStats {
     pub last_model: String,
 }
 
+// async_trait expands to #[must_use] fns returning Pin<Box<Future>> (already must_use);
+// clippy >= 1.99 reports double_must_use. Localized allow - style of 08bc71f.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait LLMProvider: Send + Sync {
     async fn complete(&self, req: LLMRequest) -> anyhow::Result<LLMResponse>;
