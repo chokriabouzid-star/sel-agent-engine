@@ -19,6 +19,7 @@
 |---|---|---|
 | 2026-10-15 | إصلاح fixture `smoke_py_binary_search` (Smoke 9/12 → 10/12) بموافقة حية موثقة | `b3d1c12` |
 | 2026-10-16 | توثيق جلسة Python + مدخلة Ledger | `db1202b` |
+| 2026-10-18 | إصلاح انحراف toolchain CI (constraint_engine + async-trait allow)؛ **أول نجاحين لـ`ci.yml`** | `2f288a8` + `fc00287` |
 | 2026-10-14 | عقد القيمة الفارغة لـ SMOKE_CASES | `7e4e215` + `342b4cb` |
 | 2026-10-12 | W12: SMOKE_CASES partial-run filter | `b9af609` |
 
@@ -26,8 +27,8 @@
 
 ## قيد العمل
 
-فرع توثيق `docs/project-memory-files` (ملفات العمل الخمسة بعد تدقيق وتصحيح) —
-بانتظار مراجعتك وقرار الدمج. لا شيء آخر.
+جلسة توثيق (2026-10-19): تسجيل نجاح CI وترحيل ملاحظات مبادرة الترتيب N16–N69.
+لا يوجد تعديل كود أو Fixtures جارٍ. الالتزام الحامل لهذا النص لم يُدمج بعد.
 
 ---
 
@@ -43,6 +44,11 @@
 | CI لا يشغّل Smoke — هل يُضاف؟ | قرار تصميم | 4 |
 | Node 18 (CI) vs Node 20 (محلي) | تباين صغير | 5 |
 | README يذكر `SEL_API_KEY`، CONTRIBUTING يذكر `GROQ_API_KEY` | تباين توثيقي | 5 |
+| **`rust-toolchain.toml` + `runs-on: ubuntu-24.04`** | **عاجل قبل 2026-10-30** (N58): `ubuntu-latest` يُعلن التحول إلى Ubuntu 26 | **0** |
+| ترقية `actions/*` إلى Node 24 | N59 | 4 |
+| توثيق شرط `go` في PATH لـ`cargo test` | N60 | 4 |
+| عزل `CARGO_TARGET_DIR` في `mutation_check` | N49: تصادم nested متوازٍ | 2 |
+| مرجع حاكم / شروط إصدار / `KNOWN-ISSUES.md` | بنود patch المراجع (2026-10-16) لم تُطبَّق؛ تحتاج جلسة تصميم بندًا بندًا | 3 |
 
 ---
 
