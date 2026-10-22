@@ -8,16 +8,19 @@ on:
 
 jobs:
   build-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
+      - name: Setup Rust (pinned by rust-toolchain.toml)
+        run: |
+          rustup --version
+          rustup toolchain install
+          rustup show active-toolchain
+          rustc --version
+          cargo clippy --version
 
       - name: Setup Python
         uses: actions/setup-python@v5
