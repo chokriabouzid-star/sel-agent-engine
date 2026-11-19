@@ -237,6 +237,8 @@ impl Agent {
         // v8.1: Preflight Workspace Scan before taking the initial snapshot
         let mut has_tests = false;
         self.executor.protected_test_files.clear();
+        self.executor.preexisting_test_files.clear();
+        self.executor.session_created_test_files.clear();
 
         for entry in walkdir::WalkDir::new(&ws)
             .into_iter()
@@ -247,9 +249,9 @@ impl Agent {
 
                 if self.executor.is_spec_file(&name) {
                     has_tests = true;
-                    self.executor
-                        .protected_test_files
-                        .insert(entry.path().to_path_buf());
+                    let kh5_path = entry.path().to_path_buf();
+                    self.executor.protected_test_files.insert(kh5_path.clone());
+                    self.executor.preexisting_test_files.insert(kh5_path);
                     continue;
                 }
 
@@ -402,6 +404,7 @@ impl Agent {
                     self.executor
                         .set_allow_goal_test_writes(allow_goal_test_writes);
 
+                    self.executor.set_repair_phase(self.ctx.repair_attempts > 0);
                     let mut snapshot = crate::snapshot::Snapshot::take_with_mode(
                         &self.executor.workspace,
                         self.executor.replay_mode,
@@ -421,9 +424,9 @@ impl Agent {
                         if entry.file_type().is_file() {
                             let name = entry.file_name().to_string_lossy();
                             if self.executor.is_spec_file(&name) {
-                                self.executor
-                                    .protected_test_files
-                                    .insert(entry.path().to_path_buf());
+                                let kh5_path = entry.path().to_path_buf();
+                                self.executor.protected_test_files.insert(kh5_path.clone());
+                                self.executor.session_created_test_files.insert(kh5_path);
                             }
                         }
                     }

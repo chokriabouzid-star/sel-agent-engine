@@ -31,6 +31,9 @@ pub struct SafeExecutor {
     pub replay_mode: bool, // v7.6.1: prevents internet access during replay
     pub bench_mode: bool,  // v8.5: run-mode hint
     pub protected_test_files: HashSet<PathBuf>, // tests present before agent writes anything
+    pub preexisting_test_files: HashSet<PathBuf>, // R-KH5: spec files present before the session
+    pub session_created_test_files: HashSet<PathBuf>, // R-KH5: spec files the agent created this session
+    pub(crate) repair_phase: AtomicBool, // R-KH5: true once repair_attempts is above zero
     pub patch_attempts: std::cell::RefCell<HashMap<PathBuf, usize>>, // v5.2: track patch failures
     goal_authorized_test_files: RwLock<HashSet<PathBuf>>,
     allow_goal_test_writes: AtomicBool,
@@ -70,6 +73,9 @@ impl SafeExecutor {
             replay_mode: false,
             bench_mode: false,
             protected_test_files: HashSet::new(),
+            preexisting_test_files: HashSet::new(),
+            session_created_test_files: HashSet::new(),
+            repair_phase: AtomicBool::new(false),
             patch_attempts: std::cell::RefCell::new(HashMap::new()),
             goal_authorized_test_files: RwLock::new(HashSet::new()),
             allow_goal_test_writes: AtomicBool::new(false),
@@ -111,6 +117,11 @@ impl SafeExecutor {
     #[allow(dead_code)]
     pub(crate) fn set_force_go_race(&self, v: bool) {
         self.force_go_race.store(v, Ordering::Relaxed);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn set_repair_phase(&self, v: bool) {
+        self.repair_phase.store(v, Ordering::Relaxed);
     }
 
     pub(crate) fn goal_authorized_test_write_allowed(&self, path: &std::path::Path) -> bool {
