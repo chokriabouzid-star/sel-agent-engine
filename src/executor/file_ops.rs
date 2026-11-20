@@ -24,19 +24,37 @@ impl SafeExecutor {
     }
 
     fn blocks_existing_spec_modification(&self, path: &str, p: &std::path::Path) -> bool {
-        if !self.is_spec_file(path) { return false; }
-        if self.goal_authorized_test_write_allowed(p) { return false; }
+        if !self.is_spec_file(path) {
+            return false;
+        }
+        if self.goal_authorized_test_write_allowed(p) {
+            return false;
+        }
         // R-KH5 boundary 1: a spec file present before the session is never writable.
-        let pre = self.preexisting_test_files.iter().any(|q| kh5_same_path(q, p))
-            || self.protected_test_files.iter().any(|q| kh5_same_path(q, p) && !self.is_session_created_path(q));
-        if pre { return true; }
+        let pre = self
+            .preexisting_test_files
+            .iter()
+            .any(|q| kh5_same_path(q, p))
+            || self
+                .protected_test_files
+                .iter()
+                .any(|q| kh5_same_path(q, p) && !self.is_session_created_path(q));
+        if pre {
+            return true;
+        }
         // boundary 3 + fail-closed: during repair only a path the agent created may be rewritten
-        if !self.repair_phase.load(std::sync::atomic::Ordering::Relaxed) { return false; }
-        if std::fs::canonicalize(p).is_err() { return true; }
+        if !self.repair_phase.load(std::sync::atomic::Ordering::Relaxed) {
+            return false;
+        }
+        if std::fs::canonicalize(p).is_err() {
+            return true;
+        }
         !self.is_session_created_path(p)
     }
     fn is_session_created_path(&self, p: &std::path::Path) -> bool {
-        self.session_created_test_files.iter().any(|q| kh5_same_path(q, p))
+        self.session_created_test_files
+            .iter()
+            .any(|q| kh5_same_path(q, p))
     }
 
     pub fn write_file(&self, path: &str, content: &str) -> Result<ExecResult> {
@@ -733,7 +751,9 @@ mod p1_go_escaped_quotes_write_tests {
 
 /// R-KH5: path identity that survives `./`, `..` and a symlinked workspace root.
 fn kh5_same_path(a: &std::path::Path, b: &std::path::Path) -> bool {
-    if a == b { return true; }
+    if a == b {
+        return true;
+    }
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(x), Ok(y)) => x == y,
         _ => false,
@@ -744,39 +764,70 @@ mod r_kh5_provenance_tests {
     use super::*;
     use std::fs;
     use tempfile::tempdir;
-    fn ex(w: &std::path::Path) -> SafeExecutor { SafeExecutor::new(w.to_path_buf(), 30) }
-    fn blocked(r: &crate::types::ExecResult) -> bool { r.stderr.contains("no-modify-tests") }
+    fn ex(w: &std::path::Path) -> SafeExecutor {
+        SafeExecutor::new(w.to_path_buf(), 30)
+    }
+    fn blocked(r: &crate::types::ExecResult) -> bool {
+        r.stderr.contains("no-modify-tests")
+    }
     fn seed(d: &std::path::Path, n: &str) -> std::path::PathBuf {
-        let p = d.join(n); fs::write(&p, "def t():\n    pass\n").expect("seed"); p
+        let p = d.join(n);
+        fs::write(&p, "def t():\n    pass\n").expect("seed");
+        p
     }
     #[test]
     fn kh5_guard_matrix() {
         let rows: [(&str, bool, bool, bool, &str, bool); 7] = [
-            ("T1 pre+repair", true, false, true, "test_pre.py", true), ("T2 sess+repair", false, true, true, "test_sess.py", false),
-            ("T3 new+repair", false, false, true, "test_new.py", true), ("T4 new+initial", false, false, false, "test_init.py", false),
-            ("T7 overlap+repair", true, true, true, "test_both.py", true), ("T6 gone+repair", false, true, true, "test_gone.py", true),
+            ("T1 pre+repair", true, false, true, "test_pre.py", true),
+            ("T2 sess+repair", false, true, true, "test_sess.py", false),
+            ("T3 new+repair", false, false, true, "test_new.py", true),
+            ("T4 new+initial", false, false, false, "test_init.py", false),
+            ("T7 overlap+repair", true, true, true, "test_both.py", true),
+            ("T6 gone+repair", false, true, true, "test_gone.py", true),
             ("T5 dotted+repair", true, false, true, "./test_pre.py", true),
         ];
         for (label, pre, sess, rep, name, want) in rows {
-            let d = tempdir().expect("tempdir"); let p = seed(d.path(), name.trim_start_matches("./"));
+            let d = tempdir().expect("tempdir");
+            let p = seed(d.path(), name.trim_start_matches("./"));
             let mut e = ex(d.path());
-            if pre { e.preexisting_test_files.insert(p.clone()); e.protected_test_files.insert(p.clone()); }
-            if sess { e.session_created_test_files.insert(p.clone()); e.protected_test_files.insert(p.clone()); }
-            if name == "test_gone.py" { fs::remove_file(&p).ok(); }
+            if pre {
+                e.preexisting_test_files.insert(p.clone());
+                e.protected_test_files.insert(p.clone());
+            }
+            if sess {
+                e.session_created_test_files.insert(p.clone());
+                e.protected_test_files.insert(p.clone());
+            }
+            if name == "test_gone.py" {
+                fs::remove_file(&p).ok();
+            }
             e.set_repair_phase(rep);
-            let r = e.write_file(name, "def t():\n    assert True\n").expect("call");
+            let r = e
+                .write_file(name, "def t():\n    assert True\n")
+                .expect("call");
             assert!(blocked(&r) == want, "row {}", label);
         }
     }
     #[test]
     fn kh5_union_invariant() {
-        let d = tempdir().expect("tempdir"); let mut e = ex(d.path());
-        let a = d.path().join("test_a.py"); let b = d.path().join("test_b.py");
-        e.preexisting_test_files.insert(a.clone()); e.protected_test_files.insert(a.clone());
-        e.session_created_test_files.insert(b.clone()); e.protected_test_files.insert(b.clone());
-        let sub = e.protected_test_files.iter().all(|q| e.preexisting_test_files.contains(q) || e.session_created_test_files.contains(q));
-        let back = e.preexisting_test_files.iter().all(|q| e.protected_test_files.contains(q))
-            && e.session_created_test_files.iter().all(|q| e.protected_test_files.contains(q));
+        let d = tempdir().expect("tempdir");
+        let mut e = ex(d.path());
+        let a = d.path().join("test_a.py");
+        let b = d.path().join("test_b.py");
+        e.preexisting_test_files.insert(a.clone());
+        e.protected_test_files.insert(a.clone());
+        e.session_created_test_files.insert(b.clone());
+        e.protected_test_files.insert(b.clone());
+        let sub = e.protected_test_files.iter().all(|q| {
+            e.preexisting_test_files.contains(q) || e.session_created_test_files.contains(q)
+        });
+        let back = e
+            .preexisting_test_files
+            .iter()
+            .all(|q| e.protected_test_files.contains(q))
+            && e.session_created_test_files
+                .iter()
+                .all(|q| e.protected_test_files.contains(q));
         assert!(sub && back, "T8: union invariant broken");
     }
 }
